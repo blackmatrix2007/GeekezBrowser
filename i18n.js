@@ -176,7 +176,7 @@ const enTranslations = {
 };
 
 // Global i18n Manager
-window.curLang = localStorage.getItem('geekez_lang') || 'cn';
+window.curLang = localStorage.getItem('geekez_lang') || 'en';
 
 window.t = function (key) {
     if (window.curLang === 'cn' && window.zhCN && window.zhCN[key]) {

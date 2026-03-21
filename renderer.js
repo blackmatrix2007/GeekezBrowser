@@ -419,6 +419,78 @@ function submitInputModal() {
     closeInputModal();
 }
 
+// Auto-Detect Timezone/Location/Language from Proxy IP
+async function autoDetectFromProxy() {
+    const proxyText = document.getElementById('addProxy').value.trim();
+    if (!proxyText) {
+        showAlert('Please enter a proxy first');
+        return;
+    }
+
+    // Take first line if multiple proxies
+    const proxyStr = proxyText.split('\n')[0].trim();
+
+    try {
+        const btn = document.getElementById('autoDetectBtn');
+        const originalText = btn.textContent;
+        btn.textContent = '🔄 Detecting...';
+        btn.disabled = true;
+
+        const geoData = await window.electronAPI.detectProxyLocation(proxyStr);
+
+        if (!geoData) {
+            showAlert('Failed to detect proxy location. Please check proxy format or IP.');
+            btn.textContent = originalText;
+            btn.disabled = false;
+            return;
+        }
+
+        // Auto-fill timezone
+        if (geoData.timezone) {
+            document.getElementById('addTimezone').value = geoData.timezone;
+        }
+
+        // Auto-fill city/location
+        if (geoData.city && window.CITY_DATA) {
+            const cityData = window.CITY_DATA.find(c =>
+                c.name.toLowerCase().includes(geoData.city.toLowerCase()) ||
+                geoData.city.toLowerCase().includes(c.name.toLowerCase())
+            );
+            if (cityData) {
+                document.getElementById('addCity').value = cityData.name;
+            } else {
+                console.warn(`City "${geoData.city}" not found in CITY_DATA, falling back to IP-based`);
+                document.getElementById('addCity').value = 'Auto (IP Based)';
+            }
+        }
+
+        // Auto-fill language
+        if (geoData.language) {
+            const languageSelect = document.getElementById('addLanguage');
+            // Find matching option in dropdown
+            const options = Array.from(languageSelect.options);
+            const matchingOption = options.find(opt =>
+                opt.value === geoData.language ||
+                opt.textContent.includes(geoData.language)
+            );
+            if (matchingOption) {
+                languageSelect.value = matchingOption.value;
+            }
+        }
+
+        showAlert(`✅ Auto-detected: ${geoData.city}, ${geoData.country}\nTimezone: ${geoData.timezone}\nLanguage: ${geoData.language}`);
+
+        btn.textContent = originalText;
+        btn.disabled = false;
+    } catch (error) {
+        console.error('Auto-detect error:', error);
+        showAlert('Error during auto-detection: ' + error.message);
+        const btn = document.getElementById('autoDetectBtn');
+        btn.textContent = '🔍 Auto-Detect Location';
+        btn.disabled = false;
+    }
+}
+
 async function init() {
     const savedTheme = localStorage.getItem('geekez_theme') || 'geek';
     setTheme(savedTheme);
@@ -459,6 +531,29 @@ async function init() {
     if (typeof window.TIMEZONES !== 'undefined' && Array.isArray(window.TIMEZONES)) {
         initCustomTimezoneDropdown('addTimezone', 'addTimezoneDropdown');
         initCustomTimezoneDropdown('editTimezone', 'editTimezoneDropdown');
+    }
+
+    // Auto-Detect button click event
+    const autoDetectBtn = document.getElementById('autoDetectBtn');
+    if (autoDetectBtn) {
+        autoDetectBtn.addEventListener('click', autoDetectFromProxy);
+    }
+
+    // Auto-detect on blur event (optional, can be disabled by user)
+    const proxyTextarea = document.getElementById('addProxy');
+    if (proxyTextarea) {
+        proxyTextarea.addEventListener('blur', async () => {
+            const autoDetectEnabled = localStorage.getItem('geekez_auto_detect_on_blur');
+            // Default enabled, user can disable by setting to 'false'
+            if (autoDetectEnabled !== 'false') {
+                const proxyText = proxyTextarea.value.trim();
+                // Only auto-detect if proxy is entered and timezone is still default
+                const currentTimezone = document.getElementById('addTimezone').value;
+                if (proxyText && currentTimezone === 'Auto (No Change)') {
+                    await autoDetectFromProxy();
+                }
+            }
+        });
     }
 
     // Check for updates silently on startup

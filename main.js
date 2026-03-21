@@ -540,6 +540,114 @@ function saveSettings(settings) {
     }
 }
 
+// IP Geolocation Detection for Auto-Detect Feature
+// Map country to primary language code
+function getLanguageFromCountry(country) {
+    const countryLanguageMap = {
+        'Australia': 'en-AU',
+        'United States': 'en-US',
+        'United Kingdom': 'en-GB',
+        'Canada': 'en-CA',
+        'Germany': 'de-DE',
+        'France': 'fr-FR',
+        'Spain': 'es-ES',
+        'Italy': 'it-IT',
+        'Japan': 'ja-JP',
+        'China': 'zh-CN',
+        'South Korea': 'ko-KR',
+        'Brazil': 'pt-BR',
+        'Mexico': 'es-MX',
+        'Netherlands': 'nl-NL',
+        'Russia': 'ru-RU',
+        'India': 'en-IN',
+        'Singapore': 'en-SG',
+        'Hong Kong': 'zh-HK',
+        'Taiwan': 'zh-TW',
+        'Thailand': 'th-TH',
+        'Vietnam': 'vi-VN',
+        'Indonesia': 'id-ID',
+        'Malaysia': 'ms-MY',
+        'Philippines': 'en-PH',
+        'Poland': 'pl-PL',
+        'Turkey': 'tr-TR',
+        'Sweden': 'sv-SE',
+        'Norway': 'no-NO',
+        'Denmark': 'da-DK',
+        'Finland': 'fi-FI',
+        'Austria': 'de-AT',
+        'Switzerland': 'de-CH',
+        'Belgium': 'nl-BE',
+        'Portugal': 'pt-PT',
+        'Greece': 'el-GR',
+        'Czech Republic': 'cs-CZ',
+        'Romania': 'ro-RO',
+        'Hungary': 'hu-HU',
+        'Ukraine': 'uk-UA',
+        'Argentina': 'es-AR',
+        'Chile': 'es-CL',
+        'Colombia': 'es-CO',
+        'Peru': 'es-PE',
+        'Venezuela': 'es-VE',
+        'South Africa': 'en-ZA',
+        'Egypt': 'ar-EG',
+        'Saudi Arabia': 'ar-SA',
+        'United Arab Emirates': 'ar-AE',
+        'Israel': 'he-IL',
+        'New Zealand': 'en-NZ',
+        'Ireland': 'en-IE'
+    };
+    return countryLanguageMap[country] || 'en-US';
+}
+
+// Detect proxy IP geolocation using ip-api.com (free, no API key needed)
+async function getProxyGeolocation(proxyStr) {
+    try {
+        // Parse IP from proxy string
+        // Supported formats: ip:port, ip:port:user:pass, socks5://ip:port, http://ip:port
+        let ip = proxyStr.trim();
+
+        // Remove protocol if exists
+        ip = ip.replace(/^(socks5|socks4|http|https):\/\//, '');
+
+        // Extract IP (first part before colon)
+        ip = ip.split(':')[0];
+
+        // Validate IP format
+        const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
+        if (!ipRegex.test(ip)) {
+            console.error('Invalid IP format:', ip);
+            return null;
+        }
+
+        console.log(`🔍 Detecting geolocation for IP: ${ip}`);
+
+        // Query ip-api.com (free, 45 requests/minute limit)
+        const url = `http://ip-api.com/json/${ip}?fields=status,message,country,city,timezone,lat,lon`;
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.status === 'success') {
+            const result = {
+                ip: ip,
+                country: data.country,
+                city: data.city,
+                timezone: data.timezone,
+                latitude: data.lat,
+                longitude: data.lon,
+                language: getLanguageFromCountry(data.country)
+            };
+            console.log('✅ Geolocation detected:', result);
+            return result;
+        } else {
+            console.error('❌ Geolocation API error:', data.message || 'Unknown error');
+            return null;
+        }
+    } catch (error) {
+        console.error('❌ Failed to detect proxy geolocation:', error.message);
+        return null;
+    }
+}
+
 function createWindow() {
     const { width, height } = screen.getPrimaryDisplay().workAreaSize;
     const win = new BrowserWindow({
@@ -1018,6 +1126,12 @@ ipcMain.handle('test-proxy-latency', async (e, proxyStr) => {
         await forceKill(xrayProcess.pid); try { fs.unlinkSync(tempConfigPath); } catch (e) { } return result;
     } catch (err) { return { success: false, msg: err.message }; }
 });
+
+// Auto-detect proxy geolocation
+ipcMain.handle('detect-proxy-location', async (e, proxyStr) => {
+    return await getProxyGeolocation(proxyStr);
+});
+
 ipcMain.handle('set-title-bar-color', (e, colors) => { const win = BrowserWindow.fromWebContents(e.sender); if (win) { if (process.platform === 'win32') try { win.setTitleBarOverlay({ color: colors.bg, symbolColor: colors.symbol }); } catch (e) { } win.setBackgroundColor(colors.bg); } });
 ipcMain.handle('check-app-update', async () => { try { const data = await fetchJson('https://api.github.com/repos/EchoHS/GeekezBrowser/releases/latest'); if (!data || !data.tag_name) return { update: false }; const remote = data.tag_name.replace('v', ''); if (compareVersions(remote, app.getVersion()) > 0) { return { update: true, remote, url: 'https://browser.geekez.net/#downloads', notes: data.body }; } return { update: false }; } catch (e) { return { update: false, error: e.message }; } });
 ipcMain.handle('check-xray-update', async () => { try { const data = await fetchJson('https://api.github.com/repos/XTLS/Xray-core/releases/latest'); if (!data || !data.tag_name) return { update: false }; const remoteVer = data.tag_name; const currentVer = await getLocalXrayVersion(); if (remoteVer !== currentVer) { let assetName = ''; const arch = os.arch(); const platform = os.platform(); if (platform === 'win32') assetName = `Xray-windows-${arch === 'x64' ? '64' : '32'}.zip`; else if (platform === 'darwin') assetName = `Xray-macos-${arch === 'arm64' ? 'arm64-v8a' : '64'}.zip`; else assetName = `Xray-linux-${arch === 'x64' ? '64' : '32'}.zip`; const downloadUrl = `https://gh-proxy.com/https://github.com/XTLS/Xray-core/releases/download/${remoteVer}/${assetName}`; return { update: true, remote: remoteVer.replace(/^v/, ''), downloadUrl }; } return { update: false }; } catch (e) { return { update: false }; } });

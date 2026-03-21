@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveSettings: (data) => ipcRenderer.invoke('save-settings', data),
     exportProfile: (id) => ipcRenderer.invoke('export-profile', id),
     importProfile: () => ipcRenderer.invoke('import-profile'),
+    // Auto-detect proxy geolocation
+    detectProxyLocation: (proxyStr) => ipcRenderer.invoke('detect-proxy-location', proxyStr),
     // 通用 invoke，用于 open-url 等
     invoke: (channel, data) => ipcRenderer.invoke(channel, data),
     getRunningIds: () => ipcRenderer.invoke('get-running-ids'),

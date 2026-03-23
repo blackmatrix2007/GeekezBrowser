@@ -19,5 +19,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onProfileStatus: (callback) => ipcRenderer.on('profile-status', (event, data) => callback(data)),
     // API events
     onRefreshProfiles: (callback) => ipcRenderer.on('refresh-profiles', () => callback()),
-    onApiLaunchProfile: (callback) => ipcRenderer.on('api-launch-profile', (event, id) => callback(id))
+    onApiLaunchProfile: (callback) => ipcRenderer.on('api-launch-profile', (event, id) => callback(id)),
+    verifyProfile: (id) => ipcRenderer.invoke('verify-profile', id),
+    onVerifyProgress: (callback) => ipcRenderer.on('verify-progress', (event, data) => callback(data))
 });

@@ -771,7 +771,7 @@ async function loadProfiles() {
                         </span>
                     </div>
                 </div>
-                <div class="actions"><button onclick="launch('${p.id}')" class="no-drag">${t('launch')}</button><button class="outline no-drag" onclick="openEditModal('${p.id}')">${t('edit')}</button><button class="danger no-drag" onclick="remove('${p.id}')">${t('delete')}</button></div>
+                <div class="actions"><button onclick="launch('${p.id}')" class="no-drag">${t('launch')}</button><button class="outline no-drag" onclick="openEditModal('${p.id}')">${t('edit')}</button>${isRunning ? `<button class="outline no-drag" onclick="openVerifyModal('${p.id}')" title="Auto-verify fingerprint">Verify</button>` : ''}<button class="danger no-drag" onclick="remove('${p.id}')">${t('delete')}</button></div>
             `;
             listEl.appendChild(el);
         });
@@ -2039,3 +2039,141 @@ function initCustomTimezoneDropdown(inputId, dropdownId) {
     });
 }
 init();
+
+// ============================================================================
+// Auto-Verify Feature
+// ============================================================================
+(function() {
+    const s = document.createElement('style');
+    s.textContent = '@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}';
+    document.head.appendChild(s);
+})();
+
+let verifyProgressHandler = null;
+
+function openVerifyModal(profileId) {
+    // Create modal if not exists
+    let modal = document.getElementById('verify-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'verify-modal';
+        modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;';
+        modal.innerHTML = `
+            <div style="background:var(--bg-card, #1e1e2e);border:1px solid var(--border,#333);border-radius:12px;padding:24px;width:560px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                    <h3 style="margin:0;font-size:16px;">Auto Verify Fingerprint</h3>
+                    <button onclick="closeVerifyModal()" style="background:none;border:none;color:var(--text,#ccc);font-size:20px;cursor:pointer;padding:0 4px;">&times;</button>
+                </div>
+                <div id="verify-body"></div>
+                <div style="margin-top:16px;text-align:right;">
+                    <button onclick="closeVerifyModal()" class="outline">Close</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+
+    modal.style.display = 'flex';
+    const body = document.getElementById('verify-body');
+    body.innerHTML = '<div style="text-align:center;padding:20px;opacity:0.7;">Starting verification...</div>';
+
+    // Track sites
+    const siteState = {
+        pixelscan:   { name: 'Pixelscan',                 status: 'pending' },
+        sannysoft:   { name: 'Bot Detection (Sannysoft)',  status: 'pending' },
+        scamalytics: { name: 'Scamalytics IP Score',       status: 'pending' }
+    };
+
+    function renderBody() {
+        body.innerHTML = Object.entries(siteState).map(([id, s]) => {
+            const icon = s.status === 'pending'  ? '⏳'
+                       : s.status === 'loading'  ? '<span style="animation:spin 1s linear infinite;display:inline-block">⟳</span>'
+                       : s.status === 'error'    ? '❌'
+                       :                           '✅';
+
+            let detail = '';
+            if (s.status === 'done') {
+                if (id === 'pixelscan') {
+                    const badge = (v, good, bad) => {
+                        const color = v === good ? '#22c55e' : v === bad ? '#ef4444' : '#f59e0b';
+                        return `<span style="background:${color}22;color:${color};border:1px solid ${color}44;border-radius:4px;padding:1px 6px;font-size:11px;">${v}</span>`;
+                    };
+                    detail = `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+                        ${badge(s.masking,   'pass', 'fail')} Masking
+                        ${badge(s.bot,       'pass', 'fail')} Bot
+                        ${badge(s.proxy,     'pass', 'fail')} Proxy
+                        ${badge(s.consistent,'pass', 'warn')} Consistent
+                    </div>`;
+                    if (s.webgl) detail += `<div style="margin-top:4px;font-size:11px;opacity:0.6;">GPU: ${s.webgl}</div>`;
+                } else if (id === 'sannysoft') {
+                    const checks = s.checks || {};
+                    const entries = Object.entries(checks).slice(0, 8);
+                    if (entries.length) {
+                        detail = `<div style="margin-top:6px;display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;font-size:11px;">
+                            ${entries.map(([k,v]) => `<span>${v.pass ? '✅' : '❌'} ${k}</span>`).join('')}
+                        </div>`;
+                    }
+                } else if (id === 'scamalytics') {
+                    if (s.score !== null) {
+                        const color = s.score < 30 ? '#22c55e' : s.score < 60 ? '#f59e0b' : '#ef4444';
+                        detail = `<div style="margin-top:6px;">
+                            <span style="font-size:20px;font-weight:bold;color:${color}">${s.score}</span>
+                            <span style="opacity:0.6;font-size:12px;"> / 100 fraud score</span>
+                            ${s.risk ? `<span style="margin-left:8px;color:${color}">${s.risk}</span>` : ''}
+                        </div>`;
+                    }
+                }
+            } else if (s.status === 'error') {
+                detail = `<div style="margin-top:4px;font-size:11px;color:#ef4444;opacity:0.8;">${s.error}</div>`;
+            }
+
+            return `<div style="padding:12px;border:1px solid var(--border,#333);border-radius:8px;margin-bottom:8px;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="font-size:16px;">${icon}</span>
+                    <strong style="font-size:13px;">${s.name}</strong>
+                </div>
+                ${detail}
+            </div>`;
+        }).join('');
+    }
+
+    renderBody();
+
+    // Listen for progress events
+    if (verifyProgressHandler) {
+        // Remove old listener by re-registering (simplest approach)
+    }
+    verifyProgressHandler = (data) => {
+        if (siteState[data.id]) {
+            Object.assign(siteState[data.id], data);
+            // Map sannysoft checks key
+            if (data.id === 'sannysoft' && data.status === 'done') {
+                siteState[data.id].checks = data;
+            }
+        }
+        renderBody();
+    };
+    window.electronAPI.onVerifyProgress(verifyProgressHandler);
+
+    // Run verification
+    window.electronAPI.verifyProfile(profileId).then(result => {
+        if (result.error) {
+            body.innerHTML = `<div style="color:#ef4444;padding:16px;">${result.error}</div>`;
+        } else {
+            // Merge final results (in case progress missed something)
+            if (result.results) {
+                Object.entries(result.results).forEach(([id, data]) => {
+                    if (siteState[id]) Object.assign(siteState[id], data);
+                });
+            }
+            renderBody();
+        }
+    }).catch(e => {
+        body.innerHTML = `<div style="color:#ef4444;padding:16px;">Error: ${e.message}</div>`;
+    });
+}
+
+function closeVerifyModal() {
+    const modal = document.getElementById('verify-modal');
+    if (modal) modal.style.display = 'none';
+}

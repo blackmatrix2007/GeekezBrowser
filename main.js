@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, screen, shell } = require('electron');
 const path = require('path');
 const fs = require('fs-extra');
+const { runVerify } = require('./verify');
 const { spawn, exec, execSync } = require('child_process');
 const getPort = require('get-port');
 const puppeteer = require('puppeteer'); // 使用原生 puppeteer，不带 extra
@@ -1252,6 +1253,23 @@ ipcMain.handle('download-xray-update', async (e, url) => {
     }
 });
 ipcMain.handle('get-running-ids', () => Object.keys(activeProcesses));
+
+ipcMain.handle('verify-profile', async (event, profileId) => {
+    const proc = activeProcesses[profileId];
+    if (!proc || !proc.browser || !proc.browser.isConnected()) {
+        return { error: 'Profile is not running. Please launch it first.' };
+    }
+
+    const profiles = await fs.readJson(PROFILES_FILE);
+    const profile = profiles.find(p => p.id === profileId);
+    const proxyIp = profile?.proxyStr?.split(':')[0] || '';
+
+    const results = await runVerify(proc.browser, proxyIp, (progress) => {
+        event.sender.send('verify-progress', progress);
+    });
+
+    return { success: true, results };
+});
 ipcMain.handle('get-profiles', async () => { if (!fs.existsSync(PROFILES_FILE)) return []; return fs.readJson(PROFILES_FILE); });
 ipcMain.handle('update-profile', async (event, updatedProfile) => { let profiles = await fs.readJson(PROFILES_FILE); const index = profiles.findIndex(p => p.id === updatedProfile.id); if (index > -1) { profiles[index] = updatedProfile; await fs.writeJson(PROFILES_FILE, profiles); return true; } return false; });
 ipcMain.handle('save-profile', async (event, data) => {

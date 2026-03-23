@@ -505,30 +505,10 @@ function getInjectScript(fp, profileName, watermarkStyle) {
                 });
             })();
 
-            // --- 10. navigator.permissions ---
-            // Headless returns 'denied' for notifications — real Chrome returns 'default'.
-            // Google reCAPTCHA checks this to detect automation.
-            if (navigator.permissions) {
-                const origQuery = navigator.permissions.query.bind(navigator.permissions);
-                const permState = {
-                    'notifications':   'default',
-                    'geolocation':     'prompt',
-                    'camera':          'prompt',
-                    'microphone':      'prompt',
-                    'clipboard-read':  'prompt',
-                    'clipboard-write': 'granted'
-                };
-                Object.defineProperty(navigator.permissions, 'query', {
-                    value: makeNative(function query(descriptor) {
-                        const name = descriptor && descriptor.name;
-                        if (name && permState[name] !== undefined) {
-                            return Promise.resolve({ state: permState[name], onchange: null });
-                        }
-                        return origQuery(descriptor);
-                    }, 'query'),
-                    writable: true, enumerable: false, configurable: true
-                });
-            }
+            // --- 10. navigator.permissions - mode "real" (no JS hooks) ---
+            // Hook returned plain {} not PermissionStatus - instanceof check fails.
+            // Workers also have navigator.permissions.query() - main frame hook doesn't
+            // apply there, causing mismatch between contexts = "Masking detected".
 
             // --- 11. WebGL - mode "real" (no JS hooks) ---
             // getExtension hook returned plain {} - instanceof check fails, detectable.

@@ -6,8 +6,8 @@ const SITES = [
         id: 'pixelscan',
         name: 'Pixelscan',
         url: 'https://pixelscan.net',
-        timeout: 35000,
-        waitMs: 5000,
+        timeout: 45000,
+        waitMs: 8000,
         scrape: async (page) => {
             const text = await page.evaluate(() => document.body.innerText || '');
             const has = (s) => text.toLowerCase().includes(s.toLowerCase());
@@ -32,9 +32,9 @@ const SITES = [
         timeout: 20000,
         waitMs: 3000,
         scrape: async (page) => {
-            return await page.evaluate(() => {
+            const checks = await page.evaluate(() => {
                 const rows = Array.from(document.querySelectorAll('table tr'));
-                const checks = {};
+                const result = {};
                 rows.forEach(row => {
                     const cells = row.querySelectorAll('td');
                     if (cells.length >= 2) {
@@ -43,11 +43,13 @@ const SITES = [
                         const val = cell.innerText.trim();
                         const cls = cell.className || '';
                         const pass = cls.includes('passed') || cell.style.background === 'green' || cls.includes('green');
-                        if (key) checks[key] = { value: val, pass };
+                        if (key) result[key] = { value: val, pass };
                     }
                 });
-                return checks;
+                return result;
             });
+            // Wrap in checks key so it doesn't mix with progress event metadata (id/site/status)
+            return { checks };
         }
     },
     {

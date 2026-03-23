@@ -2349,7 +2349,10 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             try {
                 const pages = await browser.pages();
                 for (const page of pages) {
-                    try { await page.emulateTimezone(targetTimezone); } catch (e) { }
+                    try {
+                        const s = await page.createCDPSession();
+                        await s.send('Emulation.setTimezoneOverride', { timezoneId: targetTimezone });
+                    } catch (e) { }
                 }
                 browser.on('targetcreated', async (target) => {
                     if (target.type() === 'page') {

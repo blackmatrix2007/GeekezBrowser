@@ -501,6 +501,8 @@ async function init() {
     window.electronAPI.onProfileStatus(({ id, status }) => {
         const badge = document.getElementById(`status-${id}`);
         if (badge) status === 'running' ? badge.classList.add('active') : badge.classList.remove('active');
+        // Re-render list so Verify button appears/disappears with running state
+        loadProfiles();
     });
 
     // API event listeners for remote refresh and launch
@@ -688,7 +690,6 @@ function showUpdateConfirm(version, url, notes) {
     modal.style.display = 'flex';
 }
 
-function openGithub() { window.electronAPI.invoke('open-url', 'https://github.com/EchoHS/GeekezBrowser'); }
 
 function filterProfiles(text) {
     searchText = text.toLowerCase();
@@ -2146,10 +2147,6 @@ function openVerifyModal(profileId) {
     verifyProgressHandler = (data) => {
         if (siteState[data.id]) {
             Object.assign(siteState[data.id], data);
-            // Map sannysoft checks key
-            if (data.id === 'sannysoft' && data.status === 'done') {
-                siteState[data.id].checks = data;
-            }
         }
         renderBody();
     };

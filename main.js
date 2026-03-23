@@ -61,6 +61,16 @@ const SETTINGS_FILE = path.join(DATA_PATH, 'settings.json');
 fs.ensureDirSync(DATA_PATH);
 fs.ensureDirSync(TRASH_PATH);
 
+// --- Debug logger (writes to DATA_PATH/geekez_debug.log) ---
+const DEBUG_LOG = path.join(DATA_PATH, 'geekez_debug.log');
+function debugLog(tag, obj) {
+    try {
+        const line = `[${new Date().toISOString()}] [${tag}] ${JSON.stringify(obj, null, 2)}\n${'='.repeat(80)}\n`;
+        fs.appendFileSync(DEBUG_LOG, line);
+        console.log(`[DEBUG:${tag}]`, JSON.stringify(obj));
+    } catch(e) {}
+}
+
 let activeProcesses = {};
 let apiServer = null;
 let apiServerRunning = false;
@@ -558,6 +568,7 @@ function getLanguageFromCountry(country) {
         'Brazil': 'pt-BR',
         'Mexico': 'es-MX',
         'Netherlands': 'nl-NL',
+        'The Netherlands': 'nl-NL',
         'Russia': 'ru-RU',
         'India': 'en-IN',
         'Singapore': 'en-SG',
@@ -603,18 +614,41 @@ function getLanguageFromCountry(country) {
 async function getProxyGeolocation(proxyStr) {
     try {
         // Parse IP from proxy string
-        // Supported formats: ip:port, ip:port:user:pass, socks5://ip:port, http://ip:port
+        // Supported formats:
+        //   IPv4: ip:port, ip:port:user:pass, socks5://ip:port
+        //   IPv6: [::1]:port, [::1]:port:user:pass, raw IPv6 (no port)
         let ip = proxyStr.trim();
 
         // Remove protocol if exists
         ip = ip.replace(/^(socks5|socks4|http|https):\/\//, '');
 
-        // Extract IP (first part before colon)
-        ip = ip.split(':')[0];
+        // Handle bracketed IPv6: [2a0f:d941::1]:port:user:pass
+        const bracketedIPv6 = ip.match(/^\[([^\]]+)\]/);
+        if (bracketedIPv6) {
+            ip = bracketedIPv6[1];
+        } else {
+            // Count colons: >1 colon and no dot = raw IPv6
+            const colonCount = (ip.match(/:/g) || []).length;
+            if (colonCount > 1 && !ip.includes('.')) {
+                // Raw IPv6, take as-is (ip-api.com accepts full IPv6)
+                // Strip any trailing :user:pass that looks like it was appended
+                // IPv6 addresses have at least 2 colons, a port suffix would be :port which is ambiguous
+                // Safe approach: if the string has exactly 7 colons it's a full IPv6, use it whole
+                if (colonCount >= 7) {
+                    // Full IPv6 address, use entire string
+                } else {
+                    // Might have extra :user:pass — can't reliably parse, use as-is
+                }
+            } else {
+                // IPv4 or hostname: extract first segment before colon
+                ip = ip.split(':')[0];
+            }
+        }
 
-        // Validate IP format
-        const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
-        if (!ipRegex.test(ip)) {
+        // Validate: IPv4 or IPv6
+        const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+        const ipv6Regex = /^[0-9a-fA-F:]+$/;
+        if (!ipv4Regex.test(ip) && !ipv6Regex.test(ip)) {
             console.error('Invalid IP format:', ip);
             return null;
         }
@@ -1253,6 +1287,26 @@ ipcMain.handle('save-profile', async (event, data) => {
     };
     profiles.push(newProfile);
     await fs.writeJson(PROFILES_FILE, profiles);
+
+    debugLog('PROFILE_CREATED', {
+        id: newProfile.id,
+        name: newProfile.name,
+        proxy: newProfile.proxyStr ? newProfile.proxyStr.split(':').slice(0,2).join(':') + ':***' : 'none',
+        fingerprint: {
+            timezone:          newProfile.fingerprint.timezone,
+            language:          newProfile.fingerprint.language,
+            screen:            newProfile.fingerprint.screen,
+            devicePixelRatio:  newProfile.fingerprint.devicePixelRatio,
+            hardwareConcurrency: newProfile.fingerprint.hardwareConcurrency,
+            deviceMemory:      newProfile.fingerprint.deviceMemory,
+            platform:          newProfile.fingerprint.platform,
+            webgl_vendor:      newProfile.fingerprint.webgl?.vendor,
+            webgl_renderer:    newProfile.fingerprint.webgl?.renderer,
+            noiseSeed:         newProfile.fingerprint.noiseSeed,
+            geolocation:       newProfile.fingerprint.geolocation,
+        }
+    });
+
     return newProfile;
 });
 ipcMain.handle('delete-profile', async (event, id) => {
@@ -2022,14 +2076,72 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
         // 优化：减少等待时间，Xray 通常 300ms 内就能启动
         await new Promise(resolve => setTimeout(resolve, 300));
 
-        // 0. Resolve Language (Fix: Resolve 'auto' BEFORE generating extension so inject script gets explicit language)
+        // 0. Auto-detect geo signals from proxy IP (always runs when proxy present)
+        if (profile.proxyStr) {
+            const needsTimezone = !profile.fingerprint.timezone || profile.fingerprint.timezone === 'Auto';
+            // Language needs sync when: not set, or default 'en-US' and timezone is non-English
+            const needsLanguage = !profile.fingerprint.language || profile.fingerprint.language === 'auto'
+                || profile.fingerprint.language === 'en-US';
+
+            if (needsTimezone || needsLanguage) {
+                console.log('🔍 Detecting proxy geo signals...');
+                const geoData = await getProxyGeolocation(profile.proxyStr).catch(() => null);
+                if (geoData) {
+                    if (needsTimezone && geoData.timezone) {
+                        profile.fingerprint.timezone = geoData.timezone;
+                        console.log(`✅ Timezone: ${geoData.timezone} (${geoData.city}, ${geoData.country})`);
+                    }
+                    if (needsLanguage && geoData.language && geoData.language !== 'en-US') {
+                        profile.fingerprint.language = geoData.language;
+                        console.log(`🌐 Language: ${geoData.language} (${geoData.country})`);
+                    }
+                    if (!profile.fingerprint.geolocation && geoData.latitude && geoData.longitude) {
+                        profile.fingerprint.geolocation = { latitude: geoData.latitude, longitude: geoData.longitude };
+                    }
+                } else if (needsTimezone) {
+                    profile.fingerprint.timezone = 'UTC';
+                    console.log('⚠️ Geo detect failed — timezone fallback: UTC');
+                }
+            }
+        }
+
+        // Fallback: ensure devicePixelRatio exists (old profiles created before this field was added)
+        if (!profile.fingerprint.devicePixelRatio) {
+            profile.fingerprint.devicePixelRatio = 1;
+        }
+
+        // 0b. Resolve Language — uses auto-detected value above if available
         const targetLang = profile.fingerprint?.language && profile.fingerprint.language !== 'auto'
             ? profile.fingerprint.language
             : 'en-US';
 
-        // Update in-memory profile to ensure generateExtension writes the correct language to inject script
+        // Update in-memory profile so generateExtension gets explicit language
         profile.fingerprint.language = targetLang;
         profile.fingerprint.languages = [targetLang, targetLang.split('-')[0]];
+
+        // --- DEBUG: Log full fingerprint state before launch ---
+        debugLog('PROFILE_LAUNCH', {
+            id:   profileId,
+            name: profile.name,
+            proxy: profile.proxyStr ? profile.proxyStr.split(':').slice(0,2).join(':') + ':***' : 'none',
+            fingerprint: {
+                timezone:            profile.fingerprint.timezone,
+                language:            profile.fingerprint.language,
+                languages:           profile.fingerprint.languages,
+                platform:            profile.fingerprint.platform,
+                screen:              profile.fingerprint.screen,
+                devicePixelRatio:    profile.fingerprint.devicePixelRatio,
+                hardwareConcurrency: profile.fingerprint.hardwareConcurrency,
+                deviceMemory:        profile.fingerprint.deviceMemory,
+                noiseSeed:           profile.fingerprint.noiseSeed,
+                geolocation:         profile.fingerprint.geolocation,
+                webgl_vendor:        profile.fingerprint.webgl?.vendor,
+                webgl_renderer:      profile.fingerprint.webgl?.renderer,
+                webgpu_vendor:       profile.fingerprint.webgpu?.info?.vendor,
+                mediaDevices_count:  profile.fingerprint.mediaDevices?.length,
+                has_webgl_params:    !!profile.fingerprint.webgl?.params,
+            }
+        });
 
         // 1. 生成 GeekEZ Guard 扩展（使用传递的水印样式）
         const style = watermarkStyle || 'enhanced'; // 默认使用增强水印
@@ -2224,8 +2336,11 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
                 browser.on('targetcreated', async (target) => {
                     if (target.type() === 'page') {
                         try {
-                            const page = await target.page();
-                            if (page) await page.emulateTimezone(targetTimezone);
+                            // Use createCDPSession directly — faster than target.page().
+                            // Avoids race condition where page loads and computes timezone
+                            // before emulateTimezone() is called.
+                            const session = await target.createCDPSession();
+                            await session.send('Emulation.setTimezoneOverride', { timezoneId: targetTimezone });
                         } catch (e) { }
                     }
                 });

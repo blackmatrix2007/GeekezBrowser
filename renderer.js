@@ -466,15 +466,10 @@ async function autoDetectFromProxy() {
 
         // Auto-fill language
         if (geoData.language) {
-            const languageSelect = document.getElementById('addLanguage');
-            // Find matching option in dropdown
-            const options = Array.from(languageSelect.options);
-            const matchingOption = options.find(opt =>
-                opt.value === geoData.language ||
-                opt.textContent.includes(geoData.language)
-            );
-            if (matchingOption) {
-                languageSelect.value = matchingOption.value;
+            const languageInput = document.getElementById('addLanguage');
+            if (languageInput) {
+                const langName = getLanguageName(geoData.language);
+                languageInput.value = langName !== 'Auto (System Default)' ? langName : geoData.language;
             }
         }
 
@@ -492,7 +487,7 @@ async function autoDetectFromProxy() {
 }
 
 async function init() {
-    const savedTheme = localStorage.getItem('geekez_theme') || 'geek';
+    const savedTheme = localStorage.getItem('geekez_theme') || 'light';
     setTheme(savedTheme);
     document.getElementById('themeSelect').value = savedTheme;
     setTimeout(() => { const s = document.getElementById('splash'); if (s) { s.style.opacity = '0'; setTimeout(() => s.remove(), 500); } }, 1500);

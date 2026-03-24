@@ -21,5 +21,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onRefreshProfiles: (callback) => ipcRenderer.on('refresh-profiles', () => callback()),
     onApiLaunchProfile: (callback) => ipcRenderer.on('api-launch-profile', (event, id) => callback(id)),
     verifyProfile: (id) => ipcRenderer.invoke('verify-profile', id),
-    onVerifyProgress: (callback) => ipcRenderer.on('verify-progress', (event, data) => callback(data))
+    onVerifyProgress: (callback) => ipcRenderer.on('verify-progress', (event, data) => callback(data)),
+    getChromePath: () => ipcRenderer.invoke('get-chrome-path'),
+    selectChromeBinary: () => ipcRenderer.invoke('select-chrome-binary'),
+    clearChromeBinary: () => ipcRenderer.invoke('clear-chrome-binary'),
+    checkFingerprintChromium: () => ipcRenderer.invoke('check-fingerprint-chromium'),
+    downloadFingerprintChromium: () => ipcRenderer.invoke('download-fingerprint-chromium'),
+    onFpChromiumProgress: (callback) => ipcRenderer.on('fp-chromium-progress', (event, data) => callback(data)),
+    // Chrome for Testing (Google official Chromium — real canvas fingerprint)
+    checkChromeForTesting: () => ipcRenderer.invoke('check-chrome-for-testing'),
+    downloadChromeForTesting: () => ipcRenderer.invoke('download-chrome-for-testing'),
+    onCftProgress: (callback) => ipcRenderer.on('cft-progress', (event, data) => callback(data))
 });

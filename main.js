@@ -39,6 +39,7 @@ const BIN_PATH_LEGACY = path.join(BIN_DIR_LEGACY, process.platform === 'win32' ?
 const APP_CONFIG_FILE = path.join(app.getPath('userData'), 'app-config.json');
 const DEFAULT_DATA_PATH = path.join(app.getPath('userData'), 'BrowserProfiles');
 const FINGERPRINT_CHROMIUM_DIR = path.join(app.getPath('userData'), 'fingerprint-chromium');
+const CHROME_FOR_TESTING_DIR = path.join(app.getPath('userData'), 'chrome-for-testing');
 
 // 读取自定义数据目录
 function getCustomDataPath() {
@@ -519,7 +520,14 @@ function getChromiumPath() {
         }
     } catch (e) {}
 
-    // 1.5. Auto-downloaded Fingerprint-Chromium (adryfish/fingerprint-chromium)
+    // 1.5. Auto-downloaded Chrome for Testing (Google official Chromium — real canvas hash)
+    const cftPath = getChromeForTestingPath();
+    if (cftPath) {
+        console.log('[Chrome] Using Chrome for Testing:', cftPath);
+        return cftPath;
+    }
+
+    // 1.6. Auto-downloaded Fingerprint-Chromium (adryfish — Ungoogled Chromium base)
     const fpPath = getFingerprintChromiumPath();
     if (fpPath) {
         console.log('[Chrome] Using Fingerprint-Chromium:', fpPath);
@@ -566,6 +574,21 @@ function getChromiumPath() {
     }
 
     return null;
+}
+
+// Chrome for Testing (Google official Chromium) helpers
+function getChromeForTestingPath() {
+    try {
+        const exe = process.platform === 'win32' ? 'chrome.exe' : 'chrome';
+        const candidate = path.join(CHROME_FOR_TESTING_DIR, exe);
+        if (fs.existsSync(candidate)) return candidate;
+    } catch (e) {}
+    return null;
+}
+
+function isChromeForTesting(chromePath) {
+    if (!chromePath) return false;
+    return chromePath.replace(/\\/g, '/').startsWith(CHROME_FOR_TESTING_DIR.replace(/\\/g, '/'));
 }
 
 // Fingerprint-Chromium (adryfish/fingerprint-chromium) helpers
@@ -1761,6 +1784,145 @@ ipcMain.handle('download-fingerprint-chromium', async (event) => {
         // 5. Save metadata and cleanup
         fs.writeJsonSync(path.join(FINGERPRINT_CHROMIUM_DIR, 'fp-meta.json'), {
             version, downloadedAt: new Date().toISOString(), source: 'adryfish/fingerprint-chromium'
+        });
+        try { fs.removeSync(tempFile); } catch (e) {}
+
+        sendProgress('Done!', 100);
+        return { success: true, version, path: exePath };
+
+    } catch (err) {
+        sendProgress(`Error: ${err.message}`, -1);
+        throw err;
+    }
+});
+
+ipcMain.handle('check-chrome-for-testing', async () => {
+    const p = getChromeForTestingPath();
+    if (!p) return { installed: false };
+    try {
+        const meta = fs.readJsonSync(path.join(CHROME_FOR_TESTING_DIR, 'cft-meta.json'));
+        return { installed: true, version: meta.version, path: p };
+    } catch (e) {
+        return { installed: true, version: 'unknown', path: p };
+    }
+});
+
+ipcMain.handle('download-chrome-for-testing', async (event) => {
+    const sender = event.sender;
+    const sendProgress = (stage, percent) => {
+        try { sender.send('cft-progress', { stage, percent }); } catch (e) {}
+    };
+
+    try {
+        sendProgress('Fetching version info...', 2);
+
+        // 1. Get latest stable version from Google's CfT API
+        const apiData = await new Promise((resolve, reject) => {
+            https.get(
+                'https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json',
+                { headers: { 'User-Agent': 'GeekezBrowser/1.4.0' } },
+                (res) => {
+                    let body = '';
+                    res.on('data', d => body += d);
+                    res.on('end', () => {
+                        try { resolve(JSON.parse(body)); }
+                        catch (e) { reject(new Error('Failed to parse CfT version info')); }
+                    });
+                    res.on('error', reject);
+                }
+            ).on('error', reject);
+        });
+
+        const stable = apiData.channels && apiData.channels.Stable;
+        if (!stable) throw new Error('Stable channel not found in CfT API response');
+        const version = stable.version;
+
+        const platform = process.platform === 'win32' ? 'win64' : process.platform === 'darwin' ? 'mac-x64' : 'linux64';
+        const chromeDownloads = stable.downloads && stable.downloads.chrome;
+        if (!chromeDownloads) throw new Error('Chrome downloads not found in CfT API response');
+        const asset = chromeDownloads.find(d => d.platform === platform);
+        if (!asset) throw new Error(`No CfT download found for platform: ${platform}`);
+
+        sendProgress(`Downloading Chrome for Testing ${version} (~150 MB)...`, 5);
+
+        // 2. Download zip with progress
+        const tempFile = path.join(app.getPath('temp'), `chrome-for-testing-${version}.zip`);
+
+        await new Promise((resolve, reject) => {
+            const file = fs.createWriteStream(tempFile);
+            let received = 0;
+            let total = 0;
+
+            function doGet(url) {
+                https.get(url, { headers: { 'User-Agent': 'GeekezBrowser/1.4.0' } }, (res) => {
+                    if ([301, 302, 307, 308].includes(res.statusCode)) {
+                        res.resume();
+                        return doGet(res.headers.location);
+                    }
+                    if (res.statusCode !== 200) {
+                        res.resume();
+                        return reject(new Error(`HTTP ${res.statusCode} downloading CfT`));
+                    }
+                    total = parseInt(res.headers['content-length'] || '0', 10);
+                    res.on('data', chunk => {
+                        received += chunk.length;
+                        file.write(chunk);
+                        if (total > 0) {
+                            const pct = Math.round((received / total) * 75) + 5;
+                            const mb = Math.round(received / 1024 / 1024);
+                            const totalMb = Math.round(total / 1024 / 1024);
+                            sendProgress(`Downloading... ${mb}/${totalMb} MB`, pct);
+                        }
+                    });
+                    res.on('end', () => { file.end(); resolve(); });
+                    res.on('error', reject);
+                }).on('error', reject);
+            }
+            doGet(asset.url);
+        });
+
+        // 3. Extract zip
+        sendProgress('Extracting...', 82);
+        fs.ensureDirSync(CHROME_FOR_TESTING_DIR);
+        fs.emptyDirSync(CHROME_FOR_TESTING_DIR);
+
+        const AdmZip = require('adm-zip');
+        const zip = new AdmZip(tempFile);
+        zip.extractAllTo(CHROME_FOR_TESTING_DIR, true);
+
+        sendProgress('Locating chrome.exe...', 93);
+
+        // 4. Flatten nested directory if needed
+        function findExe(dir, target) {
+            for (const entry of fs.readdirSync(dir)) {
+                const full = path.join(dir, entry);
+                if (fs.statSync(full).isDirectory()) {
+                    const r = findExe(full, target);
+                    if (r) return r;
+                } else if (entry === target) return full;
+            }
+            return null;
+        }
+
+        const exeName = process.platform === 'win32' ? 'chrome.exe' : 'chrome';
+        let exePath = findExe(CHROME_FOR_TESTING_DIR, exeName);
+        if (!exePath) throw new Error(`${exeName} not found after extraction`);
+
+        const exeDir = path.dirname(exePath);
+        if (exeDir !== CHROME_FOR_TESTING_DIR) {
+            for (const entry of fs.readdirSync(exeDir)) {
+                fs.moveSync(
+                    path.join(exeDir, entry),
+                    path.join(CHROME_FOR_TESTING_DIR, entry),
+                    { overwrite: true }
+                );
+            }
+            exePath = path.join(CHROME_FOR_TESTING_DIR, exeName);
+        }
+
+        // 5. Save metadata and cleanup
+        fs.writeJsonSync(path.join(CHROME_FOR_TESTING_DIR, 'cft-meta.json'), {
+            version, downloadedAt: new Date().toISOString(), source: 'googlechromelabs/chrome-for-testing'
         });
         try { fs.removeSync(tempFile); } catch (e) {}
 

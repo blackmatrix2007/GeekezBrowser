@@ -38,6 +38,7 @@ const BIN_PATH_LEGACY = path.join(BIN_DIR_LEGACY, process.platform === 'win32' ?
 // 自定义数据目录支持
 const APP_CONFIG_FILE = path.join(app.getPath('userData'), 'app-config.json');
 const DEFAULT_DATA_PATH = path.join(app.getPath('userData'), 'BrowserProfiles');
+const FINGERPRINT_CHROMIUM_DIR = path.join(app.getPath('userData'), 'fingerprint-chromium');
 
 // 读取自定义数据目录
 function getCustomDataPath() {
@@ -507,8 +508,26 @@ function forceKill(pid) {
 }
 
 function getChromiumPath() {
+    // 1. Custom binary from settings (highest priority — Fingerprint-Chromium etc.)
+    try {
+        if (fs.existsSync(SETTINGS_FILE)) {
+            const s = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+            if (s.customChromePath && fs.existsSync(s.customChromePath)) {
+                console.log('[Chrome] Using custom binary:', s.customChromePath);
+                return s.customChromePath;
+            }
+        }
+    } catch (e) {}
+
+    // 1.5. Auto-downloaded Fingerprint-Chromium (adryfish/fingerprint-chromium)
+    const fpPath = getFingerprintChromiumPath();
+    if (fpPath) {
+        console.log('[Chrome] Using Fingerprint-Chromium:', fpPath);
+        return fpPath;
+    }
+
+    // 2. Bundled Chrome for Testing (original behavior)
     const basePath = isDev ? path.join(__dirname, 'resources', 'puppeteer') : path.join(process.resourcesPath, 'puppeteer');
-    if (!fs.existsSync(basePath)) return null;
     function findFile(dir, filename) {
         try {
             const files = fs.readdirSync(dir);
@@ -520,13 +539,60 @@ function getChromiumPath() {
             }
         } catch (e) { return null; } return null;
     }
-
-    // macOS: Chrome binary is inside .app/Contents/MacOS/
-    if (process.platform === 'darwin') {
-        return findFile(basePath, 'Google Chrome for Testing');
+    if (fs.existsSync(basePath)) {
+        const bundled = process.platform === 'darwin'
+            ? findFile(basePath, 'Google Chrome for Testing')
+            : findFile(basePath, 'chrome.exe');
+        if (bundled) return bundled;
     }
-    // Windows
-    return findFile(basePath, 'chrome.exe');
+
+    // 3. Real Chrome installed on machine (fallback — better hardware fingerprint than Chrome for Testing)
+    if (process.platform === 'win32') {
+        const candidates = [
+            path.join(process.env['PROGRAMFILES'] || 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+            path.join(process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+            path.join(process.env['LOCALAPPDATA'] || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        ];
+        for (const c of candidates) { if (fs.existsSync(c)) { console.log('[Chrome] Using real Chrome:', c); return c; } }
+    } else if (process.platform === 'darwin') {
+        const candidates = [
+            '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+            '/Applications/Chromium.app/Contents/MacOS/Chromium',
+        ];
+        for (const c of candidates) { if (fs.existsSync(c)) return c; }
+    } else {
+        const candidates = ['/usr/bin/google-chrome', '/usr/bin/chromium-browser', '/usr/bin/chromium'];
+        for (const c of candidates) { if (fs.existsSync(c)) return c; }
+    }
+
+    return null;
+}
+
+// Fingerprint-Chromium (adryfish/fingerprint-chromium) helpers
+function getFingerprintChromiumPath() {
+    try {
+        const exe = process.platform === 'win32' ? 'chrome.exe' : 'chrome';
+        const candidate = path.join(FINGERPRINT_CHROMIUM_DIR, exe);
+        if (fs.existsSync(candidate)) return candidate;
+    } catch (e) {}
+    return null;
+}
+
+function isFingerprintChromium(chromePath) {
+    if (!chromePath) return false;
+    return chromePath.replace(/\\/g, '/').startsWith(FINGERPRINT_CHROMIUM_DIR.replace(/\\/g, '/'));
+}
+
+// FNV-1a 32-bit hash → deterministic seed per profile
+function getFingerprintSeed(noiseSeed) {
+    if (!noiseSeed) return Math.floor(Math.random() * 2147483647);
+    const str = String(noiseSeed);
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 0x01000193);
+    }
+    return (h >>> 0) & 0x7FFFFFFF;
 }
 
 // Settings management
@@ -706,7 +772,7 @@ function notifyUIRefresh() {
     }
 }
 
-async function generateExtension(profilePath, fingerprint, profileName, watermarkStyle, profileId) {
+async function generateExtension(profilePath, fingerprint, profileName, watermarkStyle, profileId, fpChromiumMode = false) {
     const extDir = path.join(profilePath, 'extension');
     await fs.ensureDir(extDir);
 
@@ -732,7 +798,155 @@ async function generateExtension(profilePath, fingerprint, profileName, watermar
         action: { default_popup: "popup.html" }
     };
     const style = watermarkStyle || 'enhanced';
+    // fingerprint.js: canvas/audio/WebGL/clientrects/permissions/mediaDevices all "mode real"
+    // (no JS hooks) to avoid Worker comparison mismatch. makeNative + screen + plugins + chrome
+    // are safe since Workers don't have navigator.plugins or window.screen.
     const scriptContent = getInjectScript(fingerprint, profileName, style);
+    // (old manual fpChromiumMode injection removed — use getInjectScript above)
+    if (false) `(function() {
+    // --- makeNative: override Function.prototype.toString so injected functions look native ---
+    // Needed because Pixelscan calls Function.prototype.toString.call(fn) to detect JS overrides.
+    // Workers don't have navigator.plugins so there's no cross-context inconsistency here.
+    const _nativeRegistry = new WeakMap();
+    const _origFPToString = Function.prototype.toString;
+    Object.defineProperty(Function.prototype, 'toString', {
+        value: function toString() {
+            if (_nativeRegistry.has(this)) return _nativeRegistry.get(this);
+            return _origFPToString.call(this);
+        },
+        writable: true, enumerable: false, configurable: true
+    });
+    _nativeRegistry.set(Function.prototype.toString, 'function toString() { [native code] }');
+    const makeNative = function(func, name) {
+        _nativeRegistry.set(func, 'function ' + name + '() { [native code] }');
+        try { delete func.prototype; } catch(e) {}
+        return func;
+    };
+
+    // --- navigator.plugins + navigator.mimeTypes ---
+    // Real Chrome 90+ always has 5 PDF plugins. Ungoogled Chromium strips them → instant detection.
+    // Workers don't have navigator.plugins so injecting here causes no Worker inconsistency.
+    (function() {
+        var pluginDefs = [
+            { name: 'PDF Viewer',                description: 'Portable Document Format', filename: 'internal-pdf-viewer' },
+            { name: 'Chrome PDF Viewer',         description: 'Portable Document Format', filename: 'internal-pdf-viewer' },
+            { name: 'Chromium PDF Viewer',       description: 'Portable Document Format', filename: 'internal-pdf-viewer' },
+            { name: 'Microsoft Edge PDF Viewer', description: 'Portable Document Format', filename: 'internal-pdf-viewer' },
+            { name: 'WebKit built-in PDF',       description: 'Portable Document Format', filename: 'internal-pdf-viewer' }
+        ];
+        var mimeTypeDefs = [
+            { type: 'application/pdf', suffixes: 'pdf', description: 'Portable Document Format' },
+            { type: 'text/pdf',        suffixes: 'pdf', description: 'Portable Document Format' }
+        ];
+        var plugins = pluginDefs.map(function(def) {
+            var plugin = Object.create(null);
+            var mimes = mimeTypeDefs.map(function(mt) {
+                var mimeObj = Object.create(null);
+                Object.defineProperties(mimeObj, {
+                    type:          { value: mt.type,        enumerable: true, configurable: true },
+                    suffixes:      { value: mt.suffixes,    enumerable: true, configurable: true },
+                    description:   { value: mt.description, enumerable: true, configurable: true },
+                    enabledPlugin: { get: function() { return plugin; }, enumerable: true, configurable: true }
+                });
+                return mimeObj;
+            });
+            mimes.forEach(function(mt, i) { plugin[i] = mt; });
+            Object.defineProperties(plugin, {
+                name:              { value: def.name,        enumerable: true,  configurable: true },
+                description:       { value: def.description, enumerable: true,  configurable: true },
+                filename:          { value: def.filename,    enumerable: true,  configurable: true },
+                length:            { value: mimes.length,    enumerable: true,  configurable: true },
+                item:              { value: function(n) { return plugin[n] || null; }, enumerable: false, configurable: true },
+                namedItem:         { value: function(n) { return mimes.find(function(m) { return m.type === n; }) || null; }, enumerable: false, configurable: true },
+                [Symbol.iterator]: { value: function*() { for (var i = 0; i < mimes.length; i++) yield mimes[i]; }, enumerable: false, configurable: true }
+            });
+            return plugin;
+        });
+        var pluginArray = Object.create(null);
+        plugins.forEach(function(p, i) { pluginArray[i] = p; pluginArray[p.name] = p; });
+        Object.defineProperties(pluginArray, {
+            length:            { value: plugins.length, enumerable: true,  configurable: true },
+            item:              { value: function(n) { return pluginArray[n] || null; }, enumerable: false, configurable: true },
+            namedItem:         { value: function(n) { return pluginArray[n] || null; }, enumerable: false, configurable: true },
+            refresh:           { value: function() {}, enumerable: false, configurable: true },
+            [Symbol.iterator]: { value: function*() { for (var i = 0; i < plugins.length; i++) yield plugins[i]; }, enumerable: false, configurable: true }
+        });
+        var allMimes = mimeTypeDefs.map(function(mt) {
+            var mimeObj = Object.create(null);
+            Object.defineProperties(mimeObj, {
+                type:          { value: mt.type,        enumerable: true, configurable: true },
+                suffixes:      { value: mt.suffixes,    enumerable: true, configurable: true },
+                description:   { value: mt.description, enumerable: true, configurable: true },
+                enabledPlugin: { value: plugins[0],     enumerable: true, configurable: true }
+            });
+            return mimeObj;
+        });
+        var mimeTypeArray = Object.create(null);
+        allMimes.forEach(function(mt, i) { mimeTypeArray[i] = mt; mimeTypeArray[mt.type] = mt; });
+        Object.defineProperties(mimeTypeArray, {
+            length:            { value: allMimes.length, enumerable: true,  configurable: true },
+            item:              { value: function(n) { return mimeTypeArray[n] || null; }, enumerable: false, configurable: true },
+            namedItem:         { value: function(n) { return mimeTypeArray[n] || null; }, enumerable: false, configurable: true },
+            [Symbol.iterator]: { value: function*() { for (var i = 0; i < allMimes.length; i++) yield allMimes[i]; }, enumerable: false, configurable: true }
+        });
+        Object.defineProperty(Navigator.prototype, 'plugins', {
+            get: makeNative(function plugins() { return pluginArray; }, 'plugins'),
+            enumerable: true, configurable: true
+        });
+        Object.defineProperty(Navigator.prototype, 'mimeTypes', {
+            get: makeNative(function mimeTypes() { return mimeTypeArray; }, 'mimeTypes'),
+            enumerable: true, configurable: true
+        });
+    })();
+
+    // --- Restore window.chrome APIs stripped by Ungoogled Chromium ---
+    var chromeVal = {
+        app: {
+            isInstalled: false,
+            InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
+            RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' }
+        },
+        runtime: {
+            OnInstalledReason: { CHROME_UPDATE: 'chrome_update', INSTALL: 'install', SHARED_MODULE_UPDATE: 'shared_module_update', UPDATE: 'update' },
+            OnRestartRequiredReason: { APP_UPDATE: 'app_update', GC_PRESSURE: 'gc_pressure', OS_UPDATE: 'os_update' },
+            PlatformArch: { ARM: 'arm', ARM64: 'arm64', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' },
+            PlatformNaclArch: { ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' },
+            PlatformOs: { ANDROID: 'android', CROS: 'cros', LINUX: 'linux', MAC: 'mac', OPENBSD: 'openbsd', WIN: 'win' },
+            RequestUpdateCheckStatus: { NO_UPDATE: 'no_update', THROTTLED: 'throttled', UPDATE_AVAILABLE: 'update_available' }
+        },
+        csi: function() { return { startE: Date.now(), onloadT: Date.now(), pageT: Math.random() * 5000, tran: 15 }; },
+        loadTimes: function() { return { commitLoadTime: Date.now() / 1000, connectionInfo: 'h2', finishDocumentLoadTime: 0, finishLoadTime: 0, firstPaintAfterLoadTime: 0, firstPaintTime: 0, navigationType: 'Other', npnNegotiatedProtocol: 'h2', requestTime: Date.now() / 1000, startLoadTime: Date.now() / 1000, wasAlternateProtocolAvailable: false, wasFetchedViaSpdy: true, wasNpnNegotiated: true }; }
+    };
+    try {
+        if (!window.chrome) {
+            // chrome hoàn toàn không tồn tại (Ungoogled Chromium không có extension)
+            Object.defineProperty(window, 'chrome', { writable: true, enumerable: true, configurable: true, value: chromeVal });
+            console.log('[GZ] window.chrome defined from scratch');
+        } else {
+            // chrome tồn tại nhưng thiếu app/csi/loadTimes — thêm vào
+            if (!window.chrome.app) window.chrome.app = chromeVal.app;
+            if (!window.chrome.csi) window.chrome.csi = chromeVal.csi;
+            if (!window.chrome.loadTimes) window.chrome.loadTimes = chromeVal.loadTimes;
+            console.log('[GZ] window.chrome patched (app/csi/loadTimes added)');
+        }
+    } catch(e) {
+        console.warn('[GZ] window.chrome patch failed:', e.message);
+    }
+    console.log('[GZ] chrome.app:', typeof window.chrome, typeof window.chrome.app, typeof window.chrome.csi);
+    // Intercept eval to log what Pixelscan is testing
+    try {
+        var _origEval = window.eval;
+        var _evalPatched = function eval(code) {
+            if (typeof code === 'string' && code.length < 400) {
+                console.log('[GZ] eval(' + code.length + '):', code.substring(0, 120));
+            }
+            return _origEval.call(this, code);
+        };
+        Object.defineProperty(window, 'eval', { value: _evalPatched, writable: true, configurable: true });
+        _nativeRegistry.set(_evalPatched, 'function eval() { [native code] }');
+    } catch(e) { console.warn('[GZ] eval intercept failed:', e.message); }
+    console.log('[GZ] plugins:', navigator.plugins.length, '| plugins[0]:', navigator.plugins[0] && navigator.plugins[0].name);
+})();`;
     await fs.writeJson(path.join(extDir, 'manifest.json'), manifest);
     await fs.writeFile(path.join(extDir, 'content.js'), scriptContent);
 
@@ -1397,6 +1611,168 @@ ipcMain.handle('delete-profile', async (event, id) => {
 });
 ipcMain.handle('get-settings', async () => { if (fs.existsSync(SETTINGS_FILE)) return fs.readJson(SETTINGS_FILE); return { preProxies: [], mode: 'single', enablePreProxy: false, enableRemoteDebugging: false }; });
 ipcMain.handle('save-settings', async (e, settings) => { await fs.writeJson(SETTINGS_FILE, settings); return true; });
+ipcMain.handle('get-chrome-path', async () => {
+    const current = getChromiumPath();
+    const settings = fs.existsSync(SETTINGS_FILE) ? await fs.readJson(SETTINGS_FILE) : {};
+    return { current, custom: settings.customChromePath || '' };
+});
+
+ipcMain.handle('select-chrome-binary', async () => {
+    const { filePaths } = await dialog.showOpenDialog({
+        properties: ['openFile'],
+        title: 'Select Chrome / Fingerprint-Chromium binary',
+        filters: process.platform === 'win32'
+            ? [{ name: 'Executable', extensions: ['exe'] }]
+            : [{ name: 'All Files', extensions: ['*'] }]
+    });
+    if (!filePaths || filePaths.length === 0) return null;
+    const selected = filePaths[0];
+    const settings = fs.existsSync(SETTINGS_FILE) ? await fs.readJson(SETTINGS_FILE) : {};
+    settings.customChromePath = selected;
+    await fs.writeJson(SETTINGS_FILE, settings);
+    return selected;
+});
+
+ipcMain.handle('clear-chrome-binary', async () => {
+    const settings = fs.existsSync(SETTINGS_FILE) ? await fs.readJson(SETTINGS_FILE) : {};
+    delete settings.customChromePath;
+    await fs.writeJson(SETTINGS_FILE, settings);
+    return true;
+});
+
+ipcMain.handle('check-fingerprint-chromium', async () => {
+    const exePath = getFingerprintChromiumPath();
+    if (!exePath) return { installed: false };
+    try {
+        const metaPath = path.join(FINGERPRINT_CHROMIUM_DIR, 'fp-meta.json');
+        const meta = fs.existsSync(metaPath) ? fs.readJsonSync(metaPath) : {};
+        return { installed: true, path: exePath, version: meta.version || 'unknown' };
+    } catch (e) {
+        return { installed: true, path: exePath, version: 'unknown' };
+    }
+});
+
+ipcMain.handle('download-fingerprint-chromium', async (event) => {
+    const sender = event.sender;
+    const sendProgress = (stage, percent) => {
+        try { sender.send('fp-chromium-progress', { stage, percent }); } catch (e) {}
+    };
+
+    try {
+        sendProgress('Fetching release info...', 2);
+
+        // 1. Get latest release from GitHub API
+        const releaseData = await new Promise((resolve, reject) => {
+            https.get(
+                'https://api.github.com/repos/adryfish/fingerprint-chromium/releases/latest',
+                { headers: { 'User-Agent': 'GeekezBrowser/1.4.0' } },
+                (res) => {
+                    let body = '';
+                    res.on('data', d => body += d);
+                    res.on('end', () => {
+                        try { resolve(JSON.parse(body)); }
+                        catch (e) { reject(new Error('Failed to parse release info')); }
+                    });
+                    res.on('error', reject);
+                }
+            ).on('error', reject);
+        });
+
+        const version = releaseData.tag_name;
+        if (!version) throw new Error('No release found on GitHub');
+
+        const asset = (releaseData.assets || []).find(a => a.name.includes('windows_x64.zip'));
+        if (!asset) throw new Error('Windows x64 zip not found in release assets');
+
+        const sizeMB = Math.round(asset.size / 1024 / 1024);
+        sendProgress(`Downloading ${asset.name} (${sizeMB} MB)...`, 5);
+
+        // 2. Download with redirect-following and progress
+        const tempFile = path.join(app.getPath('temp'), `fp-chromium-${version}.zip`);
+        const total = asset.size;
+
+        await new Promise((resolve, reject) => {
+            const file = fs.createWriteStream(tempFile);
+            let received = 0;
+
+            function doGet(url) {
+                https.get(url, { headers: { 'User-Agent': 'GeekezBrowser/1.4.0' } }, (res) => {
+                    if ([301, 302, 307, 308].includes(res.statusCode)) {
+                        res.resume(); // drain redirect body so stream closes cleanly
+                        return doGet(res.headers.location);
+                    }
+                    if (res.statusCode !== 200) {
+                        res.resume();
+                        return reject(new Error(`HTTP ${res.statusCode} downloading binary`));
+                    }
+                    res.on('data', chunk => {
+                        received += chunk.length;
+                        file.write(chunk);
+                        const pct = Math.round((received / total) * 75) + 5;
+                        const mb = Math.round(received / 1024 / 1024);
+                        sendProgress(`Downloading... ${mb}/${sizeMB} MB`, pct);
+                    });
+                    res.on('end', () => { file.end(); resolve(); });
+                    res.on('error', reject);
+                }).on('error', reject);
+            }
+            doGet(asset.browser_download_url);
+        });
+
+        // 3. Extract zip
+        sendProgress('Extracting...', 82);
+        fs.ensureDirSync(FINGERPRINT_CHROMIUM_DIR);
+        fs.emptyDirSync(FINGERPRINT_CHROMIUM_DIR);
+
+        const AdmZip = require('adm-zip');
+        const zip = new AdmZip(tempFile);
+        zip.extractAllTo(FINGERPRINT_CHROMIUM_DIR, true);
+
+        sendProgress('Locating chrome.exe...', 93);
+
+        // 4. If chrome.exe is nested in a subdirectory, flatten it
+        function findExe(dir, target) {
+            for (const entry of fs.readdirSync(dir)) {
+                const full = path.join(dir, entry);
+                if (fs.statSync(full).isDirectory()) {
+                    const r = findExe(full, target);
+                    if (r) return r;
+                } else if (entry === target) return full;
+            }
+            return null;
+        }
+
+        const exeName = process.platform === 'win32' ? 'chrome.exe' : 'chrome';
+        let exePath = findExe(FINGERPRINT_CHROMIUM_DIR, exeName);
+        if (!exePath) throw new Error(`${exeName} not found after extraction`);
+
+        const exeDir = path.dirname(exePath);
+        if (exeDir !== FINGERPRINT_CHROMIUM_DIR) {
+            for (const entry of fs.readdirSync(exeDir)) {
+                fs.moveSync(
+                    path.join(exeDir, entry),
+                    path.join(FINGERPRINT_CHROMIUM_DIR, entry),
+                    { overwrite: true }
+                );
+            }
+            exePath = path.join(FINGERPRINT_CHROMIUM_DIR, exeName);
+        }
+
+        // 5. Save metadata and cleanup
+        fs.writeJsonSync(path.join(FINGERPRINT_CHROMIUM_DIR, 'fp-meta.json'), {
+            version, downloadedAt: new Date().toISOString(), source: 'adryfish/fingerprint-chromium'
+        });
+        try { fs.removeSync(tempFile); } catch (e) {}
+
+        sendProgress('Done!', 100);
+        return { success: true, version, path: exePath };
+
+    } catch (err) {
+        sendProgress(`Error: ${err.message}`, -1);
+        throw err;
+    }
+});
+
 ipcMain.handle('select-extension-folder', async () => {
     const { filePaths } = await dialog.showOpenDialog({
         properties: ['openDirectory'],
@@ -2138,10 +2514,13 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
         profile.fingerprint.languages = [targetLang, targetLang.split('-')[0]];
 
         // --- DEBUG: Log full fingerprint state before launch ---
+        const chromePath = getChromiumPath();
         debugLog('PROFILE_LAUNCH', {
             id:   profileId,
             name: profile.name,
             proxy: profile.proxyStr ? profile.proxyStr.split(':').slice(0,2).join(':') + ':***' : 'none',
+            chromeBinary: chromePath || 'NOT FOUND',
+            usingFpChromium: isFingerprintChromium(chromePath),
             fingerprint: {
                 timezone:            profile.fingerprint.timezone,
                 language:            profile.fingerprint.language,
@@ -2163,7 +2542,7 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
 
         // 1. 生成 GeekEZ Guard 扩展（使用传递的水印样式）
         const style = watermarkStyle || 'enhanced'; // 默认使用增强水印
-        const extPath = await generateExtension(profileDir, profile.fingerprint, profile.name, style, profileId);
+        const extPath = await generateExtension(profileDir, profile.fingerprint, profile.name, style, profileId, isFingerprintChromium(chromePath));
 
         // 2. 获取用户自定义扩展
         const userExts = settings.userExtensions || [];
@@ -2227,10 +2606,26 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
         }
 
         // 5. 启动浏览器
-        const chromePath = getChromiumPath();
         if (!chromePath) {
             await forceKill(xrayProcess.pid);
             throw new Error("Chrome binary not found.");
+        }
+
+        // Fingerprint-Chromium: platform/brand flags only — no --fingerprint canvas noise.
+        // The --fingerprint flag causes Pixelscan C2/C4/C10 canvas test failures because
+        // the noise applied in the main frame differs from Web Worker context (content scripts
+        // don't inject into Workers), creating a cross-context hash mismatch → "Masking detected".
+        // Real GPU canvas values (RTX 3060 on this machine) are legitimate Chrome fingerprints.
+        if (isFingerprintChromium(chromePath)) {
+            launchArgs.push('--fingerprint-platform=windows');
+            launchArgs.push('--fingerprint-brand=Chrome');
+            if (profile.fingerprint?.hardwareConcurrency) {
+                launchArgs.push(`--fingerprint-hardware-concurrency=${profile.fingerprint.hardwareConcurrency}`);
+            }
+            if (profile.fingerprint?.timezone && profile.fingerprint.timezone !== 'Auto') {
+                launchArgs.push(`--timezone=${profile.fingerprint.timezone}`);
+            }
+            console.log(`[FP-Chromium] platform=windows, brand=Chrome (no canvas noise)`);
         }
 
         // 时区设置

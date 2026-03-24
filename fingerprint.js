@@ -348,27 +348,37 @@ function getInjectScript(fp, profileName, watermarkStyle) {
             ['$cdc_asdjflasutopfhvcZLmcfl_', '$chrome_asyncScriptInfo', 'callPhantom', 'webdriver'].forEach(k => {
                 if (window[k]) { try { delete window[k]; } catch(e) {} }
             });
-            Object.defineProperty(window, 'chrome', {
-                writable: true, enumerable: true, configurable: false,
-                value: { app: { isInstalled: false, InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' }, RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' } }, runtime: { OnInstalledReason: { CHROME_UPDATE: 'chrome_update', INSTALL: 'install', SHARED_MODULE_UPDATE: 'shared_module_update', UPDATE: 'update' }, OnRestartRequiredReason: { APP_UPDATE: 'app_update', OS_UPDATE: 'os_update', PERIODIC: 'periodic' }, PlatformArch: { ARM: 'arm', ARM64: 'arm64', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' }, PlatformNaclArch: { ARM: 'arm', MIPS: 'mips', X86_32: 'x86-32', X86_64: 'x86-64' }, PlatformOs: { ANDROID: 'android', CROS: 'cros', LINUX: 'linux', MAC: 'mac', OPENBSD: 'openbsd', WIN: 'win' }, RequestUpdateCheckStatus: { NO_UPDATE: 'no_update', THROTTLED: 'throttled', UPDATE_AVAILABLE: 'update_available' } } }
-            });
+            // Patch window.chrome: add missing APIs without replacing the entire object.
+            // Replacing chrome entirely strips chrome.runtime methods (sendMessage, connect, etc.)
+            // which exist in real Chrome on web pages — Pixelscan uses their presence for version detection.
+            // In Ungoogled Chromium chrome.app/csi/loadTimes are missing; in regular Chrome they exist.
+            (function() {
+                const _app = { isInstalled: false, InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' }, RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' } };
+                const _runtimeEnums = { OnInstalledReason: { CHROME_UPDATE: 'chrome_update', INSTALL: 'install', SHARED_MODULE_UPDATE: 'shared_module_update', UPDATE: 'update' }, OnRestartRequiredReason: { APP_UPDATE: 'app_update', OS_UPDATE: 'os_update', PERIODIC: 'periodic' }, PlatformArch: { ARM: 'arm', ARM64: 'arm64', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' }, PlatformNaclArch: { ARM: 'arm', MIPS: 'mips', X86_32: 'x86-32', X86_64: 'x86-64' }, PlatformOs: { ANDROID: 'android', CROS: 'cros', LINUX: 'linux', MAC: 'mac', OPENBSD: 'openbsd', WIN: 'win' }, RequestUpdateCheckStatus: { NO_UPDATE: 'no_update', THROTTLED: 'throttled', UPDATE_AVAILABLE: 'update_available' } };
+                const _csi = makeNative(function csi() { return { startE: Date.now(), onloadT: Date.now(), pageT: Math.random() * 5000 + 1000, tran: 15 }; }, 'csi');
+                const _loadTimes = makeNative(function loadTimes() { return { commitLoadTime: Date.now() / 1000, connectionInfo: 'h2', finishDocumentLoadTime: 0, finishLoadTime: 0, firstPaintAfterLoadTime: 0, firstPaintTime: 0, navigationType: 'Other', npnNegotiatedProtocol: 'h2', requestTime: Date.now() / 1000, startLoadTime: Date.now() / 1000, wasAlternateProtocolAvailable: false, wasFetchedViaSpdy: true, wasNpnNegotiated: true }; }, 'loadTimes');
+                try {
+                    if (!window.chrome) {
+                        Object.defineProperty(window, 'chrome', { writable: true, enumerable: true, configurable: true, value: { app: _app, runtime: _runtimeEnums, csi: _csi, loadTimes: _loadTimes } });
+                    } else {
+                        // Patch missing properties — preserve existing runtime methods (sendMessage, connect etc.)
+                        if (!window.chrome.app) window.chrome.app = _app;
+                        if (!window.chrome.csi) window.chrome.csi = _csi;
+                        if (!window.chrome.loadTimes) window.chrome.loadTimes = _loadTimes;
+                        if (window.chrome.runtime && !window.chrome.runtime.OnInstalledReason) {
+                            Object.assign(window.chrome.runtime, _runtimeEnums);
+                        }
+                    }
+                } catch(e) {}
+            })();
 
             // --- 2. Screen Resolution ---
-            if (fp.screen && fp.screen.width) {
-                const sw = fp.screen.width, sh = fp.screen.height;
-                Object.defineProperty(screen, 'width',       { get: makeNative(function width()       { return sw; }, 'width'), configurable: true });
-                Object.defineProperty(screen, 'height',      { get: makeNative(function height()      { return sh; }, 'height'), configurable: true });
-                Object.defineProperty(screen, 'availWidth',  { get: makeNative(function availWidth()  { return sw; }, 'availWidth'), configurable: true });
-                Object.defineProperty(screen, 'availHeight', { get: makeNative(function availHeight() { return sh - 40; }, 'availHeight'), configurable: true });
-                Object.defineProperty(window, 'outerWidth',  { get: makeNative(function outerWidth()  { return sw; }, 'outerWidth'), configurable: true });
-                Object.defineProperty(window, 'outerHeight', { get: makeNative(function outerHeight() { return sh; }, 'outerHeight'), configurable: true });
-                // devicePixelRatio must match resolution — otherwise Pixelscan shows "2049x1152"
-                // (it computes: physical = screen.width * devicePixelRatio)
-                if (fp.devicePixelRatio) {
-                    const dpr = fp.devicePixelRatio;
-                    Object.defineProperty(window, 'devicePixelRatio', { get: makeNative(function devicePixelRatio() { return dpr; }, 'devicePixelRatio'), configurable: true });
-                }
-            }
+            // DISABLED: JS screen override conflicts with CSS matchMedia (matchMedia uses real OS screen
+            // size, JS screen API uses spoofed value) → Pixelscan detects JS/CSS inconsistency and
+            // downgrades detected browser version to "Chrome 79 or below".
+            // Screen must be overridden at OS/CDP level (Emulation.setDeviceMetricsOverride) to be
+            // consistent. JS-only override is detectable and counterproductive.
+            // if (fp.screen && fp.screen.width) { ... }
 
             // --- 3. Hardware Concurrency + Device Memory — mode "real" (no hooks) ---
             // Navigator.prototype hooks don't apply to WorkerNavigator — Workers expose
@@ -411,17 +421,12 @@ function getInjectScript(fp, profileName, watermarkStyle) {
             // mismatch between contexts → "Masking detected".
             // Solution: let audio return real hardware values everywhere (mode "real").
 
-            // --- 8. WebRTC Protection ---
-            const origPC = window.RTCPeerConnection;
-            if (origPC) {
-                const hookedPC = function RTCPeerConnection(config) {
-                    if (!config) config = {};
-                    config.iceTransportPolicy = 'relay';
-                    return new origPC(config);
-                };
-                hookedPC.prototype = origPC.prototype;
-                window.RTCPeerConnection = makeNative(hookedPC, 'RTCPeerConnection');
-            }
+            // --- 8. WebRTC Protection — mode "real" (no JS hook) ---
+            // Browser-level flags handle this: --force-webrtc-ip-handling-policy=disable_non_proxied_udp
+            // and Preferences webrtc.ip_handling_policy = 'disable_non_proxied_udp'.
+            // JS hook on RTCPeerConnection in main frame creates a mismatch with Workers
+            // (Workers have self.RTCPeerConnection, extension content scripts don't run there)
+            // causing Pixelscan "Masking detected". Rely on browser flags only.
 
             // --- 9. navigator.plugins + navigator.mimeTypes ---
             // Real Chrome 90+ always has 5 PDF plugins. Headless has 0 — instant detection.

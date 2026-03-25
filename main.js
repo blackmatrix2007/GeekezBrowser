@@ -59,6 +59,7 @@ function getCustomDataPath() {
 const DATA_PATH = getCustomDataPath();
 const TRASH_PATH = path.join(app.getPath('userData'), '_Trash_Bin');
 const PROFILES_FILE = path.join(DATA_PATH, 'profiles.json');
+const GROUPS_FILE   = path.join(DATA_PATH, 'groups.json');
 const SETTINGS_FILE = path.join(DATA_PATH, 'settings.json');
 
 fs.ensureDirSync(DATA_PATH);
@@ -1564,6 +1565,46 @@ ipcMain.handle('save-profile', async (event, data) => {
 
     return newProfile;
 });
+
+// --- Profile Groups ---
+function readGroups() {
+    if (!fs.existsSync(GROUPS_FILE)) return [];
+    try { return fs.readJsonSync(GROUPS_FILE); } catch (e) { return []; }
+}
+ipcMain.handle('get-groups', () => readGroups());
+ipcMain.handle('save-group', async (event, data) => {
+    const groups = readGroups();
+    const group = { id: uuidv4(), name: data.name, createdAt: Date.now() };
+    groups.push(group);
+    await fs.writeJson(GROUPS_FILE, groups);
+    return group;
+});
+ipcMain.handle('update-group', async (event, updated) => {
+    const groups = readGroups();
+    const idx = groups.findIndex(g => g.id === updated.id);
+    if (idx > -1) { groups[idx] = { ...groups[idx], ...updated }; await fs.writeJson(GROUPS_FILE, groups); return true; }
+    return false;
+});
+ipcMain.handle('delete-group', async (event, id) => {
+    // Remove group and unassign all profiles in that group
+    let groups = readGroups();
+    groups = groups.filter(g => g.id !== id);
+    await fs.writeJson(GROUPS_FILE, groups);
+    if (fs.existsSync(PROFILES_FILE)) {
+        let profiles = await fs.readJson(PROFILES_FILE);
+        profiles = profiles.map(p => p.groupId === id ? { ...p, groupId: null } : p);
+        await fs.writeJson(PROFILES_FILE, profiles);
+    }
+    return true;
+});
+ipcMain.handle('assign-profile-group', async (event, { profileId, groupId }) => {
+    if (!fs.existsSync(PROFILES_FILE)) return false;
+    let profiles = await fs.readJson(PROFILES_FILE);
+    const idx = profiles.findIndex(p => p.id === profileId);
+    if (idx > -1) { profiles[idx].groupId = groupId || null; await fs.writeJson(PROFILES_FILE, profiles); return true; }
+    return false;
+});
+
 ipcMain.handle('delete-profile', async (event, id) => {
     // 关闭正在运行的进程
     if (activeProcesses[id]) {

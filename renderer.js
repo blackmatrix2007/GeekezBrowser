@@ -7,6 +7,9 @@ let currentProxyGroup = 'manual';
 let inputCallback = null;
 let searchText = '';
 let viewMode = localStorage.getItem('geekez_view') || 'list';
+let allGroups = [];          // profile groups cache
+let currentGroupFilter = ''; // '' = all, groupId = filter by group
+let assignGroupProfileId = null; // profile being moved to group
 
 // Custom City Dropdown Initialization (Matches Timezone Logic)
 function initCustomCityDropdown(inputId, dropdownId) {
@@ -370,7 +373,7 @@ function applyLang() {
     const themeSel = document.getElementById('themeSelect');
     if (themeSel) { themeSel.options[0].text = t('themeGeek'); themeSel.options[1].text = t('themeLight'); themeSel.options[2].text = t('themeDark'); }
     renderHelpContent();
-    updateToolbar(); loadProfiles(); renderGroupTabs();
+    updateToolbar(); loadGroups().then(() => loadProfiles()); renderGroupTabs();
 }
 
 function toggleLang() {
@@ -713,6 +716,7 @@ function stringToColor(str) {
 async function loadProfiles() {
     try {
         const profiles = await window.electronAPI.getProfiles();
+        window._cachedProfiles = profiles; // cache for group assignment modal
         const runningIds = await window.electronAPI.getRunningIds();
         const listEl = document.getElementById('profileList');
 
@@ -727,10 +731,12 @@ async function loadProfiles() {
         listEl.innerHTML = '';
         const filtered = profiles.filter(p => {
             const text = searchText;
-            // 搜索逻辑增强：支持搜标签
-            return p.name.toLowerCase().includes(text) ||
+            const matchSearch = p.name.toLowerCase().includes(text) ||
                 p.proxyStr.toLowerCase().includes(text) ||
                 (p.tags && p.tags.some(t => t.toLowerCase().includes(text)));
+            const matchGroup = !currentGroupFilter ||
+                (currentGroupFilter === '__none__' ? !p.groupId : p.groupId === currentGroupFilter);
+            return matchSearch && matchGroup;
         });
 
         if (filtered.length === 0) {
@@ -754,11 +760,16 @@ async function loadProfiles() {
                 ).join('');
             }
 
+            const groupOfProfile = allGroups.find(g => g.id === p.groupId);
+            const groupBadge = groupOfProfile
+                ? `<span style="font-size:11px;opacity:0.6;margin-left:6px;">📁 ${groupOfProfile.name}</span>`
+                : '';
+
             const el = document.createElement('div');
             el.className = 'profile-item no-drag';
             el.innerHTML = `
                 <div class="profile-info">
-                    <div style="display:flex; align-items:center;"><h4>${p.name}</h4><span id="status-${p.id}" class="running-badge ${isRunning ? 'active' : ''}">${t('runningStatus')}</span></div>
+                    <div style="display:flex; align-items:center;"><h4>${p.name}</h4><span id="status-${p.id}" class="running-badge ${isRunning ? 'active' : ''}">${t('runningStatus')}</span>${groupBadge}</div>
                     <div class="profile-meta">
                         ${tagsHtml} <!-- 插入标签 -->
                         <span class="tag">${p.proxyStr.split('://')[0].toUpperCase() || 'N/A'}</span>
@@ -772,7 +783,7 @@ async function loadProfiles() {
                         </span>
                     </div>
                 </div>
-                <div class="actions"><button onclick="launch('${p.id}')" class="no-drag">${t('launch')}</button><button class="outline no-drag" onclick="openEditModal('${p.id}')">${t('edit')}</button>${isRunning ? `<button class="outline no-drag" onclick="openVerifyModal('${p.id}')" title="Auto-verify fingerprint">Verify</button>` : ''}<button class="danger no-drag" onclick="remove('${p.id}')">${t('delete')}</button></div>
+                <div class="actions"><button onclick="launch('${p.id}')" class="no-drag">${t('launch')}</button><button class="outline no-drag" onclick="openEditModal('${p.id}')">${t('edit')}</button><button class="outline no-drag" onclick="openAssignGroup('${p.id}')" title="Move to group">📁</button>${isRunning ? `<button class="outline no-drag" onclick="openVerifyModal('${p.id}')" title="Auto-verify fingerprint">Verify</button>` : ''}<button class="danger no-drag" onclick="remove('${p.id}')">${t('delete')}</button></div>
             `;
             listEl.appendChild(el);
         });
@@ -1900,10 +1911,86 @@ function switchSettingsTab(tabName) {
         section.style.display = 'none';
     });
     document.getElementById('settings-' + tabName).style.display = 'block';
+    if (tabName === 'chrome') loadChromePath();
 }
 // ============================================================================
 // Extension Management Functions
 // ============================================================================
+async function loadChromePath() {
+    const info = await window.electronAPI.getChromePath();
+    const el = document.getElementById('chrome-path-display');
+    if (el) el.textContent = info.current || 'Not found';
+    checkFpChromium();
+}
+
+async function checkFpChromium() {
+    const statusEl = document.getElementById('fp-chromium-status');
+    const btnEl = document.getElementById('fp-chromium-btn');
+    if (!statusEl) return;
+    try {
+        const result = await window.electronAPI.checkFingerprintChromium();
+        if (result.installed) {
+            statusEl.textContent = `Installed — v${result.version}`;
+            statusEl.style.color = 'var(--success, #22c55e)';
+            if (btnEl) { btnEl.textContent = 'Update'; btnEl.disabled = false; }
+        } else {
+            statusEl.textContent = 'Not installed';
+            statusEl.style.color = '';
+            if (btnEl) { btnEl.textContent = 'Download'; btnEl.disabled = false; }
+        }
+    } catch (e) {
+        if (statusEl) statusEl.textContent = 'Check failed';
+    }
+}
+
+let _fpProgressListenerAttached = false;
+async function downloadFpChromium() {
+    const btn = document.getElementById('fp-chromium-btn');
+    const wrap = document.getElementById('fp-chromium-progress-wrap');
+    const bar = document.getElementById('fp-chromium-bar');
+    const txt = document.getElementById('fp-chromium-progress-text');
+    const statusEl = document.getElementById('fp-chromium-status');
+
+    if (btn) btn.disabled = true;
+    if (wrap) wrap.style.display = 'block';
+    if (bar) bar.style.width = '0%';
+    if (txt) txt.textContent = 'Starting...';
+
+    if (!_fpProgressListenerAttached) {
+        _fpProgressListenerAttached = true;
+        window.electronAPI.onFpChromiumProgress((data) => {
+            if (bar) bar.style.width = Math.max(0, data.percent) + '%';
+            if (txt) txt.textContent = data.stage;
+            if (data.percent === 100) {
+                if (btn) { btn.textContent = 'Update'; btn.disabled = false; }
+                if (statusEl) { statusEl.textContent = 'Installed'; statusEl.style.color = 'var(--success, #22c55e)'; }
+                setTimeout(() => { if (wrap) wrap.style.display = 'none'; }, 3000);
+                loadChromePath();
+            } else if (data.percent < 0) {
+                if (btn) { btn.textContent = 'Retry'; btn.disabled = false; }
+            }
+        });
+    }
+
+    try {
+        await window.electronAPI.downloadFingerprintChromium();
+    } catch (err) {
+        if (txt) txt.textContent = 'Failed: ' + (err.message || err);
+        if (btn) { btn.textContent = 'Retry'; btn.disabled = false; }
+    }
+}
+
+async function selectChromeBinary() {
+    const result = await window.electronAPI.selectChromeBinary();
+    if (result) { showAlert('Chrome binary set: ' + result); loadChromePath(); }
+}
+
+async function clearChromeBinary() {
+    await window.electronAPI.clearChromeBinary();
+    showAlert('Reset to default Chrome binary.');
+    loadChromePath();
+}
+
 async function selectExtensionFolder() {
     const path = await window.electronAPI.invoke('select-extension-folder');
     if (path) {
@@ -2173,4 +2260,113 @@ function openVerifyModal(profileId) {
 function closeVerifyModal() {
     const modal = document.getElementById('verify-modal');
     if (modal) modal.style.display = 'none';
+}
+
+// ==================== Profile Groups ====================
+
+async function loadGroups() {
+    allGroups = await window.electronAPI.getGroups();
+    renderGroupFilter();
+}
+
+function renderGroupFilter() {
+    const sel = document.getElementById('groupFilterSelect');
+    if (!sel) return;
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">All Groups</option>' +
+        '<option value="__none__">No Group</option>' +
+        allGroups.map(g => `<option value="${g.id}">${g.name} </option>`).join('');
+    sel.value = prev || '';
+}
+
+function filterByGroup(groupId) {
+    currentGroupFilter = groupId;
+    loadProfiles();
+}
+
+function openGroupManager() {
+    document.getElementById('groupManagerModal').style.display = 'flex';
+    renderGroupManagerList();
+}
+
+function closeGroupManager() {
+    document.getElementById('groupManagerModal').style.display = 'none';
+}
+
+function renderGroupManagerList() {
+    const container = document.getElementById('groupList');
+    if (!container) return;
+    if (allGroups.length === 0) {
+        container.innerHTML = '<div style="text-align:center;opacity:0.5;padding:20px;">No groups yet</div>';
+        return;
+    }
+    container.innerHTML = allGroups.map(g => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 8px;border-bottom:1px solid var(--border);">
+            <span id="group-name-${g.id}" style="flex:1;font-size:14px;">📁 ${g.name}</span>
+            <div style="display:flex;gap:6px;">
+                <button class="outline" style="padding:4px 10px;font-size:12px;" onclick="editGroupInline('${g.id}')">✏️</button>
+                <button class="outline" style="padding:4px 10px;font-size:12px;color:#ef4444;" onclick="deleteGroupConfirm('${g.id}','${g.name.replace(/'/g,"\'")}')">🗑️</button>
+            </div>
+        </div>`).join('');
+}
+
+async function addGroup() {
+    const input = document.getElementById('newGroupInput');
+    const name = input.value.trim();
+    if (!name) return;
+    await window.electronAPI.saveGroup({ name });
+    input.value = '';
+    await loadGroups();
+    renderGroupManagerList();
+}
+
+function editGroupInline(id) {
+    const span = document.getElementById('group-name-' + id);
+    if (!span) return;
+    const group = allGroups.find(g => g.id === id);
+    span.innerHTML = `<input id="edit-g-${id}" class="input" value="${group.name}" style="font-size:13px;padding:4px 8px;width:calc(100% - 16px);"
+        onblur="saveGroupEdit('${id}')" onkeydown="if(event.key==='Enter')saveGroupEdit('${id}');if(event.key==='Escape')renderGroupManagerList();">`;
+    document.getElementById('edit-g-' + id).focus();
+}
+
+async function saveGroupEdit(id) {
+    const input = document.getElementById('edit-g-' + id);
+    if (!input) return;
+    const name = input.value.trim();
+    if (!name) { renderGroupManagerList(); return; }
+    await window.electronAPI.updateGroup({ id, name });
+    await loadGroups();
+    renderGroupManagerList();
+}
+
+function deleteGroupConfirm(id, name) {
+    showConfirm(`Delete group "${name}"? Profiles in this group will be unassigned.`, async () => {
+        await window.electronAPI.deleteGroup(id);
+        await loadGroups();
+        renderGroupManagerList();
+        loadProfiles();
+    });
+}
+
+// Assign profile to group
+function openAssignGroup(profileId) {
+    assignGroupProfileId = profileId;
+    const sel = document.getElementById('assignGroupSelect');
+    const profile = window._cachedProfiles && window._cachedProfiles.find(p => p.id === profileId);
+    sel.innerHTML = '<option value="">Default (No Group)</option>' +
+        allGroups.map(g => `<option value="${g.id}" ${profile && profile.groupId === g.id ? 'selected' : ''}>${g.name}</option>`).join('');
+    document.getElementById('assignGroupModal').style.display = 'flex';
+}
+
+function closeAssignGroup() {
+    document.getElementById('assignGroupModal').style.display = 'none';
+    assignGroupProfileId = null;
+}
+
+async function confirmAssignGroup() {
+    if (!assignGroupProfileId) return;
+    const groupId = document.getElementById('assignGroupSelect').value || null;
+    await window.electronAPI.assignProfileGroup(assignGroupProfileId, groupId);
+    closeAssignGroup();
+    await loadProfiles();
 }

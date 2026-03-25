@@ -31,5 +31,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Chrome for Testing (Google official Chromium — real canvas fingerprint)
     checkChromeForTesting: () => ipcRenderer.invoke('check-chrome-for-testing'),
     downloadChromeForTesting: () => ipcRenderer.invoke('download-chrome-for-testing'),
-    onCftProgress: (callback) => ipcRenderer.on('cft-progress', (event, data) => callback(data))
+    onCftProgress: (callback) => ipcRenderer.on('cft-progress', (event, data) => callback(data)),
+    // Profile Groups
+    getGroups: () => ipcRenderer.invoke('get-groups'),
+    saveGroup: (data) => ipcRenderer.invoke('save-group', data),
+    updateGroup: (data) => ipcRenderer.invoke('update-group', data),
+    deleteGroup: (id) => ipcRenderer.invoke('delete-group', id),
+    assignProfileGroup: (profileId, groupId) => ipcRenderer.invoke('assign-profile-group', { profileId, groupId })
 });

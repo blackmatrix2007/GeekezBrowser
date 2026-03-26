@@ -2297,15 +2297,21 @@ function renderGroupManagerList() {
     const container = document.getElementById('groupList');
     if (!container) return;
     if (allGroups.length === 0) {
-        container.innerHTML = '<div style="text-align:center;opacity:0.5;padding:20px;">No groups yet</div>';
+        container.innerHTML = '<div style="text-align:center;opacity:0.45;padding:24px;font-size:13px;">No groups yet. Create one above.</div>';
         return;
     }
     container.innerHTML = allGroups.map(g => `
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 8px;border-bottom:1px solid var(--border);">
-            <span id="group-name-${g.id}" style="flex:1;font-size:14px;">📁 ${g.name}</span>
-            <div style="display:flex;gap:6px;">
-                <button class="outline" style="padding:4px 10px;font-size:12px;" onclick="editGroupInline('${g.id}')">✏️</button>
-                <button class="outline" style="padding:4px 10px;font-size:12px;color:#ef4444;" onclick="deleteGroupConfirm('${g.id}','${g.name.replace(/'/g,"\'")}')">🗑️</button>
+        <div style="display:flex;align-items:center;padding:9px 4px;border-bottom:1px solid var(--border);gap:8px;"
+             onmouseover="this.style.background='rgba(128,128,128,0.06)'" onmouseout="this.style.background='transparent'">
+            <span style="font-size:14px;opacity:0.7;">📁</span>
+            <span id="group-name-${g.id}" style="flex:1;font-size:13px;color:var(--text-color);">${g.name}</span>
+            <div style="display:flex;gap:4px;flex-shrink:0;">
+                <button onclick="editGroupInline('${g.id}')"
+                    style="background:transparent;border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:12px;cursor:pointer;color:var(--text-color);"
+                    onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">✏️ Rename</button>
+                <button onclick="deleteGroupConfirm('${g.id}','${g.name.replace(/'/g,"\\'")}')"
+                    style="background:transparent;border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:12px;cursor:pointer;color:#ef4444;"
+                    onmouseover="this.style.borderColor='#ef4444'" onmouseout="this.style.borderColor='var(--border)'">🗑️</button>
             </div>
         </div>`).join('');
 }
@@ -2324,7 +2330,8 @@ function editGroupInline(id) {
     const span = document.getElementById('group-name-' + id);
     if (!span) return;
     const group = allGroups.find(g => g.id === id);
-    span.innerHTML = `<input id="edit-g-${id}" class="input" value="${group.name}" style="font-size:13px;padding:4px 8px;width:calc(100% - 16px);"
+    span.innerHTML = `<input id="edit-g-${id}" value="${group.name}"
+        style="font-size:13px;padding:4px 8px;width:100%;border:1px solid var(--accent);border-radius:4px;background:var(--card-bg);color:var(--text-color);outline:none;box-sizing:border-box;"
         onblur="saveGroupEdit('${id}')" onkeydown="if(event.key==='Enter')saveGroupEdit('${id}');if(event.key==='Escape')renderGroupManagerList();">`;
     document.getElementById('edit-g-' + id).focus();
 }

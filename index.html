@@ -1563,6 +1563,16 @@
                                         style="font-size:11px; color:var(--accent); margin-left:auto;"
                                         data-i18n="apiDocs">📄 Docs</a>
                                 </div>
+                                <div style="margin-top:10px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                                    <label style="font-size:12px; opacity:0.7; white-space:nowrap;">API Key:</label>
+                                    <input type="text" id="apiKeyInput" placeholder="Leave empty to disable auth"
+                                        style="flex:1; min-width:200px; padding:6px 10px; border-radius:6px; border:1px solid var(--border); background:var(--input-bg); color:var(--text-primary); font-size:12px; font-family:monospace;">
+                                    <button class="outline" onclick="saveApiKey()"
+                                        style="padding:6px 14px; font-size:11px;">Save</button>
+                                    <button class="outline" onclick="generateApiKey()"
+                                        style="padding:6px 14px; font-size:11px;">Generate</button>
+                                </div>
+                                <p style="margin-top:6px; font-size:11px; opacity:0.5;">Send as <code style="font-size:10px;">X-Api-Key</code> header or <code style="font-size:10px;">?api_key=</code> query param.</p>
                             </div>
                         </div>
                     </div>

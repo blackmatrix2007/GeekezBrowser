@@ -240,7 +240,7 @@ function generateFingerprint() {
         window: { width: res.w, height: res.h },
         languages: ['en-US', 'en'],
         hardwareConcurrency: [4, 8, 12, 16][Math.floor(prng() * 4)],
-        deviceMemory: [4, 8][Math.floor(prng() * 2)],
+        deviceMemory: [4, 8, 16][Math.floor(prng() * 3)],
         canvasNoise: { r: Math.floor(prng() * 5) - 2, g: Math.floor(prng() * 5) - 2, b: Math.floor(prng() * 5) - 2 },
         audioNoise: (prng() * 0.000001 + 0.0000001),
         noiseSeed,

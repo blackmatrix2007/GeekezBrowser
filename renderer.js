@@ -1864,6 +1864,21 @@ async function saveApiPort() {
     }
 }
 
+async function saveApiKey() {
+    const key = document.getElementById('apiKeyInput').value.trim();
+    const settings = await window.electronAPI.getSettings();
+    settings.apiKey = key || null;
+    await window.electronAPI.saveSettings(settings);
+    showAlert(key ? 'API key saved. Restart API server to apply.' : 'API key cleared (no auth).');
+}
+
+function generateApiKey() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let key = '';
+    for (let i = 0; i < 32; i++) key += chars[Math.floor(Math.random() * chars.length)];
+    document.getElementById('apiKeyInput').value = key;
+}
+
 async function loadApiServerSetting() {
     const settings = await window.electronAPI.getSettings();
     const checkbox = document.getElementById('enableApiServer');
@@ -1871,6 +1886,7 @@ async function loadApiServerSetting() {
     const portDisplay = document.getElementById('apiPortDisplay');
     const portSection = document.getElementById('apiPortSection');
     const apiStatus = document.getElementById('apiStatus');
+    const apiKeyInput = document.getElementById('apiKeyInput');
 
     if (checkbox) {
         checkbox.checked = settings.enableApiServer || false;
@@ -1884,6 +1900,9 @@ async function loadApiServerSetting() {
     }
     if (portSection) {
         portSection.style.display = settings.enableApiServer ? 'block' : 'none';
+    }
+    if (apiKeyInput) {
+        apiKeyInput.value = settings.apiKey || '';
     }
 
     // Check if API is running

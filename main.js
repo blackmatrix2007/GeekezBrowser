@@ -83,18 +83,28 @@ let mainWindow = null; // Global reference for API-to-UI communication
 // ============================================================================
 // REST API Server
 // ============================================================================
-function createApiServer(port) {
+function createApiServer(port, apiKey) {
     const server = http.createServer(async (req, res) => {
-        // CORS headers
-        res.setHeader('Access-Control-Allow-Origin', '*');
+        // CORS: restrict to localhost only (server is bound to 127.0.0.1)
+        res.setHeader('Access-Control-Allow-Origin', 'http://localhost');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Api-Key');
         res.setHeader('Content-Type', 'application/json');
 
         if (req.method === 'OPTIONS') {
             res.writeHead(200);
             res.end();
             return;
+        }
+
+        // API key authentication
+        if (apiKey) {
+            const providedKey = req.headers['x-api-key'] || new URL(req.url, `http://localhost:${port}`).searchParams.get('api_key');
+            if (providedKey !== apiKey) {
+                res.writeHead(401);
+                res.end(JSON.stringify({ success: false, error: 'Unauthorized' }));
+                return;
+            }
         }
 
         const url = new URL(req.url, `http://localhost:${port}`);
@@ -469,7 +479,8 @@ ipcMain.handle('start-api-server', async (e, { port }) => {
         return { success: false, error: 'API server already running' };
     }
     try {
-        apiServer = createApiServer(port);
+        const settings = fs.existsSync(SETTINGS_FILE) ? await fs.readJson(SETTINGS_FILE) : {};
+        apiServer = createApiServer(port, settings.apiKey || null);
         await new Promise((resolve, reject) => {
             apiServer.listen(port, '127.0.0.1', () => resolve());
             apiServer.on('error', reject);
@@ -1027,7 +1038,7 @@ function syncToElectron(passwords) {
         body: JSON.stringify({ profileId: PROFILE_ID, passwords })
     }).then(r => r.json())
       .then(res => console.log('Sync to Electron success:', res))
-      .catch(err => console.error('Sync to Electron falied:', err));
+      .catch(err => console.error('Sync to Electron failed:', err));
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -1361,7 +1372,7 @@ app.whenReady().then(async () => {
             const settings = await fs.readJson(SETTINGS_FILE);
             if (settings.enableApiServer && !apiServerRunning) {
                 const port = settings.apiPort || 12138;
-                apiServer = createApiServer(port);
+                apiServer = createApiServer(port, settings.apiKey || null);
                 apiServer.listen(port, '127.0.0.1', () => {
                     apiServerRunning = true;
                     console.log(`🔌 Public API Server auto-started on http://localhost:${port}`);

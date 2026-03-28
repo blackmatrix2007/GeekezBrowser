@@ -51,14 +51,115 @@
 
         body {
             font-family: 'Segoe UI', 'Roboto Mono', monospace;
-            padding: 20px;
             background: var(--bg-color);
             color: var(--text-primary);
             margin: 0;
             overflow: hidden;
             transition: background var(--transition-speed);
-            padding-top: 40px !important;
+            display: flex;
+            height: 100vh;
             -webkit-app-region: drag;
+        }
+
+        /* ===== SIDEBAR ===== */
+        .sidebar {
+            width: 220px;
+            min-width: 220px;
+            background: #151b2d;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            -webkit-app-region: drag;
+            padding-top: 30px;
+            box-sizing: border-box;
+        }
+
+        .sidebar-logo {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 14px 16px 20px 16px;
+            -webkit-app-region: no-drag;
+            cursor: default;
+            user-select: none;
+            font-family: 'Courier New', monospace;
+            transform: skewX(-10deg);
+        }
+
+        .sidebar-logo .logo-svg { height: 26px; width: auto; }
+        .sidebar-logo .logo-text {
+            font-size: 22px;
+            font-weight: bold;
+            color: #ffffff;
+            letter-spacing: -1px;
+            display: flex;
+            align-items: baseline;
+        }
+        .sidebar-logo .logo-text .highlight {
+            color: #00e0ff;
+            text-shadow: 0 0 5px #00e0ff;
+            margin-left: 1px;
+        }
+        .sidebar-logo .logo-text .ver {
+            font-size: 11px;
+            opacity: 0.5;
+            font-weight: normal;
+            margin-left: 6px;
+            transform: skewX(10deg);
+        }
+
+        .sidebar-section {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: rgba(255,255,255,0.3);
+            padding: 8px 16px 4px 16px;
+            font-weight: bold;
+        }
+
+        .sidebar-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 16px;
+            color: rgba(255,255,255,0.6);
+            cursor: pointer;
+            font-size: 13px;
+            transition: 0.15s;
+            -webkit-app-region: no-drag;
+            border-left: 3px solid transparent;
+        }
+
+        .sidebar-item:hover {
+            background: rgba(255,255,255,0.06);
+            color: #ffffff;
+        }
+
+        .sidebar-item.active {
+            background: rgba(0,224,255,0.08);
+            color: #00e0ff;
+            border-left-color: #00e0ff;
+        }
+
+        .sidebar-item svg { flex-shrink: 0; opacity: 0.8; }
+        .sidebar-spacer { flex: 1; }
+
+        .sidebar-bottom {
+            padding-bottom: 10px;
+            border-top: 1px solid rgba(255,255,255,0.07);
+            margin-top: 8px;
+        }
+
+        /* ===== MAIN CONTENT ===== */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            padding: 15px 20px 15px 20px;
+            padding-top: 45px;
+            box-sizing: border-box;
         }
 
         button,
@@ -323,7 +424,8 @@
         .layout {
             display: flex;
             gap: 15px;
-            height: calc(100vh - 200px);
+            flex: 1;
+            min-height: 0;
         }
 
         .main-list {
@@ -960,15 +1062,16 @@
     </style>
 </head>
 
-<body data-theme="geek">
+<body data-theme="light">
     <div id="splash">
         <div class="glitch-wrapper">
             <div class="glitch-text" data-text="GeekEZ">GeekEZ</div>
         </div>
     </div>
 
-    <div class="header">
-        <div class="logo">
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+        <div class="sidebar-logo">
             <svg class="logo-svg" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
                 <defs>
                     <linearGradient id="neon" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -976,9 +1079,7 @@
                         <stop offset="100%" style="stop-color:#2980b9;stop-opacity:1" />
                     </linearGradient>
                 </defs>
-                <path
-                    d="M256 100 H 120 A 20 20 0 0 0 100 120 V 392 A 20 20 0 0 0 120 412 H 392 A 20 20 0 0 0 412 392 V 256 H 256 V 320 H 330 V 332 H 180 V 180 H 330 V 100"
-                    fill="url(#neon)" />
+                <path d="M256 100 H 120 A 20 20 0 0 0 100 120 V 392 A 20 20 0 0 0 120 412 H 392 A 20 20 0 0 0 412 392 V 256 H 256 V 320 H 330 V 332 H 180 V 180 H 330 V 100" fill="url(#neon)" />
                 <rect x="360" y="80" width="60" height="40" fill="#ff0055" opacity="0.8" />
                 <rect x="80" y="280" width="40" height="20" fill="#00e0ff" opacity="0.6" />
                 <rect x="400" y="400" width="30" height="30" fill="#00e0ff" />
@@ -986,36 +1087,49 @@
             </svg>
             <div class="logo-text">eek<span class="highlight">EZ</span><span class="ver" id="app-version"></span></div>
         </div>
-        <div class="top-actions">
-            <select class="theme-select" onchange="setTheme(this.value)" id="themeSelect">
-                <option value="geek">Geek</option>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-            </select>
-            <div class="icon-btn" onclick="openHelp()" title="Help"><svg viewBox="0 0 24 24" width="20" height="20"
-                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
-                    <circle cx="12" cy="17" r="0.5" fill="currentColor"></circle>
-                </svg></div>
-            <div class="icon-btn" onclick="openSettings()" title="Settings"><svg viewBox="0 0 24 24" width="20"
-                    height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                    stroke-linejoin="round">
-                    <path
-                        d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z">
-                    </path>
-                    <circle cx="12" cy="12" r="3"></circle>
-                </svg></div>
-            <div class="icon-btn" onclick="checkUpdates()" title="Check Updates" id="btnUpdate"><svg viewBox="0 0 24 24"
-                    width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                    stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <path d="M16 12l-4-4-4 4"></path>
-                    <path d="M12 16V8"></path>
-                </svg></div>
-            <div class="lang-btn" onclick="toggleLang()" style="display:none">CN/EN</div>
+
+        <div class="sidebar-section">Main</div>
+        <div class="sidebar-item active" id="nav-profiles" onclick="document.querySelectorAll('.sidebar-item').forEach(i=>i.classList.remove('active'));this.classList.add('active');">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+            Profiles
+        </div>
+        <div class="sidebar-item" onclick="document.querySelectorAll('.sidebar-item').forEach(i=>i.classList.remove('active'));this.classList.add('active');openGroupManager();">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Groups
+        </div>
+        <div class="sidebar-item" onclick="document.querySelectorAll('.sidebar-item').forEach(i=>i.classList.remove('active'));this.classList.add('active');openProxyManager();">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+            Proxy Chain
+        </div>
+
+        <div class="sidebar-spacer"></div>
+        <div class="sidebar-bottom">
+            <div class="sidebar-section">Others</div>
+            <div class="sidebar-item" onclick="openSettings();">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/></svg>
+                Settings
+            </div>
+            <div class="sidebar-item" onclick="openHelp();">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r="0.5" fill="currentColor"/></svg>
+                Help
+            </div>
+            <div class="sidebar-item" onclick="checkUpdates();" id="btnUpdate">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M16 12l-4-4-4 4"/><path d="M12 16V8"/></svg>
+                Check Updates
+            </div>
+            <div style="padding:8px 16px;display:flex;align-items:center;gap:8px;-webkit-app-region:no-drag;">
+                <select class="theme-select" onchange="setTheme(this.value)" id="themeSelect" style="width:100%;height:28px;font-size:11px;">
+                    <option value="geek">Geek</option>
+                    <option value="light">Light</option>
+                    <option value="dark">Dark</option>
+                </select>
+            </div>
         </div>
     </div>
+    <!-- END SIDEBAR -->
+
+    <!-- MAIN CONTENT -->
+    <div class="main-content">
 
     <div class="toolbar">
         <div style="display:flex; gap:15px; align-items:center;">
@@ -1077,6 +1191,8 @@
     <div class="layout">
         <div class="main-list" id="profileList"></div>
     </div>
+
+    </div><!-- END MAIN CONTENT -->
 
     <!-- Modals -->
     <!-- Add Modal -->

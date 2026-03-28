@@ -1926,8 +1926,10 @@ ipcMain.handle('download-chrome-for-testing', async (event) => {
                             sendProgress(`Downloading... ${mb}/${totalMb} MB`, pct);
                         }
                     });
-                    res.on('end', () => { file.end(); resolve(); });
+                    res.on('end', () => { file.end(); });
+                    file.on('finish', resolve);
                     res.on('error', reject);
+                    file.on('error', reject);
                 }).on('error', reject);
             }
             doGet(asset.url);

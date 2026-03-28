@@ -1899,11 +1899,19 @@ ipcMain.handle('download-chrome-for-testing', async (event) => {
 
         // 2. Download zip with progress
         const tempFile = path.join(app.getPath('temp'), `chrome-for-testing-${version}.zip`);
+        // Remove stale temp file from previous failed attempts
+        try { fs.removeSync(tempFile); } catch (e) {}
 
         await new Promise((resolve, reject) => {
             const file = fs.createWriteStream(tempFile);
             let received = 0;
             let total = 0;
+            let settled = false;
+            const done = (err) => {
+                if (settled) return;
+                settled = true;
+                if (err) reject(err); else resolve();
+            };
 
             function doGet(url) {
                 https.get(url, { headers: { 'User-Agent': 'GeekezBrowser/1.4.0' } }, (res) => {
@@ -1913,7 +1921,7 @@ ipcMain.handle('download-chrome-for-testing', async (event) => {
                     }
                     if (res.statusCode !== 200) {
                         res.resume();
-                        return reject(new Error(`HTTP ${res.statusCode} downloading CfT`));
+                        return done(new Error(`HTTP ${res.statusCode} downloading CfT`));
                     }
                     total = parseInt(res.headers['content-length'] || '0', 10);
                     res.on('data', chunk => {
@@ -1926,14 +1934,30 @@ ipcMain.handle('download-chrome-for-testing', async (event) => {
                             sendProgress(`Downloading... ${mb}/${totalMb} MB`, pct);
                         }
                     });
-                    res.on('end', () => { file.end(); });
-                    file.on('finish', resolve);
-                    res.on('error', reject);
-                    file.on('error', reject);
-                }).on('error', reject);
+                    res.on('end', () => file.end());
+                    res.on('error', done);
+                }).on('error', done);
             }
+            file.on('finish', () => done());
+            file.on('error', done);
             doGet(asset.url);
         });
+
+        // Validate downloaded file is a zip (magic bytes PK\x03\x04)
+        const fileStat = fs.statSync(tempFile);
+        if (fileStat.size < 1024 * 1024) {
+            const sample = fs.readFileSync(tempFile, { encoding: 'utf8', flag: 'r' }).substring(0, 200);
+            try { fs.removeSync(tempFile); } catch (e) {}
+            throw new Error(`Downloaded file too small (${fileStat.size} bytes). Possible network error. Preview: ${sample.replace(/\n/g, ' ')}`);
+        }
+        const magic = Buffer.alloc(4);
+        const fd = fs.openSync(tempFile, 'r');
+        fs.readSync(fd, magic, 0, 4, 0);
+        fs.closeSync(fd);
+        if (magic[0] !== 0x50 || magic[1] !== 0x4B) {
+            try { fs.removeSync(tempFile); } catch (e) {}
+            throw new Error(`Downloaded file is not a ZIP (magic: ${magic.toString('hex')}). Check network/proxy.`);
+        }
 
         // 3. Extract zip
         sendProgress('Extracting...', 82);

@@ -1939,7 +1939,65 @@ async function loadChromePath() {
     const info = await window.electronAPI.getChromePath();
     const el = document.getElementById('chrome-path-display');
     if (el) el.textContent = info.current || 'Not found';
+    checkCft();
     checkFpChromium();
+}
+
+async function checkCft() {
+    const statusEl = document.getElementById('cft-status');
+    const btnEl = document.getElementById('cft-btn');
+    if (!statusEl) return;
+    try {
+        const result = await window.electronAPI.checkChromeForTesting();
+        if (result.installed) {
+            statusEl.textContent = `Installed — v${result.version}`;
+            statusEl.style.color = 'var(--success, #22c55e)';
+            if (btnEl) { btnEl.textContent = 'Update'; btnEl.disabled = false; }
+        } else {
+            statusEl.textContent = 'Not installed';
+            statusEl.style.color = '';
+            if (btnEl) { btnEl.textContent = 'Download'; btnEl.disabled = false; }
+        }
+    } catch (e) {
+        if (statusEl) statusEl.textContent = 'Check failed';
+    }
+}
+
+let _cftProgressListenerAttached = false;
+async function downloadCft() {
+    const btn = document.getElementById('cft-btn');
+    const wrap = document.getElementById('cft-progress-wrap');
+    const bar = document.getElementById('cft-bar');
+    const txt = document.getElementById('cft-progress-text');
+    const statusEl = document.getElementById('cft-status');
+
+    if (btn) btn.disabled = true;
+    if (wrap) wrap.style.display = 'block';
+    if (bar) bar.style.width = '0%';
+    if (txt) txt.textContent = 'Starting...';
+
+    if (!_cftProgressListenerAttached) {
+        _cftProgressListenerAttached = true;
+        window.electronAPI.onCftProgress((data) => {
+            if (bar) bar.style.width = Math.max(0, data.percent) + '%';
+            if (txt) txt.textContent = data.stage;
+            if (data.percent === 100) {
+                if (btn) { btn.textContent = 'Update'; btn.disabled = false; }
+                if (statusEl) { statusEl.textContent = 'Installed'; statusEl.style.color = 'var(--success, #22c55e)'; }
+                setTimeout(() => { if (wrap) wrap.style.display = 'none'; }, 3000);
+                loadChromePath();
+            } else if (data.percent < 0) {
+                if (btn) { btn.textContent = 'Retry'; btn.disabled = false; }
+            }
+        });
+    }
+
+    try {
+        await window.electronAPI.downloadChromeForTesting();
+    } catch (e) {
+        if (txt) txt.textContent = 'Download failed: ' + e.message;
+        if (btn) { btn.textContent = 'Retry'; btn.disabled = false; }
+    }
 }
 
 async function checkFpChromium() {

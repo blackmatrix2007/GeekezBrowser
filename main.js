@@ -3005,6 +3005,49 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             }
         }
 
+        // CDP Screen Override — browser-level, consistent with CSS matchMedia.
+        // JS Object.defineProperty on screen.width/height creates JS/CSS mismatch
+        // (matchMedia reads real OS screen, screen.* reads JS-spoofed value) which
+        // Pixelscan detects as inconsistency. CDP Emulation.setDeviceMetricsOverride
+        // patches at the browser engine level — both JS screen API and matchMedia
+        // return the same spoofed value consistently across all contexts.
+        const screenFp = profile.fingerprint?.screen;
+        if (screenFp?.width && screenFp?.height) {
+            const dpr = profile.fingerprint?.devicePixelRatio || 1;
+            const applyScreenOverride = async (session) => {
+                try {
+                    await session.send('Emulation.setDeviceMetricsOverride', {
+                        width: screenFp.width,
+                        height: screenFp.height,
+                        deviceScaleFactor: dpr,
+                        mobile: false,
+                        screenWidth: screenFp.width,
+                        screenHeight: screenFp.height,
+                    });
+                } catch (e) {}
+            };
+            try {
+                const pages = await browser.pages();
+                for (const page of pages) {
+                    try {
+                        const s = await page.createCDPSession();
+                        await applyScreenOverride(s);
+                    } catch (e) {}
+                }
+                browser.on('targetcreated', async (target) => {
+                    if (target.type() === 'page') {
+                        try {
+                            const session = await target.createCDPSession();
+                            await applyScreenOverride(session);
+                        } catch (e) {}
+                    }
+                });
+                console.log(`[CDP] Screen override: ${screenFp.width}x${screenFp.height} dpr=${dpr}`);
+            } catch (e) {
+                console.error('CDP screen override failed:', e.message);
+            }
+        }
+
         browser.on('disconnected', async () => {
             if (activeProcesses[profileId]) {
                 const pid = activeProcesses[profileId].xrayPid;

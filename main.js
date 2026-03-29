@@ -3016,10 +3016,15 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             const dpr = profile.fingerprint?.devicePixelRatio || 1;
             const applyScreenOverride = async (session) => {
                 try {
+                    // width:0, height:0 = don't override viewport dimensions
+                    // deviceScaleFactor:0 = don't override DPR (use real OS value)
+                    // Only screenWidth/screenHeight affect screen.width/screen.height in JS
+                    // This avoids the floating-point artifact (1440.000042...) that occurs
+                    // when CDP has to apply DPR conversion math to integer screen values.
                     await session.send('Emulation.setDeviceMetricsOverride', {
-                        width: screenFp.width,
-                        height: screenFp.height,
-                        deviceScaleFactor: dpr,
+                        width: 0,
+                        height: 0,
+                        deviceScaleFactor: 0,
                         mobile: false,
                         screenWidth: screenFp.width,
                         screenHeight: screenFp.height,

@@ -3005,53 +3005,65 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             }
         }
 
-        // CDP Screen Override — browser-level, consistent with CSS matchMedia.
-        // JS Object.defineProperty on screen.width/height creates JS/CSS mismatch
-        // (matchMedia reads real OS screen, screen.* reads JS-spoofed value) which
-        // Pixelscan detects as inconsistency. CDP Emulation.setDeviceMetricsOverride
-        // patches at the browser engine level — both JS screen API and matchMedia
-        // return the same spoofed value consistently across all contexts.
-        const screenFp = profile.fingerprint?.screen;
-        if (screenFp?.width && screenFp?.height) {
-            const dpr = profile.fingerprint?.devicePixelRatio || 1;
-            const applyScreenOverride = async (session) => {
+        // CDP UA-CH Override — fix Chrome for Testing missing "Google Chrome" brand
+        // CfT sends: "Chromium";v="147", "Not.A/Brand";v="8"
+        // Real Chrome: "Google Chrome";v="147", "Chromium";v="147", "Not.A/Brand";v="99"
+        // Pixelscan /s/api/hh checks secUA, secArch, secBitness, secPlatformVersion, secFullVersion
+        // All empty → inconsistency signal. CDP Network.setUserAgentOverride with userAgentMetadata
+        // fills these at V8 level — consistent across all contexts including Workers.
+        {
+            const ua = profile.fingerprint?.userAgent || `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36`;
+            const uaMatch = ua.match(/Chrome\/(\d+)\.(\d+)\.(\d+)\.(\d+)/);
+            const major = uaMatch ? uaMatch[1] : '147';
+            const fullVer = uaMatch ? `${uaMatch[1]}.${uaMatch[2]}.${uaMatch[3]}.${uaMatch[4]}` : '147.0.7727.24';
+            const uaMetadata = {
+                brands: [
+                    { brand: 'Google Chrome', version: major },
+                    { brand: 'Chromium', version: major },
+                    { brand: 'Not.A/Brand', version: '99' }
+                ],
+                fullVersionList: [
+                    { brand: 'Google Chrome', version: fullVer },
+                    { brand: 'Chromium', version: fullVer },
+                    { brand: 'Not.A/Brand', version: '99.0.0.0' }
+                ],
+                fullVersion: fullVer,
+                platform: 'Windows',
+                platformVersion: '10.0.0',
+                architecture: 'x86',
+                bitness: '64',
+                model: '',
+                mobile: false,
+                wow64: false
+            };
+            const applyUACH = async (session) => {
                 try {
-                    // width:0, height:0 = don't override viewport dimensions
-                    // deviceScaleFactor:0 = don't override DPR (use real OS value)
-                    // Only screenWidth/screenHeight affect screen.width/screen.height in JS
-                    // This avoids the floating-point artifact (1440.000042...) that occurs
-                    // when CDP has to apply DPR conversion math to integer screen values.
-                    await session.send('Emulation.setDeviceMetricsOverride', {
-                        width: 0,
-                        height: 0,
-                        deviceScaleFactor: 0,
-                        mobile: false,
-                        screenWidth: screenFp.width,
-                        screenHeight: screenFp.height,
+                    await session.send('Network.setUserAgentOverride', {
+                        userAgent: ua,
+                        userAgentMetadata: uaMetadata
                     });
                 } catch (e) {}
             };
             try {
                 const pages = await browser.pages();
                 for (const page of pages) {
-                    try {
-                        const s = await page.createCDPSession();
-                        await applyScreenOverride(s);
-                    } catch (e) {}
+                    try { await applyUACH(await page.createCDPSession()); } catch (e) {}
                 }
                 browser.on('targetcreated', async (target) => {
                     if (target.type() === 'page') {
-                        try {
-                            const session = await target.createCDPSession();
-                            await applyScreenOverride(session);
-                        } catch (e) {}
+                        try { await applyUACH(await target.createCDPSession()); } catch (e) {}
                     }
                 });
-                console.log(`[CDP] Screen override: ${screenFp.width}x${screenFp.height} dpr=${dpr}`);
+                console.log(`[CDP] UA-CH override: Chrome/${major}, arch=x86, bitness=64`);
             } catch (e) {
-                console.error('CDP screen override failed:', e.message);
+                console.error('CDP UA-CH override failed:', e.message);
             }
         }
+
+        // NOTE: CDP Emulation.setDeviceMetricsOverride is a known detection vector.
+        // Pixelscan detects it as "Masking detected". Screen values in profiles must
+        // match the real machine's logical screen dimensions (real DPR × logical = physical).
+        // No screen spoofing — profile screen should be set to real hardware values.
 
         browser.on('disconnected', async () => {
             if (activeProcesses[profileId]) {

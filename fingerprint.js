@@ -359,15 +359,17 @@ function getInjectScript(fp, profileName, watermarkStyle) {
                 const _loadTimes = makeNative(function loadTimes() { return { commitLoadTime: Date.now() / 1000, connectionInfo: 'h2', finishDocumentLoadTime: 0, finishLoadTime: 0, firstPaintAfterLoadTime: 0, firstPaintTime: 0, navigationType: 'Other', npnNegotiatedProtocol: 'h2', requestTime: Date.now() / 1000, startLoadTime: Date.now() / 1000, wasAlternateProtocolAvailable: false, wasFetchedViaSpdy: true, wasNpnNegotiated: true }; }, 'loadTimes');
                 try {
                     if (!window.chrome) {
+                        // No chrome object (Ungoogled Chromium) — create full object with enums
                         Object.defineProperty(window, 'chrome', { writable: true, enumerable: true, configurable: true, value: { app: _app, runtime: _runtimeEnums, csi: _csi, loadTimes: _loadTimes } });
                     } else {
-                        // Patch missing properties — preserve existing runtime methods (sendMessage, connect etc.)
+                        // Real Chrome (CfT) — chrome.runtime already has native properties.
+                        // DO NOT inject enum constants (OnInstalledReason etc.) into chrome.runtime —
+                        // adding unexpected properties changes the enumeration fingerprint and causes
+                        // Pixelscan detailChrome.properties to return "unknown".
+                        // Only add missing top-level helpers that real Chrome also has.
                         if (!window.chrome.app) window.chrome.app = _app;
                         if (!window.chrome.csi) window.chrome.csi = _csi;
                         if (!window.chrome.loadTimes) window.chrome.loadTimes = _loadTimes;
-                        if (window.chrome.runtime && !window.chrome.runtime.OnInstalledReason) {
-                            Object.assign(window.chrome.runtime, _runtimeEnums);
-                        }
                     }
                 } catch(e) {}
             })();

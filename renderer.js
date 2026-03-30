@@ -706,6 +706,18 @@ function toggleViewMode() {
 }
 
 // 简单的颜色生成器
+// Convert ISO country code to flag emoji (e.g. "GB" → "🇬🇧")
+function countryCodeToFlag(code) {
+    if (!code || code.length !== 2) return '';
+    return String.fromCodePoint(...[...code.toUpperCase()].map(c => 0x1F1E6 - 65 + c.charCodeAt(0)));
+}
+
+// Extract country code from proxy geo data stored on profile
+function getProxyFlag(p) {
+    const cc = p.fingerprint?.countryCode || p._countryCode || '';
+    return countryCodeToFlag(cc);
+}
+
 function stringToColor(str) {
     let hash = 0;
     for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
@@ -765,11 +777,19 @@ async function loadProfiles() {
                 ? `<span style="font-size:11px;opacity:0.6;margin-left:6px;">📁 ${groupOfProfile.name}</span>`
                 : '';
 
+            // Country flag from geo data
+            const flag = getProxyFlag(p);
+            const flagHtml = flag ? `<span style="font-size:16px;margin-right:4px;" title="${p.fingerprint?.countryCode || ''}">${flag}</span>` : '';
+
+            // Note display
+            const noteHtml = p.note ? `<div style="font-size:11px;opacity:0.55;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px;" title="${p.note.replace(/"/g,'&quot;')}">📝 ${p.note}</div>` : '';
+
             const el = document.createElement('div');
             el.className = 'profile-item no-drag';
             el.innerHTML = `
                 <div class="profile-info">
-                    <div style="display:flex; align-items:center;"><h4>${p.name}</h4><span id="status-${p.id}" class="running-badge ${isRunning ? 'active' : ''}">${t('runningStatus')}</span>${groupBadge}</div>
+                    <div style="display:flex; align-items:center;">${flagHtml}<h4>${p.name}</h4><span id="status-${p.id}" class="running-badge ${isRunning ? 'active' : ''}">${t('runningStatus')}</span>${groupBadge}</div>
+                    ${noteHtml}
                     <div class="profile-meta">
                         ${tagsHtml} <!-- 插入标签 -->
                         <span class="tag">${p.proxyStr.split('://')[0].toUpperCase() || 'N/A'}</span>
@@ -850,6 +870,7 @@ async function saveNewProfile() {
     }
 
     const tags = tagsStr.split(/[,，]/).map(s => s.trim()).filter(s => s);
+    const note = document.getElementById('addNote').value.trim();
 
     // 分割多行代理链接
     const proxyLines = proxyText.split('\n').map(l => l.trim()).filter(l => l);
@@ -876,7 +897,7 @@ async function saveNewProfile() {
         }
 
         try {
-            await window.electronAPI.saveProfile({ name, proxyStr, tags, timezone, city, geolocation, language, screen, preProxyOverride });
+            await window.electronAPI.saveProfile({ name, proxyStr, tags, note, timezone, city, geolocation, language, screen, preProxyOverride });
             createdCount++;
         } catch (e) {
             console.error(`Failed to create profile ${name}:`, e);
@@ -912,6 +933,7 @@ async function openEditModal(id) {
     document.getElementById('editName').value = p.name;
     document.getElementById('editProxy').value = p.proxyStr;
     document.getElementById('editTags').value = (p.tags || []).join(', ');
+    document.getElementById('editNote').value = p.note || '';
 
     // 回填时区，将 "Auto" 转换为 "Auto (No Change)" 显示
     const savedTimezone = fp.timezone || 'Auto';
@@ -967,6 +989,7 @@ async function saveEditProfile() {
         p.proxyStr = document.getElementById('editProxy').value;
         const tagsStr = document.getElementById('editTags').value;
         p.tags = tagsStr.split(/[,，]/).map(s => s.trim()).filter(s => s);
+        p.note = document.getElementById('editNote').value.trim();
         p.preProxyOverride = document.getElementById('editPreProxyOverride').value;
 
         if (!p.fingerprint) p.fingerprint = {};

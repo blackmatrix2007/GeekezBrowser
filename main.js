@@ -758,7 +758,7 @@ async function getProxyGeolocation(proxyStr) {
         console.log(`🔍 Detecting geolocation for IP: ${ip}`);
 
         // Query ip-api.com (free, 45 requests/minute limit)
-        const url = `http://ip-api.com/json/${ip}?fields=status,message,country,city,timezone,lat,lon`;
+        const url = `http://ip-api.com/json/${ip}?fields=status,message,country,countryCode,city,timezone,lat,lon`;
         const response = await fetch(url);
         const data = await response.json();
 
@@ -766,6 +766,7 @@ async function getProxyGeolocation(proxyStr) {
             const result = {
                 ip: ip,
                 country: data.country,
+                countryCode: data.countryCode,
                 city: data.city,
                 timezone: data.timezone,
                 latitude: data.lat,
@@ -2731,6 +2732,13 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
                     }
                     if (!profile.fingerprint.geolocation && geoData.latitude && geoData.longitude) {
                         profile.fingerprint.geolocation = { latitude: geoData.latitude, longitude: geoData.longitude };
+                    }
+                    // Always persist countryCode for flag display in UI
+                    if (geoData.countryCode) {
+                        profile.fingerprint.countryCode = geoData.countryCode;
+                        const profiles = fs.readJsonSync(PROFILES_FILE, { throws: false }) || [];
+                        const idx = profiles.findIndex(x => x.id === profile.id);
+                        if (idx !== -1) { profiles[idx] = profile; fs.writeJsonSync(PROFILES_FILE, profiles); }
                     }
                 } else if (needsTimezone) {
                     profile.fingerprint.timezone = 'UTC';

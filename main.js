@@ -3020,10 +3020,47 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
         // All empty → inconsistency signal. CDP Network.setUserAgentOverride with userAgentMetadata
         // fills these at V8 level — consistent across all contexts including Workers.
         {
-            const ua = profile.fingerprint?.userAgent || `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36`;
+            // Detect actual Chrome version from binary path (e.g. mac_arm-143.0.7499.169)
+            let actualChromeVer = null;
+            if (chromePath) {
+                const m = chromePath.replace(/\\/g, '/').match(/-((\d+)\.(\d+)\.(\d+)\.(\d+))[/\\]/);
+                if (m) actualChromeVer = m[1];
+            }
+
+            // Determine platform/arch from Node.js process
+            const isMac = process.platform === 'darwin';
+            const isArm = process.arch === 'arm64';
+
+            // Get macOS version for Sec-CH-UA-Platform-Version (e.g. "14.0.0")
+            let osMajorVersion = '10.0.0';
+            if (isMac) {
+                try {
+                    const sysVer = process.getSystemVersion ? process.getSystemVersion() : '';
+                    // sysVer is like "14.5" or "13.6.1"
+                    const parts = sysVer.split('.');
+                    osMajorVersion = `${parts[0] || '14'}.${parts[1] || '0'}.${parts[2] || '0'}`;
+                } catch (e) { osMajorVersion = '14.0.0'; }
+            }
+
+            // Build a platform-correct fallback UA using the actual Chrome binary version
+            const fallbackVer = actualChromeVer || (isMac ? '143.0.7499.169' : '147.0.7727.24');
+            const fallbackUA = isMac
+                ? `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${fallbackVer} Safari/537.36`
+                : `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${fallbackVer} Safari/537.36`;
+
+            // Use stored UA if present, but force-correct the Chrome version to match actual binary
+            let ua = profile.fingerprint?.userAgent || fallbackUA;
+            if (actualChromeVer) {
+                ua = ua.replace(/Chrome\/[\d.]+/, `Chrome/${actualChromeVer}`);
+            }
+
             const uaMatch = ua.match(/Chrome\/(\d+)\.(\d+)\.(\d+)\.(\d+)/);
-            const major = uaMatch ? uaMatch[1] : '147';
-            const fullVer = uaMatch ? `${uaMatch[1]}.${uaMatch[2]}.${uaMatch[3]}.${uaMatch[4]}` : '147.0.7727.24';
+            const major = uaMatch ? uaMatch[1] : fallbackVer.split('.')[0];
+            const fullVer = uaMatch ? `${uaMatch[1]}.${uaMatch[2]}.${uaMatch[3]}.${uaMatch[4]}` : fallbackVer;
+
+            const uaPlatform = isMac ? 'macOS' : 'Windows';
+            const uaArch = isArm ? 'arm' : 'x86';
+
             const uaMetadata = {
                 brands: [
                     { brand: 'Google Chrome', version: major },
@@ -3036,9 +3073,9 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
                     { brand: 'Not.A/Brand', version: '99.0.0.0' }
                 ],
                 fullVersion: fullVer,
-                platform: 'Windows',
-                platformVersion: '10.0.0',
-                architecture: 'x86',
+                platform: uaPlatform,
+                platformVersion: osMajorVersion,
+                architecture: uaArch,
                 bitness: '64',
                 model: '',
                 mobile: false,
@@ -3050,9 +3087,9 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             // so we inject them directly via Network.setExtraHTTPHeaders to ensure
             // secArch/secBitness/secPlatformVersion are populated in Pixelscan's /s/api/hh.
             const highEntropyHeaders = {
-                'Sec-CH-UA-Arch': '"x86"',
+                'Sec-CH-UA-Arch': `"${uaArch}"`,
                 'Sec-CH-UA-Bitness': '"64"',
-                'Sec-CH-UA-Platform-Version': `"${uaMetadata.platformVersion}"`,
+                'Sec-CH-UA-Platform-Version': `"${osMajorVersion}"`,
                 'Sec-CH-UA-Full-Version-List': `"Google Chrome";v="${fullVer}", "Chromium";v="${fullVer}", "Not.A/Brand";v="99.0.0.0"`,
                 'Sec-CH-UA-Model': '""',
                 'Sec-CH-UA-WoW64': '?0'
@@ -3078,7 +3115,7 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
                         try { await applyUACH(await target.createCDPSession()); } catch (e) {}
                     }
                 });
-                console.log(`[CDP] UA-CH override: Chrome/${major}, arch=x86, bitness=64`);
+                console.log(`[CDP] UA-CH override: Chrome/${major}, platform=${uaPlatform}, arch=${uaArch}, ver=${fullVer}`);
             } catch (e) {
                 console.error('CDP UA-CH override failed:', e.message);
             }

@@ -179,14 +179,18 @@ const enTranslations = {
 window.curLang = localStorage.getItem('geekez_lang') || 'en';
 
 window.t = function (key) {
-    if (window.curLang === 'cn' && window.zhCN && window.zhCN[key]) {
-        return window.zhCN[key];
-    }
+    if (window.curLang === 'cn' && window.zhCN && window.zhCN[key]) return window.zhCN[key];
+    if (window.curLang === 'vi' && window.viVN && window.viVN[key]) return window.viVN[key];
     return enTranslations[key] || key;
 };
 
 window.toggleLanguage = function () {
-    window.curLang = window.curLang === 'cn' ? 'en' : 'cn';
+    const cycle = { 'en': 'vi', 'vi': 'cn', 'cn': 'en' };
+    window.curLang = cycle[window.curLang] || 'en';
     localStorage.setItem('geekez_lang', window.curLang);
     location.reload();
+};
+
+window.getLangLabel = function () {
+    return { 'en': 'EN', 'vi': 'VI', 'cn': '中' }[window.curLang] || 'EN';
 };

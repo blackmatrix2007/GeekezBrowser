@@ -223,7 +223,12 @@ function getProxyRemark(link) {
 }
 
 function renderHelpContent() {
-    const manualHTML = curLang === 'en' ?
+    const manualHTML = curLang === 'vi' ?
+        `<div style="margin-bottom:25px;"><h4 style="color:var(--accent);margin-bottom:8px;">1. Tạo Profile</h4><p style="font-size:14px;">Nhập tên và proxy. Hệ thống tự động tạo dấu tay duy nhất với phần cứng ngẫu nhiên.</p></div>
+         <div style="margin-bottom:25px;"><h4 style="color:var(--accent);margin-bottom:8px;">2. Khởi động</h4><p style="font-size:14px;">Nhấn Khởi động. Nhãn xanh xuất hiện khi đang chạy. Mỗi profile hoàn toàn cô lập.</p></div>
+         <div style="margin-bottom:25px;"><h4 style="color:var(--accent);margin-bottom:8px;">3. Proxy trước (Tùy chọn)</h4><p style="font-size:14px;">Proxy chuỗi để ẩn IP thật. Dùng TCP để ổn định.</p></div>
+         <div style="margin-bottom:25px;"><h4 style="color:var(--accent);margin-bottom:8px;">4. Lưu ý thực hành</h4><p style="font-size:14px;">• Dùng IP dân cư chất lượng cao<br>• Một tài khoản/một profile<br>• Tránh chuyển đổi thường xuyên<br>• Mô phỏng hành vi người dùng thật</p></div>` :
+        curLang === 'en' ?
         `<div style="margin-bottom:25px;"><h4 style="color:var(--accent);margin-bottom:8px;">1. Create Environment</h4><p style="font-size:14px;">Enter a name and proxy link. The system auto-generates a unique fingerprint with randomized Hardware.</p></div>
          <div style="margin-bottom:25px;"><h4 style="color:var(--accent);margin-bottom:8px;">2. Launch</h4><p style="font-size:14px;">Click Launch. A green badge indicates active status. Each environment is fully isolated.</p></div>
          <div style="margin-bottom:25px;"><h4 style="color:var(--accent);margin-bottom:8px;">3. Pre-Proxy (Optional)</h4><p style="font-size:14px;">Chain proxy for IP hiding. Use TCP protocols for stability.</p></div>
@@ -233,133 +238,84 @@ function renderHelpContent() {
          <div style="margin-bottom:25px;"><h4 style="color:var(--accent);margin-bottom:8px;">3. 前置代理（可选）</h4><p style="font-size:14px;">用于隐藏本机IP或链路加速。建议使用TCP协议。</p></div>
          <div style="margin-bottom:25px;"><h4 style="color:var(--accent);margin-bottom:8px;">4. 最佳实践</h4><p style="font-size:14px;">• 使用高质量住宅IP<br>• 一个账号固定一个环境<br>• 避免频繁切换<br>• 模拟真实用户行为</p></div>`;
 
-    const aboutHTML = curLang === 'en' ?
+    const _aboutCoreTech = (t1, t2, t3, t4, s1, s2, s3, s4, d1, d2, d3, d4) =>
+        `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:24px;">
+            <div style="background:var(--input-bg);padding:12px;border-radius:8px;border:1px solid var(--border);">
+                <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px;">${t1}</div>
+                <div style="font-size:11px;opacity:0.7;">${d1}</div>
+            </div>
+            <div style="background:var(--input-bg);padding:12px;border-radius:8px;border:1px solid var(--border);">
+                <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px;">${t2}</div>
+                <div style="font-size:11px;opacity:0.7;">${d2}</div>
+            </div>
+            <div style="background:var(--input-bg);padding:12px;border-radius:8px;border:1px solid var(--border);">
+                <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px;">${t3}</div>
+                <div style="font-size:11px;opacity:0.7;">${d3}</div>
+            </div>
+            <div style="background:var(--input-bg);padding:12px;border-radius:8px;border:1px solid var(--border);">
+                <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px;">${t4}</div>
+                <div style="font-size:11px;opacity:0.7;">${d4}</div>
+            </div>
+         </div>`;
+
+    const _aboutDetection = (items) =>
+        `<div style="background:var(--input-bg);padding:14px;border-radius:8px;border:1px solid var(--border);margin-bottom:24px;">
+            <div style="display:flex;flex-wrap:wrap;gap:16px;">
+                ${items.map(i => `<div style="font-size:12px;"><span style="color:#4CAF50;">✓</span> ${i}</div>`).join('')}
+            </div>
+         </div>`;
+
+    const _aboutPlatforms = (items) =>
+        `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px;">
+            ${items.map(([label, color]) => `<span style="background:linear-gradient(135deg,${color}33,${color}1a);color:${color};padding:6px 12px;border-radius:20px;font-size:11px;font-weight:500;">${label}</span>`).join('')}
+         </div>`;
+
+    const _sectionHeader = (gradient, title) =>
+        `<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+            <div style="width:4px;height:18px;background:linear-gradient(180deg,${gradient});border-radius:2px;"></div>
+            <h4 style="margin:0;color:var(--text-primary);font-size:14px;font-weight:600;">${title}</h4>
+         </div>`;
+
+    const _platforms = [
+        ['Amazon','#f39c12'],['TikTok','#27ae60'],['Facebook','#2980b9'],
+        ['Shopee','#e67e22'],['Lazada','#bf0000'],['Mercado','#f1c40f']
+    ];
+
+    const aboutHTML = curLang === 'vi' ?
         `<div style="text-align:center;margin-bottom:24px;padding:20px 0;">
-            <div style="font-size:28px;font-weight:700;color:var(--text-primary);letter-spacing:1px;">Geek<span style="color:var(--accent);">EZ</span></div>
+            <div style="font-size:28px;font-weight:700;color:var(--text-primary);letter-spacing:1px;"><span style="color:var(--accent);">Anti-Detect</span> Browser</div>
+            <div style="font-size:12px;opacity:0.5;margin-top:4px;">v1.4.0 · Trình duyệt chống phát hiện</div>
+         </div>
+         ${_sectionHeader('var(--accent), #7c3aed', 'CÔNG NGHỆ CỐT LÕI')}
+         ${_aboutCoreTech('🧬 Nhân Chrome thật','🔐 Dấu tay phần cứng','🌍 60+ ngôn ngữ','⚡ Tăng tốc GPU',
+             '','','','','Nhân Chrome gốc + JS Injection','Ngẫu nhiên hóa CPU/RAM','Giả lập múi giờ & ngôn ngữ','Hiệu năng UI mượt mà')}
+         ${_sectionHeader('#4CAF50, #2196F3', 'TRẠNG THÁI PHÁT HIỆN')}
+         ${_aboutDetection(['Browserscan: Sạch','Pixelscan: Sạch','TLS Fingerprint thật','API Hook tối thiểu'])}
+         ${_sectionHeader('#FF9800, #F44336', 'TƯƠNG THÍCH NỀN TẢNG')}
+         ${_aboutPlatforms(_platforms)}` :
+        curLang === 'en' ?
+        `<div style="text-align:center;margin-bottom:24px;padding:20px 0;">
+            <div style="font-size:28px;font-weight:700;color:var(--text-primary);letter-spacing:1px;"><span style="color:var(--accent);">Anti-Detect</span> Browser</div>
             <div style="font-size:12px;opacity:0.5;margin-top:4px;">v1.4.0 · Anti-detect Browser</div>
          </div>
-         
-         <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
-            <div style="width:4px;height:18px;background:linear-gradient(180deg, var(--accent), #7c3aed);border-radius:2px;"></div>
-            <h4 style="margin:0;color:var(--text-primary);font-size:14px;font-weight:600;">CORE TECHNOLOGY</h4>
-         </div>
-         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:24px;">
-            <div style="background:var(--input-bg);padding:12px;border-radius:8px;border:1px solid var(--border);">
-                <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px;">🧬 Real Chrome Kernel</div>
-                <div style="font-size:11px;opacity:0.7;">Native Chrome + JS Injection</div>
-            </div>
-            <div style="background:var(--input-bg);padding:12px;border-radius:8px;border:1px solid var(--border);">
-                <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px;">🔐 Hardware Fingerprint</div>
-                <div style="font-size:11px;opacity:0.7;">CPU/Memory Randomization</div>
-            </div>
-            <div style="background:var(--input-bg);padding:12px;border-radius:8px;border:1px solid var(--border);">
-                <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px;">🌍 60+ Languages</div>
-                <div style="font-size:11px;opacity:0.7;">Timezone & Locale Spoofing</div>
-            </div>
-            <div style="background:var(--input-bg);padding:12px;border-radius:8px;border:1px solid var(--border);">
-                <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px;">⚡ GPU Acceleration</div>
-                <div style="font-size:11px;opacity:0.7;">Smooth UI Performance</div>
-            </div>
-         </div>
-
-         <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
-            <div style="width:4px;height:18px;background:linear-gradient(180deg, #4CAF50, #2196F3);border-radius:2px;"></div>
-            <h4 style="margin:0;color:var(--text-primary);font-size:14px;font-weight:600;">DETECTION STATUS</h4>
-         </div>
-         <div style="background:var(--input-bg);padding:14px;border-radius:8px;border:1px solid var(--border);margin-bottom:24px;">
-            <div style="display:flex;flex-wrap:wrap;gap:16px;">
-                <div style="font-size:12px;"><span style="color:#4CAF50;">✓</span> Browserscan Passed</div>
-                <div style="font-size:12px;"><span style="color:#4CAF50;">✓</span> Pixelscan Clean</div>
-                <div style="font-size:12px;"><span style="color:#4CAF50;">✓</span> Real TLS Fingerprint</div>
-                <div style="font-size:12px;"><span style="color:#4CAF50;">✓</span> Minimal API Hook</div>
-            </div>
-         </div>
-
-         <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
-            <div style="width:4px;height:18px;background:linear-gradient(180deg, #FF9800, #F44336);border-radius:2px;"></div>
-            <h4 style="margin:0;color:var(--text-primary);font-size:14px;font-weight:600;">PLATFORM COMPATIBILITY</h4>
-         </div>
-         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px;">
-            <span style="background:linear-gradient(135deg, rgba(243,156,18,0.2), rgba(243,156,18,0.1));color:#f39c12;padding:6px 12px;border-radius:20px;font-size:11px;font-weight:500;">Amazon</span>
-            <span style="background:linear-gradient(135deg, rgba(39,174,96,0.2), rgba(39,174,96,0.1));color:#27ae60;padding:6px 12px;border-radius:20px;font-size:11px;font-weight:500;">TikTok</span>
-            <span style="background:linear-gradient(135deg, rgba(41,128,185,0.2), rgba(41,128,185,0.1));color:#2980b9;padding:6px 12px;border-radius:20px;font-size:11px;font-weight:500;">Facebook</span>
-            <span style="background:linear-gradient(135deg, rgba(230,126,34,0.2), rgba(230,126,34,0.1));color:#e67e22;padding:6px 12px;border-radius:20px;font-size:11px;font-weight:500;">Shopee</span>
-            <span style="background:linear-gradient(135deg, rgba(191,0,0,0.2), rgba(191,0,0,0.1));color:#bf0000;padding:6px 12px;border-radius:20px;font-size:11px;font-weight:500;">Rakuten</span>
-            <span style="background:linear-gradient(135deg, rgba(241,196,15,0.2), rgba(241,196,15,0.1));color:#f1c40f;padding:6px 12px;border-radius:20px;font-size:11px;font-weight:500;">Mercado</span>
-         </div>
-
-         <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
-            <div style="width:4px;height:18px;background:linear-gradient(180deg, #9C27B0, #E91E63);border-radius:2px;"></div>
-            <h4 style="margin:0;color:var(--text-primary);font-size:14px;font-weight:600;">COMMUNITY</h4>
-         </div>
-         <div style="background:linear-gradient(135deg, var(--input-bg), var(--card-bg));padding:16px;border-radius:8px;border:1px solid var(--border);text-align:center;">
-            <div style="font-size:18px;margin-bottom:6px;">💬</div>
-            <div style="font-size:12px;opacity:0.8;margin-bottom:8px;">Join our QQ Group for support</div>
-            <a href="tencent://groupwpa/?subcmd=all&uin=1079216892" title="Click to join QQ Group" style="font-size:16px;font-weight:600;color:var(--accent);letter-spacing:1px;text-decoration:none;">Click to join: 1079216892</a>
-         </div>` :
+         ${_sectionHeader('var(--accent), #7c3aed', 'CORE TECHNOLOGY')}
+         ${_aboutCoreTech('🧬 Real Chrome Kernel','🔐 Hardware Fingerprint','🌍 60+ Languages','⚡ GPU Acceleration',
+             '','','','','Native Chrome + JS Injection','CPU/Memory Randomization','Timezone & Locale Spoofing','Smooth UI Performance')}
+         ${_sectionHeader('#4CAF50, #2196F3', 'DETECTION STATUS')}
+         ${_aboutDetection(['Browserscan Passed','Pixelscan Clean','Real TLS Fingerprint','Minimal API Hook'])}
+         ${_sectionHeader('#FF9800, #F44336', 'PLATFORM COMPATIBILITY')}
+         ${_aboutPlatforms(_platforms)}` :
         `<div style="text-align:center;margin-bottom:24px;padding:20px 0;">
-            <div style="font-size:28px;font-weight:700;color:var(--text-primary);letter-spacing:1px;">Geek<span style="color:var(--accent);">EZ</span></div>
+            <div style="font-size:28px;font-weight:700;color:var(--text-primary);letter-spacing:1px;"><span style="color:var(--accent);">Anti-Detect</span> Browser</div>
             <div style="font-size:12px;opacity:0.5;margin-top:4px;">v1.4.0 · 指纹浏览器</div>
          </div>
-         
-         <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
-            <div style="width:4px;height:18px;background:linear-gradient(180deg, var(--accent), #7c3aed);border-radius:2px;"></div>
-            <h4 style="margin:0;color:var(--text-primary);font-size:14px;font-weight:600;">核心技术</h4>
-         </div>
-         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:24px;">
-            <div style="background:var(--input-bg);padding:12px;border-radius:8px;border:1px solid var(--border);">
-                <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px;">🧬 真实 Chrome 内核</div>
-                <div style="font-size:11px;opacity:0.7;">原生内核 + JS 注入</div>
-            </div>
-            <div style="background:var(--input-bg);padding:12px;border-radius:8px;border:1px solid var(--border);">
-                <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px;">🔐 硬件指纹随机化</div>
-                <div style="font-size:11px;opacity:0.7;">CPU/内存完全随机</div>
-            </div>
-            <div style="background:var(--input-bg);padding:12px;border-radius:8px;border:1px solid var(--border);">
-                <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px;">🌍 60+ 语言适配</div>
-                <div style="font-size:11px;opacity:0.7;">时区与语言完美伪装</div>
-            </div>
-            <div style="background:var(--input-bg);padding:12px;border-radius:8px;border:1px solid var(--border);">
-                <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px;">⚡ GPU 硬件加速</div>
-                <div style="font-size:11px;opacity:0.7;">流畅 UI 渲染体验</div>
-            </div>
-         </div>
-
-         <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
-            <div style="width:4px;height:18px;background:linear-gradient(180deg, #4CAF50, #2196F3);border-radius:2px;"></div>
-            <h4 style="margin:0;color:var(--text-primary);font-size:14px;font-weight:600;">检测状态</h4>
-         </div>
-         <div style="background:var(--input-bg);padding:14px;border-radius:8px;border:1px solid var(--border);margin-bottom:24px;">
-            <div style="display:flex;flex-wrap:wrap;gap:16px;">
-                <div style="font-size:12px;"><span style="color:#4CAF50;">✓</span> Browserscan 全绿</div>
-                <div style="font-size:12px;"><span style="color:#4CAF50;">✓</span> Pixelscan 无检测</div>
-                <div style="font-size:12px;"><span style="color:#4CAF50;">✓</span> TLS 指纹真实</div>
-                <div style="font-size:12px;"><span style="color:#4CAF50;">✓</span> 最小化 API Hook</div>
-            </div>
-         </div>
-
-         <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
-            <div style="width:4px;height:18px;background:linear-gradient(180deg, #FF9800, #F44336);border-radius:2px;"></div>
-            <h4 style="margin:0;color:var(--text-primary);font-size:14px;font-weight:600;">平台适配</h4>
-         </div>
-         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px;">
-            <span style="background:linear-gradient(135deg, rgba(243,156,18,0.2), rgba(243,156,18,0.1));color:#f39c12;padding:6px 12px;border-radius:20px;font-size:11px;font-weight:500;">Amazon</span>
-            <span style="background:linear-gradient(135deg, rgba(39,174,96,0.2), rgba(39,174,96,0.1));color:#27ae60;padding:6px 12px;border-radius:20px;font-size:11px;font-weight:500;">TikTok</span>
-            <span style="background:linear-gradient(135deg, rgba(41,128,185,0.2), rgba(41,128,185,0.1));color:#2980b9;padding:6px 12px;border-radius:20px;font-size:11px;font-weight:500;">Facebook</span>
-            <span style="background:linear-gradient(135deg, rgba(230,126,34,0.2), rgba(230,126,34,0.1));color:#e67e22;padding:6px 12px;border-radius:20px;font-size:11px;font-weight:500;">虾皮</span>
-            <span style="background:linear-gradient(135deg, rgba(191,0,0,0.2), rgba(191,0,0,0.1));color:#bf0000;padding:6px 12px;border-radius:20px;font-size:11px;font-weight:500;">乐天</span>
-            <span style="background:linear-gradient(135deg, rgba(241,196,15,0.2), rgba(241,196,15,0.1));color:#f1c40f;padding:6px 12px;border-radius:20px;font-size:11px;font-weight:500;">美客多</span>
-         </div>
-
-         <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
-            <div style="width:4px;height:18px;background:linear-gradient(180deg, #9C27B0, #E91E63);border-radius:2px;"></div>
-            <h4 style="margin:0;color:var(--text-primary);font-size:14px;font-weight:600;">交流社群</h4>
-         </div>
-         <div style="background:linear-gradient(135deg, var(--input-bg), var(--card-bg));padding:16px;border-radius:8px;border:1px solid var(--border);text-align:center;">
-            <div style="font-size:18px;margin-bottom:6px;">💬</div>
-            <div style="font-size:12px;opacity:0.8;margin-bottom:8px;">加入 QQ 群获取支持与交流</div>
-            <a href="tencent://groupwpa/?subcmd=all&uin=1079216892" title="点击加入QQ群" style="font-size:16px;font-weight:600;color:var(--accent);letter-spacing:1px;text-decoration:none;">点击加入：1079216892</a>
-         </div>`;
+         ${_sectionHeader('var(--accent), #7c3aed', '核心技术')}
+         ${_aboutCoreTech('🧬 真实 Chrome 内核','🔐 硬件指纹随机化','🌍 60+ 语言适配','⚡ GPU 硬件加速',
+             '','','','','原生内核 + JS 注入','CPU/内存完全随机','时区与语言完美伪装','流畅 UI 渲染体验')}
+         ${_sectionHeader('#4CAF50, #2196F3', '检测状态')}
+         ${_aboutDetection(['Browserscan 全绿','Pixelscan 无检测','TLS 指纹真实','最小化 API Hook'])}
+         ${_sectionHeader('#FF9800, #F44336', '平台适配')}
+         ${_aboutPlatforms([['Amazon','#f39c12'],['TikTok','#27ae60'],['Facebook','#2980b9'],['虾皮','#e67e22'],['乐天','#bf0000'],['美客多','#f1c40f']])}` ;
 
     const manualEl = document.getElementById('help-manual');
     const aboutEl = document.getElementById('help-about');
@@ -372,12 +328,15 @@ function applyLang() {
     document.querySelectorAll('.running-badge').forEach(el => { el.innerText = t('runningStatus'); });
     const themeSel = document.getElementById('themeSelect');
     if (themeSel) { themeSel.options[0].text = t('themeGeek'); themeSel.options[1].text = t('themeLight'); themeSel.options[2].text = t('themeDark'); }
+    const langBtn = document.getElementById('langToggleBtn');
+    if (langBtn) langBtn.textContent = { 'en': 'EN', 'vi': 'VI', 'cn': '中' }[curLang] || 'EN';
     renderHelpContent();
     updateToolbar(); loadGroups().then(() => loadProfiles()); renderGroupTabs();
 }
 
 function toggleLang() {
-    curLang = curLang === 'cn' ? 'en' : 'cn';
+    const cycle = { 'en': 'vi', 'vi': 'cn', 'cn': 'en' };
+    curLang = cycle[curLang] || 'en';
     localStorage.setItem('geekez_lang', curLang);
     applyLang();
 }

@@ -519,6 +519,70 @@
             border: 1px solid var(--border);
         }
 
+        /* ---- Tags / Note mini-dialog ---- */
+        .mini-dialog-overlay {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.55);
+            z-index: 2000;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .mini-dialog-box {
+            background: var(--bg-color);
+            border: 1px solid var(--accent);
+            border-radius: 10px;
+            padding: 20px;
+            width: 380px; max-width: 90vw;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+        }
+        .mini-dialog-header {
+            display: flex; justify-content: space-between; align-items: center;
+            font-weight: bold; font-size: 14px; color: var(--accent);
+            margin-bottom: 14px;
+        }
+        .mini-dialog-header .mdh-close {
+            cursor: pointer; opacity: 0.6; font-size: 16px; line-height:1;
+        }
+        .mini-dialog-header .mdh-close:hover { opacity: 1; }
+        .chips-area {
+            display: flex; flex-wrap: wrap; gap: 6px;
+            min-height: 38px; padding: 7px 8px;
+            background: var(--card-bg);
+            border-radius: 6px; border: 1px solid var(--border);
+            margin-bottom: 10px;
+        }
+        .chips-area-empty { color: var(--text-secondary); font-size: 12px; opacity: 0.5; }
+        .chip-item {
+            display: inline-flex; align-items: center; gap: 4px;
+            background: var(--accent); color: var(--bg-color);
+            border-radius: 4px; padding: 2px 7px;
+            font-size: 12px; font-weight: 500;
+        }
+        .chip-x {
+            cursor: pointer; font-size: 13px; font-weight: bold;
+            line-height: 1; opacity: 0.7; border: none; background: none;
+            color: inherit; padding: 0;
+        }
+        .chip-x:hover { opacity: 1; }
+        .mini-dialog-input {
+            width: 100%; box-sizing: border-box; margin-bottom: 14px;
+        }
+        .mini-dialog-footer {
+            display: flex; gap: 8px; justify-content: flex-end;
+        }
+        /* Tags/Note trigger button inside modals */
+        .tags-trigger, .note-trigger {
+            width: 100%; box-sizing: border-box;
+            min-height: 36px; padding: 6px 10px;
+            border: 1px solid var(--border); border-radius: 6px;
+            cursor: pointer; background: var(--card-bg);
+            display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+            transition: border-color 0.2s; margin-bottom: 0;
+        }
+        .tags-trigger:hover, .note-trigger:hover { border-color: var(--accent); }
+        .tags-trigger-placeholder, .note-trigger-placeholder {
+            font-size: 12px; opacity: 0.35;
+        }
+
         .quick-switch-select {
             background: transparent;
             border: none;
@@ -1204,9 +1268,13 @@
                 <label data-i18n="profileName" style="font-size:11px; font-weight:bold; opacity:0.8;">Name</label>
                 <input type="text" id="addName" placeholder="Name" spellcheck="false" autocomplete="off">
                 <label data-i18n="tagsLabel" style="font-size:11px; font-weight:bold; opacity:0.8;">Tags</label>
-                <input type="text" id="addTags" placeholder="tiktok, fb..." spellcheck="false" autocomplete="off">
+                <div class="tags-trigger" id="addTagsTrigger" onclick="openTagsDialog('add')" title="Click to manage tags">
+                    <span class="tags-trigger-placeholder">Add tags...</span>
+                </div>
                 <label style="font-size:11px; font-weight:bold; opacity:0.8;">Note</label>
-                <input type="text" id="addNote" placeholder="xin chao, ghi chu..." spellcheck="false" autocomplete="off">
+                <div class="note-trigger" id="addNoteTrigger" onclick="openNoteDialog('add')" title="Click to add note">
+                    <span class="note-trigger-placeholder">Add note...</span>
+                </div>
                 <label data-i18n="timezoneLabel" style="font-size:11px; font-weight:bold; opacity:0.8;">Timezone</label>
                 <div class="timezone-wrapper">
                     <input type="text" id="addTimezone" placeholder="Type to search or select..." autocomplete="off">
@@ -1269,9 +1337,13 @@
                 <label data-i18n="profileName" style="font-size:11px; font-weight:bold; opacity:0.8;">Name</label>
                 <input type="text" id="editName">
                 <label data-i18n="tagsLabel" style="font-size:11px; font-weight:bold; opacity:0.8;">Tags</label>
-                <input type="text" id="editTags" spellcheck="false">
+                <div class="tags-trigger" id="editTagsTrigger" onclick="openTagsDialog('edit')" title="Click to manage tags">
+                    <span class="tags-trigger-placeholder">Add tags...</span>
+                </div>
                 <label style="font-size:11px; font-weight:bold; opacity:0.8;">Note</label>
-                <input type="text" id="editNote" spellcheck="false" placeholder="xin chao, ghi chu...">
+                <div class="note-trigger" id="editNoteTrigger" onclick="openNoteDialog('edit')" title="Click to add note">
+                    <span class="note-trigger-placeholder">Add note...</span>
+                </div>
                 <label data-i18n="timezoneLabel" style="font-size:11px; font-weight:bold; opacity:0.8;">Timezone</label>
                 <div class="timezone-wrapper">
                     <input type="text" id="editTimezone" placeholder="Type to search or select..." autocomplete="off">
@@ -1885,6 +1957,45 @@
     <script src="locales/zh-CN.js"></script>
     <script src="i18n.js"></script>
     <script src="renderer.js"></script>
+
+    <!-- Tags mini-dialog -->
+    <div id="tagsMiniDialog" class="mini-dialog-overlay" style="display:none;"
+         onclick="if(event.target===this)closeTagsDialog(false)">
+        <div class="mini-dialog-box">
+            <div class="mini-dialog-header">
+                <span>Tags</span>
+                <span class="mdh-close" onclick="closeTagsDialog(false)">✕</span>
+            </div>
+            <div id="tagsChipsArea" class="chips-area">
+                <span class="chips-area-empty" id="tagsChipsEmpty">No tags yet</span>
+            </div>
+            <input type="text" id="tagsDialogInput" class="mini-dialog-input"
+                   placeholder="Nhập tag rồi Enter..." autocomplete="off" spellcheck="false"
+                   onkeydown="handleTagInputKey(event)">
+            <div class="mini-dialog-footer">
+                <button onclick="closeTagsDialog(false)">Cancel</button>
+                <button onclick="closeTagsDialog(true)" style="background:var(--accent);color:var(--bg-color);border-color:var(--accent);">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Note mini-dialog -->
+    <div id="noteMiniDialog" class="mini-dialog-overlay" style="display:none;"
+         onclick="if(event.target===this)closeNoteDialog(false)">
+        <div class="mini-dialog-box">
+            <div class="mini-dialog-header">
+                <span>Note</span>
+                <span class="mdh-close" onclick="closeNoteDialog(false)">✕</span>
+            </div>
+            <textarea id="noteDialogInput" class="mini-dialog-input"
+                      rows="5" placeholder="Ghi chú..."
+                      style="resize:vertical; font-family:inherit; min-height:80px;"></textarea>
+            <div class="mini-dialog-footer">
+                <button onclick="closeNoteDialog(false)">Cancel</button>
+                <button onclick="closeNoteDialog(true)" style="background:var(--accent);color:var(--bg-color);border-color:var(--accent);">OK</button>
+            </div>
+        </div>
+    </div>
 </body>
 
 </html>

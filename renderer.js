@@ -707,6 +707,106 @@ function toggleViewMode() {
 
 // 简单的颜色生成器
 // Convert ISO country code to flag emoji (e.g. "GB" → "🇬🇧")
+// ========= Tags & Note mini-dialogs (GPMLogin style) =========
+let _addTags = [], _editTags = [];
+let _addNote = '', _editNote = '';
+let _tagsCtx = null, _noteCtx = null;
+
+function openTagsDialog(ctx) {
+    _tagsCtx = ctx;
+    const tags = ctx === 'add' ? _addTags : _editTags;
+    _renderTagChips([...tags]);
+    document.getElementById('tagsDialogInput').value = '';
+    document.getElementById('tagsMiniDialog').style.display = 'flex';
+    setTimeout(() => document.getElementById('tagsDialogInput').focus(), 50);
+}
+
+function closeTagsDialog(save) {
+    if (save && _tagsCtx) {
+        const chips = document.querySelectorAll('#tagsChipsArea .chip-item');
+        const tags = [...chips].map(c => c.dataset.tag);
+        if (_tagsCtx === 'add') _addTags = tags;
+        else _editTags = tags;
+        _updateTagsTrigger(_tagsCtx);
+    }
+    document.getElementById('tagsMiniDialog').style.display = 'none';
+    _tagsCtx = null;
+}
+
+function handleTagInputKey(e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        const val = e.target.value.trim();
+        if (val) { _addTagChip(val); e.target.value = ''; }
+    }
+}
+
+function _addTagChip(tag) {
+    const area = document.getElementById('tagsChipsArea');
+    const existing = [...area.querySelectorAll('.chip-item')].map(c => c.dataset.tag);
+    if (existing.includes(tag)) return;
+    document.getElementById('tagsChipsEmpty').style.display = 'none';
+    const chip = document.createElement('span');
+    chip.className = 'chip-item';
+    chip.dataset.tag = tag;
+    chip.innerHTML = `${tag.replace(/</g,'&lt;')}<button class="chip-x" onclick="this.parentElement.remove();_syncChipsEmpty()" title="Remove">×</button>`;
+    area.appendChild(chip);
+}
+
+function _syncChipsEmpty() {
+    const area = document.getElementById('tagsChipsArea');
+    const empty = document.getElementById('tagsChipsEmpty');
+    if (empty) empty.style.display = area.querySelectorAll('.chip-item').length === 0 ? '' : 'none';
+}
+
+function _renderTagChips(tags) {
+    const area = document.getElementById('tagsChipsArea');
+    area.querySelectorAll('.chip-item').forEach(c => c.remove());
+    document.getElementById('tagsChipsEmpty').style.display = tags.length === 0 ? '' : 'none';
+    tags.forEach(t => _addTagChip(t));
+}
+
+function _updateTagsTrigger(ctx) {
+    const tags = ctx === 'add' ? _addTags : _editTags;
+    const el = document.getElementById(ctx === 'add' ? 'addTagsTrigger' : 'editTagsTrigger');
+    if (!el) return;
+    if (tags.length === 0) {
+        el.innerHTML = `<span class="tags-trigger-placeholder">Add tags...</span>`;
+    } else {
+        el.innerHTML = tags.map(t =>
+            `<span class="tag" style="background:${stringToColor(t)}33;color:${stringToColor(t)};border:1px solid ${stringToColor(t)}44;">${t.replace(/</g,'&lt;')}</span>`
+        ).join('');
+    }
+}
+
+function openNoteDialog(ctx) {
+    _noteCtx = ctx;
+    document.getElementById('noteDialogInput').value = ctx === 'add' ? _addNote : _editNote;
+    document.getElementById('noteMiniDialog').style.display = 'flex';
+    setTimeout(() => document.getElementById('noteDialogInput').focus(), 50);
+}
+
+function closeNoteDialog(save) {
+    if (save && _noteCtx) {
+        const note = document.getElementById('noteDialogInput').value.trim();
+        if (_noteCtx === 'add') _addNote = note;
+        else _editNote = note;
+        _updateNoteTrigger(_noteCtx);
+    }
+    document.getElementById('noteMiniDialog').style.display = 'none';
+    _noteCtx = null;
+}
+
+function _updateNoteTrigger(ctx) {
+    const note = ctx === 'add' ? _addNote : _editNote;
+    const el = document.getElementById(ctx === 'add' ? 'addNoteTrigger' : 'editNoteTrigger');
+    if (!el) return;
+    el.innerHTML = note
+        ? `<span style="font-size:12px;">${note.replace(/</g,'&lt;')}</span>`
+        : `<span class="note-trigger-placeholder">Add note...</span>`;
+}
+// ===================================================
+
 function countryCodeToFlag(code) {
     if (!code || code.length !== 2) return '';
     return String.fromCodePoint(...[...code.toUpperCase()].map(c => 0x1F1E6 - 65 + c.charCodeAt(0)));
@@ -820,7 +920,8 @@ async function quickUpdatePreProxy(id, val) {
 function openAddModal() {
     document.getElementById('addName').value = '';
     document.getElementById('addProxy').value = '';
-    document.getElementById('addTags').value = ''; // Clear tags
+    _addTags = []; _addNote = '';
+    _updateTagsTrigger('add'); _updateNoteTrigger('add');
     document.getElementById('addTimezone').value = 'Auto (No Change)';
 
     // Initialize location dropdown
@@ -838,7 +939,6 @@ function closeAddModal() { document.getElementById('addModal').style.display = '
 async function saveNewProfile() {
     const nameBase = document.getElementById('addName').value.trim();
     const proxyText = document.getElementById('addProxy').value.trim();
-    const tagsStr = document.getElementById('addTags').value;
     const timezoneInput = document.getElementById('addTimezone').value;
     // 将 "Auto (No Change)" 转换为 "Auto" 存储
     const timezone = timezoneInput === 'Auto (No Change)' ? 'Auto' : timezoneInput;
@@ -869,8 +969,8 @@ async function saveNewProfile() {
         screen = { width: resW, height: resH };
     }
 
-    const tags = tagsStr.split(/[,，]/).map(s => s.trim()).filter(s => s);
-    const note = document.getElementById('addNote').value.trim();
+    const tags = _addTags;
+    const note = _addNote;
 
     // 分割多行代理链接
     const proxyLines = proxyText.split('\n').map(l => l.trim()).filter(l => l);
@@ -932,8 +1032,8 @@ async function openEditModal(id) {
     const fp = p.fingerprint || {};
     document.getElementById('editName').value = p.name;
     document.getElementById('editProxy').value = p.proxyStr;
-    document.getElementById('editTags').value = (p.tags || []).join(', ');
-    document.getElementById('editNote').value = p.note || '';
+    _editTags = [...(p.tags || [])]; _editNote = p.note || '';
+    _updateTagsTrigger('edit'); _updateNoteTrigger('edit');
 
     // 回填时区，将 "Auto" 转换为 "Auto (No Change)" 显示
     const savedTimezone = fp.timezone || 'Auto';
@@ -987,9 +1087,8 @@ async function saveEditProfile() {
     if (p) {
         p.name = document.getElementById('editName').value;
         p.proxyStr = document.getElementById('editProxy').value;
-        const tagsStr = document.getElementById('editTags').value;
-        p.tags = tagsStr.split(/[,，]/).map(s => s.trim()).filter(s => s);
-        p.note = document.getElementById('editNote').value.trim();
+        p.tags = _editTags;
+        p.note = _editNote;
         p.preProxyOverride = document.getElementById('editPreProxyOverride').value;
 
         if (!p.fingerprint) p.fingerprint = {};

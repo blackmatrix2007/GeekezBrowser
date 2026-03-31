@@ -338,8 +338,21 @@ function getInjectScript(fp, profileName, watermarkStyle) {
             // Handled via CDP Emulation / TZ env var — no JS hooks needed
 
             // --- 1. Remove WebDriver / Puppeteer artifacts ---
-            if (navigator.webdriver) {
-                Object.defineProperty(navigator, 'webdriver', { get: () => false });
+            // Override unconditionally on Navigator.prototype — Chrome's webdriver property is
+            // a prototype accessor, so overriding on instance is unreliable. Also, the old
+            // `if (navigator.webdriver)` conditional could fail the entire outer try-block if
+            // the defineProperty threw a TypeError (non-configurable), silently killing all
+            // subsequent patches. Always override, isolated in own try-catch.
+            try {
+                Object.defineProperty(Navigator.prototype, 'webdriver', {
+                    get: () => false, configurable: true
+                });
+            } catch(e) {
+                try {
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => false, configurable: true
+                    });
+                } catch(e2) {}
             }
             const cdcRegex = /cdc_[a-zA-Z0-9]+/;
             for (const key in window) {
@@ -370,6 +383,17 @@ function getInjectScript(fp, profileName, watermarkStyle) {
                         if (!window.chrome.app) window.chrome.app = _app;
                         if (!window.chrome.csi) window.chrome.csi = _csi;
                         if (!window.chrome.loadTimes) window.chrome.loadTimes = _loadTimes;
+                        // Hide chrome.runtime.id — when a MAIN-world content script runs,
+                        // chrome.runtime.id is set to the extension's ID, which changes the
+                        // property enumeration fingerprint vs a page without extensions loaded.
+                        // Pixelscan hashes chrome.runtime properties → "unknown" if id is visible.
+                        try {
+                            if (window.chrome.runtime && window.chrome.runtime.id) {
+                                Object.defineProperty(window.chrome.runtime, 'id', {
+                                    get: () => undefined, configurable: true
+                                });
+                            }
+                        } catch(e) {}
                     }
                 } catch(e) {}
             })();

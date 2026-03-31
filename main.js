@@ -3044,11 +3044,27 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
                 mobile: false,
                 wow64: false
             };
+            // High-entropy UA-CH hints (Sec-CH-UA-Arch, Bitness, etc.) are only sent by
+            // browsers when the server requests them via Accept-CH response header.
+            // Chrome for Testing may not have stored Accept-CH permissions for Pixelscan,
+            // so we inject them directly via Network.setExtraHTTPHeaders to ensure
+            // secArch/secBitness/secPlatformVersion are populated in Pixelscan's /s/api/hh.
+            const highEntropyHeaders = {
+                'Sec-CH-UA-Arch': '"x86"',
+                'Sec-CH-UA-Bitness': '"64"',
+                'Sec-CH-UA-Platform-Version': `"${uaMetadata.platformVersion}"`,
+                'Sec-CH-UA-Full-Version-List': `"Google Chrome";v="${fullVer}", "Chromium";v="${fullVer}", "Not.A/Brand";v="99.0.0.0"`,
+                'Sec-CH-UA-Model': '""',
+                'Sec-CH-UA-WoW64': '?0'
+            };
             const applyUACH = async (session) => {
                 try {
                     await session.send('Network.setUserAgentOverride', {
                         userAgent: ua,
                         userAgentMetadata: uaMetadata
+                    });
+                    await session.send('Network.setExtraHTTPHeaders', {
+                        headers: highEntropyHeaders
                     });
                 } catch (e) {}
             };

@@ -844,6 +844,27 @@ function _updateNoteTrigger(ctx) {
 }
 // ===================================================
 
+function generateMac(seed) {
+    let s = (seed || 1) >>> 0;
+    const bytes = [];
+    for (let i = 0; i < 6; i++) {
+        s = (Math.imul(1664525, s) + 1013904223) >>> 0;
+        bytes.push(s >>> 24);
+    }
+    // Locally administered, unicast
+    bytes[0] = (bytes[0] & 0xFE) | 0x02;
+    return bytes.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(':');
+}
+
+function copyMac(mac, btn) {
+    navigator.clipboard.writeText(mac).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = '✓';
+        btn.style.color = '#4caf50';
+        setTimeout(() => { btn.textContent = orig; btn.style.color = ''; }, 1200);
+    });
+}
+
 function countryCodeToFlag(code) {
     if (!code || code.length !== 2) return '';
     return String.fromCodePoint(...[...code.toUpperCase()].map(c => 0x1F1E6 - 65 + c.charCodeAt(0)));
@@ -926,6 +947,10 @@ async function loadProfiles() {
             // Tags row + inline edit button
             const tagsRowHtml = `<div class="profile-inline-row" onclick="openTagsDialogInline('${p.id}')" title="Edit tags" style="flex-wrap:wrap;">🏷️ ${tagsHtml || '<span style=\'opacity:0.3;\'>Add tags...</span>'}</div>`;
 
+            // MAC address row
+            const mac = generateMac(fp.noiseSeed);
+            const macHtml = `<div class="profile-inline-row profile-mac-row" title="MAC Address">💻 <span class="mac-addr">${mac}</span><button class="mac-copy-btn no-drag" onclick="event.stopPropagation();copyMac('${mac}',this)" title="Copy MAC">⧉</button></div>`;
+
             const el = document.createElement('div');
             el.className = 'profile-item no-drag';
             el.innerHTML = `
@@ -933,6 +958,7 @@ async function loadProfiles() {
                     <div style="display:flex; align-items:center;">${flagHtml}<h4>${p.name}</h4><span id="status-${p.id}" class="running-badge ${isRunning ? 'active' : ''}">${t('runningStatus')}</span>${groupBadge}</div>
                     ${noteHtml}
                     ${tagsRowHtml}
+                    ${macHtml}
                     <div class="profile-meta">
                         <span class="tag">${(p.proxyStr || '').split('://')[0].toUpperCase() || 'N/A'}</span>
                         <span class="tag">${screen.width}x${screen.height}</span>
@@ -1116,6 +1142,8 @@ async function openEditModal(id) {
     } else {
         customArgsSection.style.display = 'none';
     }
+
+    document.getElementById('editMacAddr').textContent = generateMac(fp.noiseSeed);
 
     document.getElementById('editModal').style.display = 'flex';
 }

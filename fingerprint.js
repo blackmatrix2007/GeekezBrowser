@@ -339,10 +339,10 @@ function getInjectScript(fp, profileName, watermarkStyle) {
 
             // --- 1. Remove WebDriver / Puppeteer artifacts ---
             // Override unconditionally on Navigator.prototype — Chrome's webdriver property is
-            // a prototype accessor, so overriding on instance is unreliable. Also, the old
-            // `if (navigator.webdriver)` conditional could fail the entire outer try-block if
-            // the defineProperty threw a TypeError (non-configurable), silently killing all
-            // subsequent patches. Always override, isolated in own try-catch.
+            // a prototype accessor, so overriding on instance is unreliable. The old conditional
+            // check could also fail the entire outer try-block if defineProperty threw a
+            // TypeError (non-configurable), silently killing all subsequent patches.
+            // Always override, isolated in own try-catch.
             try {
                 Object.defineProperty(Navigator.prototype, 'webdriver', {
                     get: () => false, configurable: true

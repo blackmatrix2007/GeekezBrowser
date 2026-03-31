@@ -176,7 +176,8 @@ const enTranslations = {
 };
 
 // Global i18n Manager
-window.curLang = localStorage.getItem('geekez_lang') || 'en';
+// Only support en/vi — reset cn to en
+window.curLang = (() => { const l = localStorage.getItem('geekez_lang'); return (l === 'en' || l === 'vi') ? l : 'en'; })();
 
 window.t = function (key) {
     if (window.curLang === 'cn' && window.zhCN && window.zhCN[key]) return window.zhCN[key];
@@ -185,12 +186,11 @@ window.t = function (key) {
 };
 
 window.toggleLanguage = function () {
-    const cycle = { 'en': 'vi', 'vi': 'cn', 'cn': 'en' };
-    window.curLang = cycle[window.curLang] || 'en';
+    window.curLang = window.curLang === 'en' ? 'vi' : 'en';
     localStorage.setItem('geekez_lang', window.curLang);
     location.reload();
 };
 
 window.getLangLabel = function () {
-    return { 'en': 'EN', 'vi': 'VI', 'cn': '中' }[window.curLang] || 'EN';
+    return window.curLang === 'vi' ? 'VI' : 'EN';
 };

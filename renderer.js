@@ -329,14 +329,13 @@ function applyLang() {
     const themeSel = document.getElementById('themeSelect');
     if (themeSel) { themeSel.options[0].text = t('themeGeek'); themeSel.options[1].text = t('themeLight'); themeSel.options[2].text = t('themeDark'); }
     const langBtn = document.getElementById('langToggleBtn');
-    if (langBtn) langBtn.textContent = { 'en': 'EN', 'vi': 'VI', 'cn': '中' }[curLang] || 'EN';
+    if (langBtn) langBtn.textContent = curLang === 'vi' ? 'VI' : 'EN';
     renderHelpContent();
     updateToolbar(); loadGroups().then(() => loadProfiles()); renderGroupTabs();
 }
 
 function toggleLang() {
-    const cycle = { 'en': 'vi', 'vi': 'cn', 'cn': 'en' };
-    curLang = cycle[curLang] || 'en';
+    curLang = curLang === 'en' ? 'vi' : 'en';
     localStorage.setItem('geekez_lang', curLang);
     applyLang();
 }

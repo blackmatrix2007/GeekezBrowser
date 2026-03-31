@@ -582,6 +582,18 @@
         .tags-trigger-placeholder, .note-trigger-placeholder {
             font-size: 12px; opacity: 0.35;
         }
+        /* Inline tag/note rows on profile list items */
+        .profile-inline-row {
+            display: flex; align-items: center; gap: 4px;
+            font-size: 11px; margin-top: 3px;
+            cursor: pointer; border-radius: 4px;
+            padding: 2px 4px; max-width: 100%;
+            transition: background 0.15s;
+            flex-wrap: wrap;
+        }
+        .profile-inline-row:hover {
+            background: rgba(255,255,255,0.07);
+        }
 
         .quick-switch-select {
             background: transparent;

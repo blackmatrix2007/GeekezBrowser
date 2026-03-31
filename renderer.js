@@ -711,9 +711,11 @@ function toggleViewMode() {
 let _addTags = [], _editTags = [];
 let _addNote = '', _editNote = '';
 let _tagsCtx = null, _noteCtx = null;
+let _inlineProfileId = null; // for direct edit from profile list
 
+// Open tags dialog from Add/Edit modal
 function openTagsDialog(ctx) {
-    _tagsCtx = ctx;
+    _tagsCtx = ctx; _inlineProfileId = null;
     const tags = ctx === 'add' ? _addTags : _editTags;
     _renderTagChips([...tags]);
     document.getElementById('tagsDialogInput').value = '';
@@ -721,16 +723,35 @@ function openTagsDialog(ctx) {
     setTimeout(() => document.getElementById('tagsDialogInput').focus(), 50);
 }
 
-function closeTagsDialog(save) {
-    if (save && _tagsCtx) {
+// Open tags dialog directly from profile list item
+async function openTagsDialogInline(profileId) {
+    _tagsCtx = null; _inlineProfileId = profileId;
+    const profiles = await window.electronAPI.getProfiles();
+    const p = profiles.find(x => x.id === profileId);
+    _renderTagChips(p ? [...(p.tags || [])] : []);
+    document.getElementById('tagsDialogInput').value = '';
+    document.getElementById('tagsMiniDialog').style.display = 'flex';
+    setTimeout(() => document.getElementById('tagsDialogInput').focus(), 50);
+}
+
+async function closeTagsDialog(save) {
+    if (save) {
         const chips = document.querySelectorAll('#tagsChipsArea .chip-item');
         const tags = [...chips].map(c => c.dataset.tag);
-        if (_tagsCtx === 'add') _addTags = tags;
-        else _editTags = tags;
-        _updateTagsTrigger(_tagsCtx);
+        if (_inlineProfileId) {
+            // Save directly to profile
+            const profiles = await window.electronAPI.getProfiles();
+            const p = profiles.find(x => x.id === _inlineProfileId);
+            if (p) { p.tags = tags; await window.electronAPI.updateProfile(p); }
+            await loadProfiles();
+        } else if (_tagsCtx) {
+            if (_tagsCtx === 'add') _addTags = tags;
+            else _editTags = tags;
+            _updateTagsTrigger(_tagsCtx);
+        }
     }
     document.getElementById('tagsMiniDialog').style.display = 'none';
-    _tagsCtx = null;
+    _tagsCtx = null; _inlineProfileId = null;
 }
 
 function handleTagInputKey(e) {
@@ -780,21 +801,37 @@ function _updateTagsTrigger(ctx) {
 }
 
 function openNoteDialog(ctx) {
-    _noteCtx = ctx;
+    _noteCtx = ctx; _inlineProfileId = null;
     document.getElementById('noteDialogInput').value = ctx === 'add' ? _addNote : _editNote;
     document.getElementById('noteMiniDialog').style.display = 'flex';
     setTimeout(() => document.getElementById('noteDialogInput').focus(), 50);
 }
 
-function closeNoteDialog(save) {
-    if (save && _noteCtx) {
+async function openNoteDialogInline(profileId) {
+    _noteCtx = null; _inlineProfileId = profileId;
+    const profiles = await window.electronAPI.getProfiles();
+    const p = profiles.find(x => x.id === profileId);
+    document.getElementById('noteDialogInput').value = p ? (p.note || '') : '';
+    document.getElementById('noteMiniDialog').style.display = 'flex';
+    setTimeout(() => document.getElementById('noteDialogInput').focus(), 50);
+}
+
+async function closeNoteDialog(save) {
+    if (save) {
         const note = document.getElementById('noteDialogInput').value.trim();
-        if (_noteCtx === 'add') _addNote = note;
-        else _editNote = note;
-        _updateNoteTrigger(_noteCtx);
+        if (_inlineProfileId) {
+            const profiles = await window.electronAPI.getProfiles();
+            const p = profiles.find(x => x.id === _inlineProfileId);
+            if (p) { p.note = note; await window.electronAPI.updateProfile(p); }
+            await loadProfiles();
+        } else if (_noteCtx) {
+            if (_noteCtx === 'add') _addNote = note;
+            else _editNote = note;
+            _updateNoteTrigger(_noteCtx);
+        }
     }
     document.getElementById('noteMiniDialog').style.display = 'none';
-    _noteCtx = null;
+    _noteCtx = null; _inlineProfileId = null;
 }
 
 function _updateNoteTrigger(ctx) {
@@ -864,7 +901,8 @@ async function loadProfiles() {
             const override = p.preProxyOverride || 'default';
             const isRunning = runningIds.includes(p.id);
 
-            // 渲染标签 HTML
+            // Tags chips
+            const safeId = p.id.replace(/[^a-zA-Z0-9_-]/g, '');
             let tagsHtml = '';
             if (p.tags && p.tags.length > 0) {
                 tagsHtml = p.tags.map(tag =>
@@ -877,12 +915,16 @@ async function loadProfiles() {
                 ? `<span style="font-size:11px;opacity:0.6;margin-left:6px;">📁 ${groupOfProfile.name}</span>`
                 : '';
 
-            // Country flag from geo data
+            // Country flag
             const flag = getProxyFlag(p);
             const flagHtml = flag ? `<span style="font-size:16px;margin-right:4px;" title="${p.fingerprint?.countryCode || ''}">${flag}</span>` : '';
 
-            // Note display
-            const noteHtml = p.note ? `<div style="font-size:11px;opacity:0.55;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px;" title="${p.note.replace(/"/g,'&quot;')}">📝 ${p.note}</div>` : '';
+            // Note + inline edit button
+            const noteText = p.note ? `<span style="opacity:0.8;">${p.note.replace(/</g,'&lt;').replace(/"/g,'&quot;')}</span>` : `<span style="opacity:0.3;">Add note...</span>`;
+            const noteHtml = `<div class="profile-inline-row" onclick="openNoteDialogInline('${p.id}')" title="Edit note">📝 ${noteText}</div>`;
+
+            // Tags row + inline edit button
+            const tagsRowHtml = `<div class="profile-inline-row" onclick="openTagsDialogInline('${p.id}')" title="Edit tags" style="flex-wrap:wrap;">🏷️ ${tagsHtml || '<span style=\'opacity:0.3;\'>Add tags...</span>'}</div>`;
 
             const el = document.createElement('div');
             el.className = 'profile-item no-drag';
@@ -890,9 +932,9 @@ async function loadProfiles() {
                 <div class="profile-info">
                     <div style="display:flex; align-items:center;">${flagHtml}<h4>${p.name}</h4><span id="status-${p.id}" class="running-badge ${isRunning ? 'active' : ''}">${t('runningStatus')}</span>${groupBadge}</div>
                     ${noteHtml}
+                    ${tagsRowHtml}
                     <div class="profile-meta">
-                        ${tagsHtml} <!-- 插入标签 -->
-                        <span class="tag">${p.proxyStr.split('://')[0].toUpperCase() || 'N/A'}</span>
+                        <span class="tag">${(p.proxyStr || '').split('://')[0].toUpperCase() || 'N/A'}</span>
                         <span class="tag">${screen.width}x${screen.height}</span>
                         <span class="tag" style="border:1px solid var(--accent);">
                             <select class="quick-switch-select no-drag" onchange="quickUpdatePreProxy('${p.id}', this.value)">

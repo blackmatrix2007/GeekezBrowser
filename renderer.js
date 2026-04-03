@@ -898,38 +898,52 @@ async function loadProfiles() {
             const flag = getProxyFlag(p);
             const flagHtml = flag ? `<span style="font-size:16px;margin-right:4px;" title="${p.fingerprint?.countryCode || ''}">${flag}</span>` : '';
 
-            // Note + inline edit button
-            const noteText = p.note ? `<span style="opacity:0.8;">${p.note.replace(/</g,'&lt;').replace(/"/g,'&quot;')}</span>` : `<span style="opacity:0.3;">Add note...</span>`;
-            const noteHtml = `<div class="profile-inline-row" onclick="openNoteDialogInline('${p.id}')" title="Edit note">📝 ${noteText}</div>`;
-
-            // Tags row + inline edit button
-            const tagsRowHtml = `<div class="profile-inline-row" onclick="openTagsDialogInline('${p.id}')" title="Edit tags" style="flex-wrap:wrap;">🏷️ ${tagsHtml || '<span style=\'opacity:0.3;\'>Add tags...</span>'}</div>`;
-
-            // MAC address row
+            // MAC
             const mac = generateMac(fp.noiseSeed);
-            const macHtml = `<div class="profile-inline-row profile-mac-row" title="MAC Address">💻 <span class="mac-addr">${mac}</span><button class="mac-copy-btn no-drag" onclick="event.stopPropagation();copyMac('${mac}',this)" title="Copy MAC">⧉</button></div>`;
+
+            // Note pill
+            const notePill = p.note
+                ? `<span class="pi-note-pill no-drag" onclick="openNoteDialogInline('${p.id}')" title="${p.note.replace(/"/g,'&quot;')}">📝 ${p.note.replace(/</g,'&lt;').substring(0,30)}${p.note.length>30?'…':''}</span>`
+                : `<span class="pi-note-pill no-drag" style="opacity:0.3;" onclick="openNoteDialogInline('${p.id}')">📝 note...</span>`;
+
+            // Tags pills
+            const tagsPills = (p.tags && p.tags.length > 0)
+                ? p.tags.map(tag => `<span class="pi-tag-pill tag no-drag" style="background:${stringToColor(tag)}22;color:${stringToColor(tag)};border:1px solid ${stringToColor(tag)}44;">${tag}</span>`).join('')
+                : `<span style="opacity:0.3;font-size:11px;">🏷️...</span>`;
+
+            // Proxy display (truncate)
+            const proxyProto = (p.proxyStr || '').split('://')[0].toUpperCase() || 'N/A';
+            const proxyHost = (p.proxyStr || '').replace(/^[^:]+:\/\//, '').split(':').slice(0,2).join(':');
 
             const el = document.createElement('div');
             el.className = 'profile-item no-drag';
             el.innerHTML = `
-                <div class="profile-info">
-                    <div style="display:flex; align-items:center;">${flagHtml}<h4>${p.name}</h4><span id="status-${p.id}" class="running-badge ${isRunning ? 'active' : ''}">${t('runningStatus')}</span>${groupBadge}</div>
-                    ${noteHtml}
-                    ${tagsRowHtml}
-                    ${macHtml}
-                    <div class="profile-meta">
-                        <span class="tag">${(p.proxyStr || '').split('://')[0].toUpperCase() || 'N/A'}</span>
-                        <span class="tag">${screen.width}x${screen.height}</span>
-                        <span class="tag" style="border:1px solid var(--accent);">
-                            <select class="quick-switch-select no-drag" onchange="quickUpdatePreProxy('${p.id}', this.value)">
-                                <option value="default" ${override === 'default' ? 'selected' : ''}>${t('qsDefault')}</option>
-                                <option value="on" ${override === 'on' ? 'selected' : ''}>${t('qsOn')}</option>
-                                <option value="off" ${override === 'off' ? 'selected' : ''}>${t('qsOff')}</option>
-                            </select>
-                        </span>
+                <!-- Col 1: identity -->
+                <div class="pi-main">
+                    <div class="pi-name-row">${flagHtml}<h4>${p.name}</h4><span id="status-${p.id}" class="running-badge ${isRunning ? 'active' : ''}">${t('runningStatus')}</span>${groupBadge}</div>
+                    <div class="pi-sub-row">
+                        ${notePill}
+                        <div class="pi-tags-wrap no-drag" onclick="openTagsDialogInline('${p.id}')" title="Edit tags">${tagsPills}</div>
                     </div>
                 </div>
-                <div class="actions"><button onclick="launch('${p.id}')" class="no-drag">${t('launch')}</button><button class="outline no-drag" onclick="openEditModal('${p.id}')">${t('edit')}</button><button class="outline no-drag" onclick="openAssignGroup('${p.id}')" title="Move to group">📁</button>${isRunning ? `<button class="outline no-drag" onclick="openVerifyModal('${p.id}')" title="Auto-verify fingerprint">Verify</button>` : ''}<button class="danger no-drag" onclick="remove('${p.id}')">${t('delete')}</button></div>
+                <!-- Col 2: proxy + MAC -->
+                <div class="pi-tech">
+                    <div class="pi-proxy-row"><span class="tag" style="flex-shrink:0;">${proxyProto}</span><span style="overflow:hidden;text-overflow:ellipsis;">${proxyHost}</span></div>
+                    <div class="pi-mac-row">💻 <span class="mac-addr">${mac}</span><button class="mac-copy-btn no-drag" onclick="event.stopPropagation();copyMac('${mac}',this)" title="Copy MAC">⧉</button></div>
+                </div>
+                <!-- Col 3: res + preproxy -->
+                <div class="pi-meta">
+                    <span class="tag">${screen.width}x${screen.height}</span>
+                    <span class="tag" style="border:1px solid var(--accent);padding:0;">
+                        <select class="quick-switch-select no-drag" onchange="quickUpdatePreProxy('${p.id}', this.value)">
+                            <option value="default" ${override === 'default' ? 'selected' : ''}>${t('qsDefault')}</option>
+                            <option value="on" ${override === 'on' ? 'selected' : ''}>${t('qsOn')}</option>
+                            <option value="off" ${override === 'off' ? 'selected' : ''}>${t('qsOff')}</option>
+                        </select>
+                    </span>
+                </div>
+                <!-- Col 4: actions -->
+                <div class="actions"><button onclick="launch('${p.id}')" class="no-drag">${t('launch')}</button><button class="outline no-drag" onclick="openEditModal('${p.id}')">${t('edit')}</button><button class="outline no-drag" onclick="openAssignGroup('${p.id}')" title="Move to group">📁</button>${isRunning ? `<button class="outline no-drag" onclick="openVerifyModal('${p.id}')" title="Verify">✓</button>` : ''}<button class="danger no-drag" onclick="remove('${p.id}')">${t('delete')}</button></div>
             `;
             listEl.appendChild(el);
         });

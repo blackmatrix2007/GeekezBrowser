@@ -481,13 +481,14 @@
 
         .profile-item {
             background: var(--card-bg);
-            padding: 10px 15px;
+            padding: 7px 12px;
             border-radius: 6px;
-            display: flex;
-            justify-content: space-between;
+            display: grid;
+            grid-template-columns: minmax(180px,1.8fr) minmax(160px,1.4fr) auto auto;
             align-items: center;
+            gap: 0 14px;
             border: 1px solid var(--border);
-            transition: 0.2s;
+            transition: border-color 0.15s, box-shadow 0.15s;
             position: relative;
             overflow: hidden;
             flex-shrink: 0;
@@ -495,12 +496,27 @@
 
         .profile-item:hover {
             border-color: var(--accent);
-            transform: translateX(2px);
+            box-shadow: 0 0 0 1px var(--accent)22;
         }
 
+        /* Col 1 — identity */
+        .pi-main { min-width: 0; }
+        .pi-name-row { display:flex; align-items:center; gap:5px; }
+        .pi-name-row h4 { margin:0; font-size:14px; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .pi-sub-row { display:flex; align-items:center; gap:6px; margin-top:3px; flex-wrap:wrap; }
+
+        /* Col 2 — proxy + MAC */
+        .pi-tech { min-width:0; font-size:11px; }
+        .pi-proxy-row { display:flex; align-items:center; gap:4px; opacity:0.75; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .pi-mac-row { display:flex; align-items:center; gap:4px; margin-top:3px; }
+
+        /* Col 3 — res + preproxy */
+        .pi-meta { display:flex; flex-direction:column; align-items:flex-start; gap:3px; font-size:11px; white-space:nowrap; }
+
+        /* Keep old .profile-info h4 for grid mode */
         .profile-info h4 {
-            margin: 0 0 5px 0;
-            font-size: 15px;
+            margin: 0 0 3px 0;
+            font-size: 14px;
             color: var(--text-primary);
         }
 
@@ -582,26 +598,40 @@
         .tags-trigger-placeholder, .note-trigger-placeholder {
             font-size: 12px; opacity: 0.35;
         }
-        /* Inline tag/note rows on profile list items */
+        /* Inline tag/note rows on profile list items (legacy grid-view) */
         .profile-inline-row {
             display: flex; align-items: center; gap: 4px;
-            font-size: 11px; margin-top: 3px;
+            font-size: 11px;
             cursor: pointer; border-radius: 4px;
-            padding: 2px 4px; max-width: 100%;
+            padding: 1px 3px;
             transition: background 0.15s;
             flex-wrap: wrap;
         }
-        .profile-inline-row:hover {
-            background: rgba(255,255,255,0.07);
-        }
+        .profile-inline-row:hover { background: rgba(255,255,255,0.07); }
         .profile-mac-row { cursor: default !important; }
         .mac-addr { font-family: monospace; letter-spacing: 0.5px; opacity: 0.85; }
         .mac-copy-btn {
             background: none; border: none; cursor: pointer;
-            font-size: 13px; opacity: 0.5; padding: 0 2px;
+            font-size: 12px; opacity: 0.5; padding: 0 2px;
             color: inherit; line-height: 1;
         }
         .mac-copy-btn:hover { opacity: 1; }
+        /* Compact inline note/tag pills in list view */
+        .pi-note-pill {
+            font-size: 11px; opacity: 0.7; cursor: pointer;
+            border-radius: 3px; padding: 1px 5px;
+            border: 1px solid var(--border);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            max-width: 160px;
+        }
+        .pi-note-pill:hover { opacity: 1; border-color: var(--accent); }
+        .pi-tag-pill {
+            font-size: 10px; padding: 1px 6px;
+            border-radius: 10px; cursor: pointer;
+            white-space: nowrap;
+        }
+        .pi-tags-wrap { display:flex; gap:4px; flex-wrap:wrap; cursor:pointer; }
+        .pi-tags-wrap:empty::before { content:'🏷️'; opacity:0.3; font-size:11px; }
 
         .quick-switch-select {
             background: transparent;
@@ -626,20 +656,21 @@
         }
 
         .main-list.grid-view .profile-item {
+            grid-template-columns: 1fr;
             flex-direction: column;
             align-items: flex-start;
-            gap: 10px;
-            padding: 15px;
+            gap: 8px;
+            padding: 14px;
         }
 
         .main-list.grid-view .profile-item:hover {
-            transform: translateY(-3px);
+            transform: translateY(-2px);
             border-color: var(--accent);
         }
 
-        .main-list.grid-view .profile-info {
-            width: 100%;
-        }
+        .main-list.grid-view .pi-main,
+        .main-list.grid-view .pi-tech,
+        .main-list.grid-view .pi-meta { width: 100%; }
 
         .main-list.grid-view .profile-meta {
             flex-wrap: wrap;

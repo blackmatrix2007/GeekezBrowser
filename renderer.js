@@ -911,9 +911,14 @@ async function loadProfiles() {
                 ? p.tags.map(tag => `<span class="pi-tag-pill tag no-drag" style="background:${stringToColor(tag)}22;color:${stringToColor(tag)};border:1px solid ${stringToColor(tag)}44;">${tag}</span>`).join('')
                 : `<span style="opacity:0.3;font-size:11px;">🏷️...</span>`;
 
-            // Proxy display (truncate)
-            const proxyProto = (p.proxyStr || '').split('://')[0].toUpperCase() || 'N/A';
-            const proxyHost = (p.proxyStr || '').replace(/^[^:]+:\/\//, '').split(':').slice(0,2).join(':');
+            // Proxy display — format: [proto://]host:port[:user:pass] hoặc host:port:user:pass
+            const rawProxy = p.proxyStr || '';
+            const hasProto = rawProxy.includes('://');
+            const proxyProto = hasProto ? rawProxy.split('://')[0].toUpperCase() : 'PROXY';
+            const proxyBody = hasProto ? rawProxy.split('://')[1] : rawProxy;
+            // Chỉ lấy host:port (2 phần đầu), bỏ user:pass
+            const proxyParts = proxyBody.split(':');
+            const proxyHost = proxyParts.slice(0, 2).join(':');
 
             const el = document.createElement('div');
             el.className = 'profile-item no-drag';

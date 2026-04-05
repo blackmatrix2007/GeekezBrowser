@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, screen, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, screen, shell, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs-extra');
 const { runVerify } = require('./verify');
@@ -785,11 +785,29 @@ async function getProxyGeolocation(proxyStr) {
     }
 }
 
+let tray = null;
+
+function createTray(win) {
+    const iconPath = path.join(__dirname, 'icon.png');
+    const trayIcon = fs.existsSync(iconPath)
+        ? nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 })
+        : nativeImage.createEmpty();
+    tray = new Tray(trayIcon);
+    tray.setToolTip('AntiDetect Browser');
+    const contextMenu = Menu.buildFromTemplate([
+        { label: 'Show', click: () => { win.show(); win.focus(); } },
+        { type: 'separator' },
+        { label: 'Quit', click: () => { app.isQuiting = true; app.quit(); } }
+    ]);
+    tray.setContextMenu(contextMenu);
+    tray.on('double-click', () => { win.show(); win.focus(); });
+}
+
 function createWindow() {
     const { width, height } = screen.getPrimaryDisplay().workAreaSize;
     const win = new BrowserWindow({
         width: Math.round(width * 0.5), height: Math.round(height * 0.601), minWidth: 900, minHeight: 600,
-        title: "GeekEZ Browser", backgroundColor: '#1e1e2d',
+        title: "AntiDetect Browser", backgroundColor: '#1e1e2d',
         icon: path.join(__dirname, 'icon.png'),
         titleBarOverlay: { color: '#1e1e2d', symbolColor: '#ffffff', height: 35 },
         titleBarStyle: 'hidden',
@@ -797,7 +815,17 @@ function createWindow() {
     });
     win.setMenuBarVisibility(false);
     win.loadFile('index.html');
-    mainWindow = win; // Store global reference for API
+    mainWindow = win;
+
+    // Minimize to tray instead of closing
+    win.on('close', (e) => {
+        if (!app.isQuiting) {
+            e.preventDefault();
+            win.hide();
+        }
+    });
+
+    createTray(win);
     return win;
 }
 
@@ -1418,7 +1446,8 @@ ipcMain.handle('detect-proxy-location', async (e, proxyStr) => {
 });
 
 ipcMain.handle('set-title-bar-color', (e, colors) => { const win = BrowserWindow.fromWebContents(e.sender); if (win) { if (process.platform === 'win32') try { win.setTitleBarOverlay({ color: colors.bg, symbolColor: colors.symbol }); } catch (e) { } win.setBackgroundColor(colors.bg); } });
-ipcMain.handle('check-app-update', async () => { try { const data = await fetchJson('https://api.github.com/repos/EchoHS/GeekezBrowser/releases/latest'); if (!data || !data.tag_name) return { update: false }; const remote = data.tag_name.replace('v', ''); if (compareVersions(remote, app.getVersion()) > 0) { return { update: true, remote, url: 'https://browser.geekez.net/#downloads', notes: data.body }; } return { update: false }; } catch (e) { return { update: false, error: e.message }; } });
+// Auto-update disabled — upstream is on v1.5.0 Vue rewrite which is incompatible with this fork
+ipcMain.handle('check-app-update', async () => { return { update: false }; });
 ipcMain.handle('check-xray-update', async () => { try { const data = await fetchJson('https://api.github.com/repos/XTLS/Xray-core/releases/latest'); if (!data || !data.tag_name) return { update: false }; const remoteVer = data.tag_name; const currentVer = await getLocalXrayVersion(); if (remoteVer !== currentVer) { let assetName = ''; const arch = os.arch(); const platform = os.platform(); if (platform === 'win32') assetName = `Xray-windows-${arch === 'x64' ? '64' : '32'}.zip`; else if (platform === 'darwin') assetName = `Xray-macos-${arch === 'arm64' ? 'arm64-v8a' : '64'}.zip`; else assetName = `Xray-linux-${arch === 'x64' ? '64' : '32'}.zip`; const downloadUrl = `https://gh-proxy.com/https://github.com/XTLS/Xray-core/releases/download/${remoteVer}/${assetName}`; return { update: true, remote: remoteVer.replace(/^v/, ''), downloadUrl }; } return { update: false }; } catch (e) { return { update: false }; } });
 ipcMain.handle('download-xray-update', async (e, url) => {
     const exeName = process.platform === 'win32' ? 'xray.exe' : 'xray';
@@ -3163,8 +3192,12 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
 });
 
 app.on('window-all-closed', () => {
+    // Do NOT quit — window is hidden to tray. Only quit via tray menu or app.isQuiting flag.
+});
+
+app.on('before-quit', () => {
+    app.isQuiting = true;
     Object.values(activeProcesses).forEach(p => forceKill(p.xrayPid));
-    if (process.platform !== 'darwin') app.quit();
 });
 // Helpers (Same)
 function fetchJson(url) { return new Promise((resolve, reject) => { const req = https.get(url, { headers: { 'User-Agent': 'GeekEZ-Browser' } }, (res) => { let data = ''; res.on('data', c => data += c); res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } }); }); req.on('error', reject); }); }

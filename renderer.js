@@ -913,12 +913,12 @@ async function loadProfiles() {
 
             // Proxy display — format: [proto://]host:port[:user:pass] hoặc host:port:user:pass
             const rawProxy = p.proxyStr || '';
+            const isDirect = !rawProxy.trim();
             const hasProto = rawProxy.includes('://');
-            const proxyProto = hasProto ? rawProxy.split('://')[0].toUpperCase() : 'PROXY';
+            const proxyProto = isDirect ? 'DIRECT' : (hasProto ? rawProxy.split('://')[0].toUpperCase() : 'PROXY');
             const proxyBody = hasProto ? rawProxy.split('://')[1] : rawProxy;
-            // Chỉ lấy host:port (2 phần đầu), bỏ user:pass
             const proxyParts = proxyBody.split(':');
-            const proxyHost = proxyParts.slice(0, 2).join(':');
+            const proxyHost = isDirect ? 'Mạng máy tính' : proxyParts.slice(0, 2).join(':');
 
             const el = document.createElement('div');
             el.className = 'profile-item no-drag';

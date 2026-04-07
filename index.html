@@ -1337,9 +1337,14 @@
                 <label data-i18n="proxyLink" style="font-size:11px; font-weight:bold; opacity:0.8;">Proxy</label>
                 <textarea id="addProxy" rows="4" placeholder="vmess://, ss://... (one per line for batch)"
                     spellcheck="false" autocomplete="off"></textarea>
-                <button type="button" id="autoDetectBtn" style="margin-top:6px; padding:6px 12px; font-size:11px; background:#4CAF50; color:white; border:none; border-radius:4px; cursor:pointer;">
-                    🔍 Auto-Detect Location
-                </button>
+                <div style="display:flex;gap:8px;margin-top:6px;align-items:center;">
+                    <button type="button" id="autoDetectBtn" style="padding:6px 12px; font-size:11px; background:#4CAF50; color:white; border:none; border-radius:4px; cursor:pointer;">
+                        🔍 Auto-Detect Location
+                    </button>
+                    <button type="button" onclick="document.getElementById('addProxy').value=''" style="padding:6px 12px; font-size:11px; background:transparent; color:var(--text-secondary); border:1px solid var(--border); border-radius:4px; cursor:pointer;" title="Không dùng proxy — dùng mạng máy trực tiếp">
+                        🌐 Không dùng proxy
+                    </button>
+                </div>
                 <div style="font-size:10px; opacity:0.5; margin-bottom:8px;" data-i18n="batchHint">Multiple links =
                     batch create profiles</div>
                 <div style="display:flex; gap:10px;">
@@ -1429,6 +1434,9 @@
 
                 <label data-i18n="proxyLink" style="font-size:11px; font-weight:bold; opacity:0.8;">Proxy</label>
                 <textarea id="editProxy" rows="4"></textarea>
+                <button type="button" onclick="document.getElementById('editProxy').value=''" style="margin-top:4px;padding:5px 10px;font-size:11px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;cursor:pointer;" title="Xóa proxy — dùng mạng máy trực tiếp">
+                    🌐 Không dùng proxy
+                </button>
                 <div style="display:flex; gap:10px;">
                     <div style="flex:1"><label data-i18n="preProxySetting"
                             style="font-size:11px; font-weight:bold; opacity:0.8;">Pre-Proxy</label><select

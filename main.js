@@ -2732,16 +2732,22 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             await fs.writeJson(preferencesPath, preferences);
         } catch (e) { }
 
-        const config = generateXrayConfig(profile.proxyStr, localPort, finalPreProxyConfig);
-        fs.writeJsonSync(xrayConfigPath, config);
-        const logFd = fs.openSync(xrayLogPath, 'a');
-        const xrayProcess = spawn(BIN_PATH, ['-c', xrayConfigPath], { cwd: BIN_DIR, env: { ...process.env, 'XRAY_LOCATION_ASSET': RESOURCES_BIN }, stdio: ['ignore', logFd, logFd], windowsHide: true });
+        // Direct mode: no proxy — skip Xray entirely
+        const isDirect = !profile.proxyStr || profile.proxyStr.trim() === '' || profile.proxyStr.trim().toLowerCase() === 'direct';
 
-        // 优化：减少等待时间，Xray 通常 300ms 内就能启动
-        await new Promise(resolve => setTimeout(resolve, 300));
+        let xrayProcess = null;
+        let logFd = null;
+        if (!isDirect) {
+            const config = generateXrayConfig(profile.proxyStr, localPort, finalPreProxyConfig);
+            fs.writeJsonSync(xrayConfigPath, config);
+            logFd = fs.openSync(xrayLogPath, 'a');
+            xrayProcess = spawn(BIN_PATH, ['-c', xrayConfigPath], { cwd: BIN_DIR, env: { ...process.env, 'XRAY_LOCATION_ASSET': RESOURCES_BIN }, stdio: ['ignore', logFd, logFd], windowsHide: true });
+            // 优化：减少等待时间，Xray 通常 300ms 内就能启动
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
 
-        // 0. Auto-detect geo signals from proxy IP (always runs when proxy present)
-        if (profile.proxyStr) {
+        // 0. Auto-detect geo signals from proxy IP (only when proxy present)
+        if (!isDirect && profile.proxyStr) {
             const needsTimezone = !profile.fingerprint.timezone || profile.fingerprint.timezone === 'Auto';
             // Language needs sync when: not set, or default 'en-US' and timezone is non-English
             const needsLanguage = !profile.fingerprint.language || profile.fingerprint.language === 'auto'
@@ -2833,7 +2839,7 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
         // 4. 构建启动参数（性能优化）
 
         const launchArgs = [
-            `--proxy-server=socks5://127.0.0.1:${localPort}`,
+            ...(isDirect ? ['--no-proxy-server'] : [`--proxy-server=socks5://127.0.0.1:${localPort}`]),
             `--user-data-dir=${userDataDir}`,
             `--window-size=${profile.fingerprint?.window?.width || 1280},${profile.fingerprint?.window?.height || 800}`,
             '--restore-last-session',
@@ -3005,9 +3011,9 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
         }
 
         activeProcesses[profileId] = {
-            xrayPid: xrayProcess.pid,
+            xrayPid: xrayProcess ? xrayProcess.pid : null,
             browser,
-            logFd: logFd  // 存储日志文件描述符，用于后续关闭
+            logFd: logFd
         };
         sender.send('profile-status', { id: profileId, status: 'running' });
 

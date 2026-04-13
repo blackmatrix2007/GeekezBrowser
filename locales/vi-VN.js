@@ -171,5 +171,14 @@ window.viVN = {
     argsToggle: "⚡ Tham số khởi động tùy chỉnh",
     argsToggleHint: "Thêm tham số Chrome tùy chỉnh cho mỗi profile",
     apiToggle: "🔌 API Server",
-    apiToggleHint: "Bật REST API để quản lý profile từ xa"
+    apiToggleHint: "Bật REST API để quản lý profile từ xa",
+    // Sidebar
+    navMain: "CHÍNH",
+    navOthers: "KHÁC",
+    navProfiles: "Profiles",
+    navGroups: "Nhóm",
+    navProxyChain: "Chuỗi Proxy",
+    navSettings: "Cài đặt",
+    navHelp: "Trợ giúp",
+    navCheckUpdates: "Kiểm tra cập nhật"
 };

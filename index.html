@@ -1205,34 +1205,34 @@
             <div class="logo-text">Anti<span class="highlight">Detect</span><span class="ver" id="app-version"></span></div>
         </div>
 
-        <div class="sidebar-section">Main</div>
+        <div class="sidebar-section" data-i18n="navMain">MAIN</div>
         <div class="sidebar-item active" id="nav-profiles" onclick="document.querySelectorAll('.sidebar-item').forEach(i=>i.classList.remove('active'));this.classList.add('active');">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-            Profiles
+            <span data-i18n="navProfiles">Profiles</span>
         </div>
         <div class="sidebar-item" onclick="document.querySelectorAll('.sidebar-item').forEach(i=>i.classList.remove('active'));this.classList.add('active');openGroupManager();">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            Groups
+            <span data-i18n="navGroups">Groups</span>
         </div>
         <div class="sidebar-item" onclick="document.querySelectorAll('.sidebar-item').forEach(i=>i.classList.remove('active'));this.classList.add('active');openProxyManager();">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
-            Proxy Chain
+            <span data-i18n="navProxyChain">Proxy Chain</span>
         </div>
 
         <div class="sidebar-spacer"></div>
         <div class="sidebar-bottom">
-            <div class="sidebar-section">Others</div>
+            <div class="sidebar-section" data-i18n="navOthers">OTHERS</div>
             <div class="sidebar-item" onclick="openSettings();">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/></svg>
-                Settings
+                <span data-i18n="navSettings">Settings</span>
             </div>
             <div class="sidebar-item" onclick="openHelp();">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r="0.5" fill="currentColor"/></svg>
-                Help
+                <span data-i18n="navHelp">Help</span>
             </div>
             <div class="sidebar-item" onclick="checkUpdates();" id="btnUpdate">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M16 12l-4-4-4 4"/><path d="M12 16V8"/></svg>
-                Check Updates
+                <span data-i18n="navCheckUpdates">Check Updates</span>
             </div>
             <div style="padding:8px 16px;display:flex;align-items:center;gap:8px;-webkit-app-region:no-drag;">
                 <select class="theme-select" onchange="setTheme(this.value)" id="themeSelect" style="width:100%;height:28px;font-size:11px;">
@@ -1240,7 +1240,7 @@
                     <option value="light">Light</option>
                     <option value="dark">Dark</option>
                 </select>
-                <button class="lang-btn no-drag" onclick="toggleLang()" id="langToggleBtn" title="Switch language / Đổi ngôn ngữ" style="white-space:nowrap;height:28px;padding:0 8px;font-size:11px;flex-shrink:0;">EN</button>
+                <button class="lang-btn no-drag" onclick="toggleLang()" id="langToggleBtn" title="Đổi ngôn ngữ / Switch language" style="white-space:nowrap;height:28px;min-width:36px;padding:0 8px;font-size:12px;font-weight:600;flex-shrink:0;background:var(--accent);color:var(--bg-color);border:none;border-radius:4px;">VI</button>
             </div>
         </div>
     </div>

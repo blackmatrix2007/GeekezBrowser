@@ -172,12 +172,21 @@ const enTranslations = {
     argsToggle: "⚡ Custom Launch Args",
     argsToggleHint: "Add custom Chrome launch arguments for each profile",
     apiToggle: "🔌 API Server",
-    apiToggleHint: "Enable REST API for remote profile management"
+    apiToggleHint: "Enable REST API for remote profile management",
+    // Sidebar
+    navMain: "MAIN",
+    navOthers: "OTHERS",
+    navProfiles: "Profiles",
+    navGroups: "Groups",
+    navProxyChain: "Proxy Chain",
+    navSettings: "Settings",
+    navHelp: "Help",
+    navCheckUpdates: "Check Updates"
 };
 
 // Global i18n Manager
 // Only support en/vi — reset cn to en
-window.curLang = (() => { const l = localStorage.getItem('geekez_lang'); return (l === 'en' || l === 'vi') ? l : 'en'; })();
+window.curLang = (() => { const l = localStorage.getItem('geekez_lang'); return (l === 'en' || l === 'vi') ? l : 'vi'; })();
 
 window.t = function (key) {
     if (window.curLang === 'cn' && window.zhCN && window.zhCN[key]) return window.zhCN[key];

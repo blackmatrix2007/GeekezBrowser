@@ -329,7 +329,11 @@ function applyLang() {
     const themeSel = document.getElementById('themeSelect');
     if (themeSel) { themeSel.options[0].text = t('themeGeek'); themeSel.options[1].text = t('themeLight'); themeSel.options[2].text = t('themeDark'); }
     const langBtn = document.getElementById('langToggleBtn');
-    if (langBtn) langBtn.textContent = curLang === 'vi' ? 'VI' : 'EN';
+    if (langBtn) {
+        langBtn.textContent = curLang === 'vi' ? 'VI' : 'EN';
+        langBtn.style.background = 'var(--accent)';
+        langBtn.style.color = 'var(--bg-color)';
+    }
     renderHelpContent();
     updateToolbar(); loadGroups().then(() => loadProfiles()); renderGroupTabs();
 }

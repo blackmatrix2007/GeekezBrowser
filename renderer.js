@@ -2104,6 +2104,7 @@ function switchSettingsTab(tabName) {
     });
     document.getElementById('settings-' + tabName).style.display = 'block';
     if (tabName === 'chrome') loadChromePath();
+    if (tabName === 'license') loadLicenseStatus();
 }
 // ============================================================================
 // Extension Management Functions
@@ -2626,4 +2627,87 @@ async function confirmAssignGroup() {
     await window.electronAPI.assignProfileGroup(assignGroupProfileId, groupId);
     closeAssignGroup();
     await loadProfiles();
+}
+
+// ============================================================================
+// License Management
+// ============================================================================
+async function loadLicenseStatus() {
+    const deviceIdEl = document.getElementById('licenseDeviceId');
+    const badgeEl = document.getElementById('licenseBadge');
+    const infoEl = document.getElementById('licenseInfo');
+
+    try {
+        const { deviceId, license } = await window.electronAPI.licenseGetStatus();
+
+        if (deviceIdEl) deviceIdEl.textContent = deviceId || '-';
+
+        if (license && license.tokenType) {
+            badgeEl.textContent = '● Đã kích hoạt';
+            badgeEl.style.background = 'rgba(76,175,80,0.2)';
+            badgeEl.style.color = '#4CAF50';
+
+            document.getElementById('licenseType').textContent = license.tokenType;
+            document.getElementById('licensePhone').textContent = license.phoneNumber || '-';
+            document.getElementById('licenseExpiry').textContent = license.expiryDate
+                ? new Date(license.expiryDate).toLocaleDateString('vi-VN') : '-';
+            if (infoEl) infoEl.style.display = 'block';
+
+            const keyInput = document.getElementById('licenseKeyInput');
+            if (keyInput) keyInput.value = license.licenseKey || '';
+        } else {
+            badgeEl.textContent = '● Chưa kích hoạt';
+            badgeEl.style.background = 'rgba(100,100,100,0.3)';
+            badgeEl.style.color = '#aaa';
+            if (infoEl) infoEl.style.display = 'none';
+        }
+    } catch (e) {
+        if (deviceIdEl) deviceIdEl.textContent = 'Lỗi khi tải';
+    }
+}
+
+async function activateLicenseKey() {
+    const input = document.getElementById('licenseKeyInput');
+    const btn = document.getElementById('licenseActivateBtn');
+    const msgEl = document.getElementById('licenseMsg');
+    const key = input?.value?.trim();
+
+    if (!key) {
+        showLicenseMsg('Vui lòng nhập license key', false);
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Đang kích hoạt...';
+    hideLicenseMsg();
+
+    try {
+        const result = await window.electronAPI.licenseActivate(key);
+        if (result.success) {
+            showLicenseMsg('✅ ' + result.message, true);
+            loadLicenseStatus();
+        } else {
+            showLicenseMsg('❌ ' + result.message, false);
+        }
+    } catch (e) {
+        showLicenseMsg('❌ Lỗi không xác định', false);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Kích hoạt';
+    }
+}
+
+function showLicenseMsg(text, success) {
+    const el = document.getElementById('licenseMsg');
+    if (!el) return;
+    el.textContent = text;
+    el.style.display = 'block';
+    el.style.background = success ? 'rgba(76,175,80,0.15)' : 'rgba(244,67,54,0.15)';
+    el.style.color = success ? '#4CAF50' : '#f44336';
+    el.style.border = `1px solid ${success ? 'rgba(76,175,80,0.3)' : 'rgba(244,67,54,0.3)'}`;
+}
+
+function hideLicenseMsg() {
+    const el = document.getElementById('licenseMsg');
+    if (el) el.style.display = 'none';
 }

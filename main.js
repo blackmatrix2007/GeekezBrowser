@@ -65,6 +65,119 @@ const SETTINGS_FILE = path.join(DATA_PATH, 'settings.json');
 fs.ensureDirSync(DATA_PATH);
 fs.ensureDirSync(TRASH_PATH);
 
+// ─── License & Device Tracking ───────────────────────────────────────────────
+const TOOLPHUC_API = 'https://tool.phuc.vn/api/geekez';
+const LICENSE_FILE  = path.join(app.getPath('userData'), 'license.json');
+const ACCESS_CACHE  = path.join(app.getPath('userData'), '.access_cache.json');
+const GRACE_HOURS   = 48; // Offline grace period: cho dùng tiếp 48h nếu mất mạng
+
+// Tạo device ID ổn định từ hardware UUID (không thay đổi dù reinstall app)
+function getDeviceId() {
+    try {
+        let raw = '';
+        if (process.platform === 'darwin') {
+            raw = execSync("ioreg -rd1 -c IOPlatformExpertDevice | awk '/IOPlatformUUID/{print $3}'")
+                .toString().replace(/["\n\r]/g, '').trim();
+        } else if (process.platform === 'win32') {
+            raw = execSync('wmic csproduct get uuid')
+                .toString().split('\n')[1]?.trim() || '';
+        } else {
+            raw = fs.existsSync('/etc/machine-id')
+                ? fs.readFileSync('/etc/machine-id', 'utf-8').trim()
+                : os.hostname();
+        }
+        if (!raw) raw = os.hostname() + os.cpus()[0]?.model;
+        return crypto.createHash('sha256').update(raw).digest('hex').substring(0, 32);
+    } catch (e) {
+        const fallbackFile = path.join(app.getPath('userData'), '.device_id');
+        if (fs.existsSync(fallbackFile)) return fs.readFileSync(fallbackFile, 'utf-8').trim();
+        const id = crypto.randomBytes(16).toString('hex');
+        fs.writeFileSync(fallbackFile, id);
+        return id;
+    }
+}
+
+// Gọi heartbeat và trả về response (có thể null nếu lỗi mạng)
+async function sendHeartbeat() {
+    try {
+        const deviceId = getDeviceId();
+        const body = JSON.stringify({
+            deviceId,
+            deviceName: os.hostname(),
+            platform: `${process.platform}-${process.arch}`,
+            appVersion: app.getVersion(),
+        });
+        return await new Promise((resolve) => {
+            const url = new URL(TOOLPHUC_API + '/heartbeat');
+            const req = https.request({
+                hostname: url.hostname,
+                path: url.pathname,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+            }, (res) => {
+                let data = '';
+                res.on('data', c => data += c);
+                res.on('end', () => { try { resolve(JSON.parse(data)); } catch (_) { resolve(null); } });
+            });
+            req.on('error', () => resolve(null));
+            req.setTimeout(8000, () => { req.destroy(); resolve(null); });
+            req.write(body);
+            req.end();
+        });
+    } catch (_) { return null; }
+}
+
+// Lưu kết quả heartbeat vào cache local
+function saveAccessCache(result) {
+    try { fs.writeJsonSync(ACCESS_CACHE, { ...result, cachedAt: new Date().toISOString() }); } catch (_) {}
+}
+
+// Đọc cache và kiểm tra còn trong grace period không
+function readAccessCache() {
+    try {
+        if (!fs.existsSync(ACCESS_CACHE)) return null;
+        const cache = fs.readJsonSync(ACCESS_CACHE);
+        const hours = (Date.now() - new Date(cache.cachedAt).getTime()) / 3600000;
+        if (hours > GRACE_HOURS) return null; // Cache quá hạn
+        return cache;
+    } catch (_) { return null; }
+}
+
+// Kiểm tra quyền truy cập khi khởi động
+// Trả về { allowed, reason, message } — luôn có kết quả (offline thì dùng cache)
+async function checkAccess() {
+    const result = await sendHeartbeat();
+
+    if (result) {
+        saveAccessCache(result);
+        return result;
+    }
+
+    // Mất mạng — dùng cache
+    const cache = readAccessCache();
+    if (cache) {
+        const hoursLeft = Math.round(GRACE_HOURS - (Date.now() - new Date(cache.cachedAt).getTime()) / 3600000);
+        return {
+            ...cache,
+            allowed: cache.allowed !== false, // nếu cache là blocked thì vẫn giữ blocked
+            offlineMode: true,
+            hoursLeft,
+        };
+    }
+
+    // Không có cache → lần đầu dùng offline, cho qua
+    return { allowed: true, offlineMode: true, hoursLeft: GRACE_HOURS };
+}
+
+// Đọc license đã lưu (nếu có)
+function getSavedLicense() {
+    try {
+        if (fs.existsSync(LICENSE_FILE)) return fs.readJsonSync(LICENSE_FILE);
+    } catch (_) {}
+    return null;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // --- Debug logger (writes to DATA_PATH/geekez_debug.log) ---
 const DEBUG_LOG = path.join(DATA_PATH, 'geekez_debug.log');
 function debugLog(tag, obj) {
@@ -1382,6 +1495,39 @@ document.addEventListener('DOMContentLoaded', async () => {
 app.whenReady().then(async () => {
     createWindow();
 
+    // Kiểm tra quyền truy cập + gửi heartbeat
+    const access = await checkAccess();
+    if (!access.allowed) {
+        // Bị chặn — hiện dialog và thoát app
+        await dialog.showMessageBox({
+            type: 'error',
+            title: 'GeekEZ Browser — Truy cập bị từ chối',
+            message: access.message || 'Thiết bị của bạn không được phép sử dụng.',
+            detail: access.reason === 'no_license'
+                ? 'Vui lòng vào Settings → License và nhập key do giảng viên cấp.'
+                : 'Liên hệ giảng viên để được hỗ trợ mở khóa.',
+            buttons: ['Đóng'],
+            defaultId: 0,
+        });
+        app.quit();
+        return;
+    }
+
+    // Heartbeat định kỳ mỗi 5 phút (cập nhật trạng thái online)
+    setInterval(async () => {
+        const r = await sendHeartbeat();
+        if (r) saveAccessCache(r);
+        // Nếu bị chặn trong lúc đang dùng → thông báo và thoát
+        if (r && !r.allowed) {
+            dialog.showMessageBox({
+                type: 'warning',
+                title: 'GeekEZ Browser — Phiên bị thu hồi',
+                message: r.message || 'Quyền truy cập của bạn đã bị thu hồi.',
+                buttons: ['Đóng'],
+            }).then(() => app.quit());
+        }
+    }, 5 * 60 * 1000);
+
     // Auto-start internal API server explicitly for GeekEZ Guard
     try {
         internalApiServer = createInternalApiServer();
@@ -1446,6 +1592,55 @@ ipcMain.handle('detect-proxy-location', async (e, proxyStr) => {
 });
 
 ipcMain.handle('set-title-bar-color', (e, colors) => { const win = BrowserWindow.fromWebContents(e.sender); if (win) { if (process.platform === 'win32') try { win.setTitleBarOverlay({ color: colors.bg, symbolColor: colors.symbol }); } catch (e) { } win.setBackgroundColor(colors.bg); } });
+
+// ─── License IPC ──────────────────────────────────────────────────────────────
+// Lấy trạng thái license + deviceId hiện tại
+ipcMain.handle('license-get-status', async () => {
+    const saved = getSavedLicense();
+    return {
+        deviceId: getDeviceId(),
+        license: saved || null,
+    };
+});
+
+// Kích hoạt license key
+ipcMain.handle('license-activate', async (_, licenseKey) => {
+    if (!licenseKey) return { success: false, message: 'Vui lòng nhập license key' };
+    const deviceId = getDeviceId();
+    const body = JSON.stringify({ deviceId, licenseKey });
+    try {
+        const result = await new Promise((resolve, reject) => {
+            const url = new URL(TOOLPHUC_API + '/activate');
+            const req = https.request({
+                hostname: url.hostname,
+                path: url.pathname,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+            }, (res) => {
+                let data = '';
+                res.on('data', c => data += c);
+                res.on('end', () => {
+                    try { resolve({ statusCode: res.statusCode, body: JSON.parse(data) }); }
+                    catch (_) { resolve({ statusCode: res.statusCode, body: {} }); }
+                });
+            });
+            req.on('error', reject);
+            req.setTimeout(8000, () => { req.destroy(); reject(new Error('Timeout')); });
+            req.write(body);
+            req.end();
+        });
+
+        if (result.statusCode === 200 && result.body.allowed) {
+            const licenseData = { licenseKey, ...result.body.data, activatedAt: new Date().toISOString() };
+            await fs.writeJson(LICENSE_FILE, licenseData);
+            return { success: true, message: result.body.message, data: licenseData };
+        }
+        return { success: false, message: result.body.message || 'Kích hoạt thất bại' };
+    } catch (err) {
+        return { success: false, message: 'Không thể kết nối server: ' + err.message };
+    }
+});
+// ─────────────────────────────────────────────────────────────────────────────
 // Auto-update disabled — upstream is on v1.5.0 Vue rewrite which is incompatible with this fork
 ipcMain.handle('check-app-update', async () => { return { update: false }; });
 ipcMain.handle('check-xray-update', async () => { try { const data = await fetchJson('https://api.github.com/repos/XTLS/Xray-core/releases/latest'); if (!data || !data.tag_name) return { update: false }; const remoteVer = data.tag_name; const currentVer = await getLocalXrayVersion(); if (remoteVer !== currentVer) { let assetName = ''; const arch = os.arch(); const platform = os.platform(); if (platform === 'win32') assetName = `Xray-windows-${arch === 'x64' ? '64' : '32'}.zip`; else if (platform === 'darwin') assetName = `Xray-macos-${arch === 'arm64' ? 'arm64-v8a' : '64'}.zip`; else assetName = `Xray-linux-${arch === 'x64' ? '64' : '32'}.zip`; const downloadUrl = `https://gh-proxy.com/https://github.com/XTLS/Xray-core/releases/download/${remoteVer}/${assetName}`; return { update: true, remote: remoteVer.replace(/^v/, ''), downloadUrl }; } return { update: false }; } catch (e) { return { update: false }; } });

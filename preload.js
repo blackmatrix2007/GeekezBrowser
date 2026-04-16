@@ -37,5 +37,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveGroup: (data) => ipcRenderer.invoke('save-group', data),
     updateGroup: (data) => ipcRenderer.invoke('update-group', data),
     deleteGroup: (id) => ipcRenderer.invoke('delete-group', id),
-    assignProfileGroup: (profileId, groupId) => ipcRenderer.invoke('assign-profile-group', { profileId, groupId })
+    assignProfileGroup: (profileId, groupId) => ipcRenderer.invoke('assign-profile-group', { profileId, groupId }),
+    // License
+    licenseGetStatus: () => ipcRenderer.invoke('license-get-status'),
+    licenseActivate: (key) => ipcRenderer.invoke('license-activate', key),
 });

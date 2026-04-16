@@ -41,4 +41,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // License
     licenseGetStatus: () => ipcRenderer.invoke('license-get-status'),
     licenseActivate: (key) => ipcRenderer.invoke('license-activate', key),
+    // Build info
+    isPackaged: () => ipcRenderer.invoke('is-packaged'),
 });

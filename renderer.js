@@ -1,5 +1,18 @@
 ﻿// i18n structure moved to i18n.js and locales/
 
+// Ẩn tabs dev-only khi chạy bản release (app.isPackaged = true)
+async function initSettingsTabs() {
+    try {
+        const packaged = await window.electronAPI.isPackaged();
+        if (packaged) {
+            document.querySelectorAll('.dev-only').forEach(el => el.style.display = 'none');
+            // Set active tab về license
+            document.getElementById('licenseTabBtn')?.classList.add('active');
+        }
+    } catch (_) {}
+}
+initSettingsTabs();
+
 let globalSettings = { preProxies: [], subscriptions: [], mode: 'single', enablePreProxy: false };
 let currentEditId = null;
 let confirmCallback = null;
@@ -1838,14 +1851,28 @@ function switchHelpTab(tabName) {
 // ============================================================================
 // Settings Modal Functions
 // ============================================================================
-function openSettings() {
+async function openSettings() {
     document.getElementById('settingsModal').style.display = 'flex';
-    loadUserExtensions();
-    loadWatermarkStyle();
-    loadRemoteDebuggingSetting();
-    loadCustomArgsSetting();
-    loadApiServerSetting();
-    loadDataPathSetting();
+    try {
+        const packaged = await window.electronAPI.isPackaged();
+        if (packaged) {
+            switchSettingsTab('license');
+        } else {
+            loadUserExtensions();
+            loadWatermarkStyle();
+            loadRemoteDebuggingSetting();
+            loadCustomArgsSetting();
+            loadApiServerSetting();
+            loadDataPathSetting();
+        }
+    } catch (_) {
+        loadUserExtensions();
+        loadWatermarkStyle();
+        loadRemoteDebuggingSetting();
+        loadCustomArgsSetting();
+        loadApiServerSetting();
+        loadDataPathSetting();
+    }
 }
 function closeSettings() {
     document.getElementById('settingsModal').style.display = 'none';

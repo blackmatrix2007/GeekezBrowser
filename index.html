@@ -1655,11 +1655,11 @@
                 <span style="cursor:pointer" onclick="closeSettings()">✕</span>
             </div>
 
-            <div class="tab-header">
-                <div class="tab-btn active" onclick="switchSettingsTab('extensions')" data-i18n="settingsTabExtensions">Extensions</div>
-                <div class="tab-btn" onclick="switchSettingsTab('chrome')">Chrome</div>
-                <div class="tab-btn" onclick="switchSettingsTab('advanced')" data-i18n="settingsTabAdvanced">Advanced</div>
-                <div class="tab-btn" onclick="switchSettingsTab('license')">🔑 License</div>
+            <div class="tab-header" id="settingsTabHeader">
+                <div class="tab-btn dev-only active" onclick="switchSettingsTab('extensions')" data-i18n="settingsTabExtensions">Extensions</div>
+                <div class="tab-btn dev-only" onclick="switchSettingsTab('chrome')">Chrome</div>
+                <div class="tab-btn dev-only" onclick="switchSettingsTab('advanced')" data-i18n="settingsTabAdvanced">Advanced</div>
+                <div class="tab-btn" id="licenseTabBtn" onclick="switchSettingsTab('license')">🔑 License</div>
             </div>
 
             <div id="settingsContent" style="flex:1; overflow-y:auto; padding:10px;">

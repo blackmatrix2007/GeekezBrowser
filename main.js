@@ -1637,6 +1637,8 @@ ipcMain.handle('detect-proxy-location', async (e, proxyStr) => {
 ipcMain.handle('set-title-bar-color', (e, colors) => { const win = BrowserWindow.fromWebContents(e.sender); if (win) { if (process.platform === 'win32') try { win.setTitleBarOverlay({ color: colors.bg, symbolColor: colors.symbol }); } catch (e) { } win.setBackgroundColor(colors.bg); } });
 
 // ─── License IPC ──────────────────────────────────────────────────────────────
+ipcMain.handle('is-packaged', () => app.isPackaged);
+
 // Lấy trạng thái license + deviceId hiện tại
 ipcMain.handle('license-get-status', async () => {
     const saved = getSavedLicense();

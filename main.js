@@ -79,8 +79,15 @@ function getDeviceId() {
             raw = execSync("ioreg -rd1 -c IOPlatformExpertDevice | awk '/IOPlatformUUID/{print $3}'")
                 .toString().replace(/["\n\r]/g, '').trim();
         } else if (process.platform === 'win32') {
-            raw = execSync('wmic csproduct get uuid')
-                .toString().split('\n')[1]?.trim() || '';
+            // wmic bị xóa khỏi Windows 11 24H2+, dùng PowerShell thay thế
+            try {
+                raw = execSync('powershell -NoProfile -Command "(Get-CimInstance Win32_ComputerSystemProduct).UUID"', { stdio: ['pipe','pipe','pipe'] })
+                    .toString().trim();
+            } catch (_) {
+                // fallback: registry MachineGuid (ổn định, không cần admin)
+                raw = execSync('reg query HKLM\\SOFTWARE\\Microsoft\\Cryptography /v MachineGuid', { stdio: ['pipe','pipe','pipe'] })
+                    .toString().match(/MachineGuid\s+REG_SZ\s+(\S+)/)?.[1] || '';
+            }
         } else {
             raw = fs.existsSync('/etc/machine-id')
                 ? fs.readFileSync('/etc/machine-id', 'utf-8').trim()

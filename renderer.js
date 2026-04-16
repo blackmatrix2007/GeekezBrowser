@@ -552,8 +552,7 @@ async function checkUpdates() {
         document.getElementById('alertModal').style.display = 'none';
 
         if (appRes.update) {
-            // Found App Update -> Show Confirm with Skip option
-            showUpdateConfirm(appRes.remote, appRes.url, appRes.notes);
+            showUpdateConfirm(appRes.remote, appRes.url, appRes.notes, appRes.skipable !== false);
             return;
         }
 
@@ -582,18 +581,20 @@ async function checkUpdatesSilent() {
     try {
         const appRes = await window.electronAPI.invoke('check-app-update');
         if (appRes.update) {
-            // Check if this version was skipped
-            const skippedVersion = localStorage.getItem('geekez_skipped_version');
-            if (skippedVersion === appRes.remote) {
-                console.log(`Version ${appRes.remote} was skipped, not showing update notification`);
-                return;
+            // Nếu server đặt skipable: false → không được bỏ qua, bỏ qua logic skip
+            const skipable = appRes.skipable !== false;
+            if (skipable) {
+                const skippedVersion = localStorage.getItem('geekez_skipped_version');
+                if (skippedVersion === appRes.remote) {
+                    console.log(`Version ${appRes.remote} was skipped by user`);
+                    return;
+                }
             }
 
             const btn = document.getElementById('btnUpdate');
             if (btn) btn.classList.add('has-update');
 
-            // Auto popup for App update with Skip option
-            showUpdateConfirm(appRes.remote, appRes.url, appRes.notes);
+            showUpdateConfirm(appRes.remote, appRes.url, appRes.notes, skipable);
             return;
         }
         const xrayRes = await window.electronAPI.invoke('check-xray-update');
@@ -620,15 +621,19 @@ function parseMarkdown(md) {
         .replace(/\n/g, '<br>'); // Line breaks
 }
 
-// Show update confirm dialog with Skip option
-function showUpdateConfirm(version, url, notes) {
+// Show update/announcement dialog — content từ server
+// skipable=false: server bắt buộc hiển thị, không cho bỏ qua
+function showUpdateConfirm(version, url, notes, skipable = true) {
     const modal = document.getElementById('confirmModal');
     const msgEl = document.getElementById('confirmMsg');
     const notesEl = document.getElementById('confirmNotes');
     const yesBtn = document.getElementById('confirmYes');
     const noBtn = document.getElementById('confirmNo');
 
-    msgEl.innerHTML = `${t('appUpdateFound')} (v${version})`;
+    // Tiêu đề: nếu có version thì hiện, không thì dùng chuỗi chung
+    msgEl.innerHTML = version
+        ? `${t('appUpdateFound')} (v${version})`
+        : (t('appUpdateFound') || 'Thông báo mới');
 
     if (notes) {
         notesEl.innerHTML = parseMarkdown(notes);
@@ -637,20 +642,28 @@ function showUpdateConfirm(version, url, notes) {
         notesEl.style.display = 'none';
     }
 
-    // Update button - go to download page
-    yesBtn.textContent = t('goDownload') || '前往下载';
+    // Nút tải xuống / xem chi tiết
+    yesBtn.textContent = url ? (t('goDownload') || 'Tải xuống') : (t('done') || 'OK');
+    yesBtn.style.display = '';
     yesBtn.onclick = () => {
         modal.style.display = 'none';
-        window.electronAPI.invoke('open-url', url);
+        if (url) window.electronAPI.invoke('open-url', url);
     };
 
-    // Skip button - save skipped version
-    noBtn.textContent = t('skipVersion') || '跳过此版本';
-    noBtn.onclick = () => {
-        localStorage.setItem('geekez_skipped_version', version);
-        modal.style.display = 'none';
-        showAlert(t('versionSkipped') || `已跳过 v${version} 版本更新`);
-    };
+    // Nút bỏ qua — ẩn nếu server đặt skipable: false
+    if (skipable && version) {
+        noBtn.textContent = t('skipVersion') || 'Bỏ qua phiên bản này';
+        noBtn.style.display = '';
+        noBtn.onclick = () => {
+            localStorage.setItem('geekez_skipped_version', version);
+            modal.style.display = 'none';
+            showAlert(t('versionSkipped') || `Đã bỏ qua v${version}`);
+        };
+    } else {
+        // Không cho bỏ qua hoặc không có version → ẩn nút Skip
+        noBtn.style.display = 'none';
+        noBtn.onclick = null;
+    }
 
     modal.style.display = 'flex';
 }

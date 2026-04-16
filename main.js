@@ -176,6 +176,35 @@ function getSavedLicense() {
     } catch (_) {}
     return null;
 }
+
+// ─── Server Announcement (thông báo / cập nhật từ server) ────────────────────
+// Cache announcement nhận được từ server
+let cachedAnnouncement = null;
+
+// Gọi /api/geekez/announcement để lấy thông báo mới nhất từ server
+// Server trả về: { show: bool, version?: string, url?: string, notes?: string, skipable?: bool }
+async function fetchAnnouncement() {
+    try {
+        const deviceId = getDeviceId();
+        const params = new URLSearchParams({ deviceId, appVersion: app.getVersion() });
+        return await new Promise((resolve) => {
+            const url = new URL(TOOLPHUC_API + '/announcement?' + params.toString());
+            const req = https.request({
+                hostname: url.hostname,
+                path: url.pathname + url.search,
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' },
+            }, (res) => {
+                let data = '';
+                res.on('data', c => data += c);
+                res.on('end', () => { try { resolve(JSON.parse(data)); } catch (_) { resolve(null); } });
+            });
+            req.on('error', () => resolve(null));
+            req.setTimeout(6000, () => { req.destroy(); resolve(null); });
+            req.end();
+        });
+    } catch (_) { return null; }
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 // --- Debug logger (writes to DATA_PATH/geekez_debug.log) ---
@@ -1495,8 +1524,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 app.whenReady().then(async () => {
     createWindow();
 
-    // Kiểm tra quyền truy cập + gửi heartbeat
-    const access = await checkAccess();
+    // Kiểm tra quyền truy cập + gửi heartbeat (song song với fetch announcement)
+    const [access, announcement] = await Promise.all([checkAccess(), fetchAnnouncement()]);
+    if (announcement) cachedAnnouncement = announcement;
     if (!access.allowed) {
         // Bị chặn — hiện dialog và thoát app
         await dialog.showMessageBox({
@@ -1641,8 +1671,24 @@ ipcMain.handle('license-activate', async (_, licenseKey) => {
     }
 });
 // ─────────────────────────────────────────────────────────────────────────────
-// Auto-update disabled — upstream is on v1.5.0 Vue rewrite which is incompatible with this fork
-ipcMain.handle('check-app-update', async () => { return { update: false }; });
+// Thông báo từ server — nội dung & link cấu hình hoàn toàn trên tool.phuc.vn
+ipcMain.handle('check-app-update', async () => {
+    // Refresh announcement từ server mỗi lần user nhấn "Check Updates"
+    const fresh = await fetchAnnouncement();
+    if (fresh) cachedAnnouncement = fresh;
+
+    const ann = cachedAnnouncement;
+    if (ann && ann.show) {
+        return {
+            update: true,
+            remote: ann.version || '',        // hiện trong tiêu đề popup
+            url:    ann.url    || '',          // nút "Tải xuống" mở URL này
+            notes:  ann.notes  || '',          // nội dung markdown bên dưới
+            skipable: ann.skipable !== false,  // false = không cho phép bỏ qua
+        };
+    }
+    return { update: false };
+});
 ipcMain.handle('check-xray-update', async () => { try { const data = await fetchJson('https://api.github.com/repos/XTLS/Xray-core/releases/latest'); if (!data || !data.tag_name) return { update: false }; const remoteVer = data.tag_name; const currentVer = await getLocalXrayVersion(); if (remoteVer !== currentVer) { let assetName = ''; const arch = os.arch(); const platform = os.platform(); if (platform === 'win32') assetName = `Xray-windows-${arch === 'x64' ? '64' : '32'}.zip`; else if (platform === 'darwin') assetName = `Xray-macos-${arch === 'arm64' ? 'arm64-v8a' : '64'}.zip`; else assetName = `Xray-linux-${arch === 'x64' ? '64' : '32'}.zip`; const downloadUrl = `https://gh-proxy.com/https://github.com/XTLS/Xray-core/releases/download/${remoteVer}/${assetName}`; return { update: true, remote: remoteVer.replace(/^v/, ''), downloadUrl }; } return { update: false }; } catch (e) { return { update: false }; } });
 ipcMain.handle('download-xray-update', async (e, url) => {
     const exeName = process.platform === 'win32' ? 'xray.exe' : 'xray';

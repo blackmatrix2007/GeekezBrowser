@@ -66,7 +66,7 @@ fs.ensureDirSync(DATA_PATH);
 fs.ensureDirSync(TRASH_PATH);
 
 // ─── License & Device Tracking ───────────────────────────────────────────────
-const TOOLPHUC_API = 'https://tool.phuc.vn/api/geekez';
+const TOOLPHUC_API = 'https://tool.erp-x.com/api/geekez';
 const LICENSE_FILE  = path.join(app.getPath('userData'), 'license.json');
 const ACCESS_CACHE  = path.join(app.getPath('userData'), '.access_cache.json');
 const GRACE_HOURS   = 48; // Offline grace period: cho dùng tiếp 48h nếu mất mạng
@@ -1684,7 +1684,7 @@ ipcMain.handle('license-activate', async (_, licenseKey) => {
     }
 });
 // ─────────────────────────────────────────────────────────────────────────────
-// Thông báo từ server — nội dung & link cấu hình hoàn toàn trên tool.phuc.vn
+// Thông báo từ server — nội dung & link cấu hình hoàn toàn trên tool.erp-x.com
 ipcMain.handle('check-app-update', async () => {
     // Refresh announcement từ server mỗi lần user nhấn "Check Updates"
     const fresh = await fetchAnnouncement();

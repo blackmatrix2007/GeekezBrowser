@@ -155,6 +155,11 @@ async function checkAccess() {
 
     if (result) {
         saveAccessCache(result);
+        // Nếu server báo license bị thu hồi → xóa license.json local để UI cập nhật đúng
+        if (result.licenseRevoked) {
+            try { fs.removeSync(LICENSE_FILE); } catch (_) {}
+            debugLog('LICENSE_REVOKED', { reason: result.reason });
+        }
         debugLog('ACCESS_CHECK', { mode: 'online', allowed: result.allowed, reason: result.reason });
         return result;
     }

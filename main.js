@@ -107,7 +107,7 @@ async function sendHeartbeat() {
             platform: `${process.platform}-${process.arch}`,
             appVersion: app.getVersion(),
         });
-        return await new Promise((resolve) => {
+        const result = await new Promise((resolve) => {
             const url = new URL(TOOLPHUC_API + '/heartbeat');
             const req = https.request({
                 hostname: url.hostname,
@@ -119,12 +119,17 @@ async function sendHeartbeat() {
                 res.on('data', c => data += c);
                 res.on('end', () => { try { resolve(JSON.parse(data)); } catch (_) { resolve(null); } });
             });
-            req.on('error', () => resolve(null));
-            req.setTimeout(8000, () => { req.destroy(); resolve(null); });
+            req.on('error', (err) => { debugLog('HEARTBEAT_ERROR', { error: err.message }); resolve(null); });
+            req.setTimeout(8000, () => { req.destroy(); debugLog('HEARTBEAT_TIMEOUT', {}); resolve(null); });
             req.write(body);
             req.end();
         });
-    } catch (_) { return null; }
+        debugLog('HEARTBEAT', { sent: JSON.parse(body), response: result });
+        return result;
+    } catch (err) {
+        debugLog('HEARTBEAT_ERROR', { error: err.message });
+        return null;
+    }
 }
 
 // Lưu kết quả heartbeat vào cache local
@@ -150,6 +155,7 @@ async function checkAccess() {
 
     if (result) {
         saveAccessCache(result);
+        debugLog('ACCESS_CHECK', { mode: 'online', allowed: result.allowed, reason: result.reason });
         return result;
     }
 
@@ -157,6 +163,7 @@ async function checkAccess() {
     const cache = readAccessCache();
     if (cache) {
         const hoursLeft = Math.round(GRACE_HOURS - (Date.now() - new Date(cache.cachedAt).getTime()) / 3600000);
+        debugLog('ACCESS_CHECK', { mode: 'offline_cache', hoursLeft, cachedAt: cache.cachedAt, allowed: cache.allowed !== false });
         return {
             ...cache,
             allowed: cache.allowed !== false, // nếu cache là blocked thì vẫn giữ blocked
@@ -166,6 +173,7 @@ async function checkAccess() {
     }
 
     // Không có cache → lần đầu dùng offline, cho qua
+    debugLog('ACCESS_CHECK', { mode: 'offline_no_cache', allowed: true });
     return { allowed: true, offlineMode: true, hoursLeft: GRACE_HOURS };
 }
 
@@ -203,7 +211,12 @@ async function fetchAnnouncement() {
             req.setTimeout(6000, () => { req.destroy(); resolve(null); });
             req.end();
         });
-    } catch (_) { return null; }
+        debugLog('ANNOUNCEMENT', { response: result });
+        return result;
+    } catch (err) {
+        debugLog('ANNOUNCEMENT_ERROR', { error: err.message });
+        return null;
+    }
 }
 // ─────────────────────────────────────────────────────────────────────────────
 

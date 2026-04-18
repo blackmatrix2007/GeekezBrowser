@@ -323,6 +323,43 @@ function showLicenseBlockedDialog(access) {
 // ─── Server Announcement (thông báo / cập nhật từ server) ────────────────────
 // Cache announcement nhận được từ server
 let cachedAnnouncement = null;
+let updateShownThisSession = false;
+
+// Kiểm tra version và hiện dialog nếu có bản mới — chỉ hiện 1 lần/session
+async function checkAndNotifyUpdate(heartbeatResult) {
+    if (updateShownThisSession) return;
+    if (!heartbeatResult || !heartbeatResult.latestVersion) return;
+
+    const current = app.getVersion();
+    const latest = heartbeatResult.latestVersion;
+    const isOutdated = latest.localeCompare(current, undefined, { numeric: true, sensitivity: 'base' }) > 0;
+    if (!isOutdated) return;
+
+    updateShownThisSession = true;
+    const forceUpdate = heartbeatResult.forceUpdate === true;
+    const notes = heartbeatResult.releaseNotes ? `\n\n${heartbeatResult.releaseNotes}` : '';
+
+    const buttons = forceUpdate ? ['Tải ngay'] : ['Tải ngay', 'Bỏ qua'];
+    const { response } = await dialog.showMessageBox({
+        type: 'info',
+        title: `Có phiên bản mới — v${latest}`,
+        message: `AntiDetect Browser ${latest} đã sẵn sàng`,
+        detail: `Bạn đang dùng v${current}. Tải phiên bản mới để có trải nghiệm tốt hơn.${notes}`,
+        buttons,
+        defaultId: 0,
+        cancelId: forceUpdate ? 0 : 1,
+        noLink: true,
+    });
+
+    if (response === 0) {
+        shell.openExternal('https://tool.erp-x.com');
+        if (forceUpdate) app.quit();
+    }
+    // Nếu bỏ qua → reset flag sau 1 giờ để nhắc lại lần sau
+    if (!forceUpdate && response === 1) {
+        setTimeout(() => { updateShownThisSession = false; }, 60 * 60 * 1000);
+    }
+}
 
 // Gọi /api/geekez/announcement để lấy thông báo mới nhất từ server
 // Server trả về: { show: bool, version?: string, url?: string, notes?: string, skipable?: bool }
@@ -1773,7 +1810,10 @@ app.whenReady().then(async () => {
         debugLog('STARTUP_FLOW', 'data path already confirmed, skipping');
     }
 
-    // Heartbeat định kỳ mỗi 5 phút (cập nhật trạng thái online)
+    // Kiểm tra version ngay khi khởi động
+    await checkAndNotifyUpdate(access);
+
+    // Heartbeat định kỳ mỗi 5 phút (cập nhật trạng thái online + check version)
     setInterval(async () => {
         const r = await sendHeartbeat();
         if (r) saveAccessCache(r);
@@ -1785,7 +1825,10 @@ app.whenReady().then(async () => {
                 message: r.message || 'Quyền truy cập của bạn đã bị thu hồi.',
                 buttons: ['Đóng'],
             }).then(() => app.quit());
+            return;
         }
+        // Check update định kỳ (hàm tự guard không spam)
+        if (r) checkAndNotifyUpdate(r);
     }, 5 * 60 * 1000);
 
     // Auto-start public API server if enabled

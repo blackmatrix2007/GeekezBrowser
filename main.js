@@ -197,6 +197,110 @@ function getSavedLicense() {
     return null;
 }
 
+// ─── License Blocked Dialog (custom window với ô nhập key) ───────────────────
+// Trả về true nếu user kích hoạt thành công, false nếu đóng app
+function showLicenseBlockedDialog(access) {
+    return new Promise((resolve) => {
+        const win = new BrowserWindow({
+            width: 420,
+            height: 340,
+            resizable: false,
+            minimizable: false,
+            maximizable: false,
+            fullscreenable: false,
+            alwaysOnTop: true,
+            center: true,
+            title: 'AntiDetect — Truy cập bị từ chối',
+            show: false,
+            webPreferences: { nodeIntegration: false, contextIsolation: true },
+        });
+
+        const msg = access.message || 'Thiết bị của bạn chưa được kích hoạt.';
+        const deviceId = getDeviceId();
+
+        const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
+  body { background:#1a1a2e; color:#e0e0e0; padding:24px; display:flex; flex-direction:column; gap:14px; height:100vh; }
+  .title { color:#ff4444; font-size:15px; font-weight:700; display:flex; align-items:center; gap:8px; }
+  .msg { font-size:13px; color:#bbb; line-height:1.5; }
+  .device { font-size:10px; color:#666; font-family:monospace; background:#111; padding:5px 8px; border-radius:4px; word-break:break-all; }
+  input { width:100%; padding:10px 12px; border-radius:8px; border:1px solid #444; background:#111; color:#e0e0e0; font-size:13px; font-family:monospace; letter-spacing:1px; outline:none; }
+  input:focus { border-color:#4a9eff; }
+  .row { display:flex; gap:10px; }
+  .btn { flex:1; padding:10px; border-radius:8px; border:none; cursor:pointer; font-size:13px; font-weight:600; }
+  .btn-activate { background:#4a9eff; color:#fff; }
+  .btn-activate:disabled { background:#2a4a6e; color:#666; cursor:default; }
+  .btn-close { background:#333; color:#aaa; }
+  .err { font-size:12px; color:#ff6666; min-height:16px; }
+  .ok  { font-size:12px; color:#4CAF50; min-height:16px; }
+</style></head><body>
+  <div class="title">&#9888; AntiDetect — Truy cập bị từ chối</div>
+  <div class="msg">${msg.replace(/</g,'&lt;')}</div>
+  <div class="device">Device ID: ${deviceId}</div>
+  <input id="k" type="text" placeholder="Nhập license key (XXXX-XXXX-XXXX-XXXX)" autofocus>
+  <div id="status" class="err"></div>
+  <div class="row">
+    <button class="btn btn-close" onclick="window.close()">Đóng</button>
+    <button class="btn btn-activate" id="ab" onclick="activate()">Kích hoạt</button>
+  </div>
+<script>
+  document.getElementById('k').addEventListener('keydown', e => { if(e.key==='Enter') activate(); });
+  async function activate() {
+    const key = document.getElementById('k').value.trim();
+    if (!key) { setStatus('Vui lòng nhập license key', false); return; }
+    const ab = document.getElementById('ab');
+    ab.disabled = true; ab.textContent = 'Đang kích hoạt...';
+    setStatus('');
+    try {
+      const r = await fetch('http://localhost:__INTERNAL_PORT__/api/activate-license', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ licenseKey: key })
+      });
+      const data = await r.json();
+      if (data.success) {
+        setStatus('✅ Kích hoạt thành công! Đang khởi động...', true);
+        setTimeout(() => window.location.href = 'activate://ok', 1000);
+      } else {
+        setStatus('❌ ' + (data.message || 'Kích hoạt thất bại'), false);
+        ab.disabled = false; ab.textContent = 'Kích hoạt';
+      }
+    } catch(e) {
+      setStatus('❌ Không kết nối được server', false);
+      ab.disabled = false; ab.textContent = 'Kích hoạt';
+    }
+  }
+  function setStatus(t, ok) {
+    const el = document.getElementById('status');
+    el.textContent = t;
+    el.className = ok ? 'ok' : 'err';
+  }
+</script></body></html>`.replace('__INTERNAL_PORT__', INTERNAL_API_PORT);
+
+        win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+
+        let resolved = false;
+
+        // Xử lý navigate đến activate://ok — kích hoạt thành công
+        win.webContents.on('will-navigate', (e, url) => {
+            if (url.startsWith('activate://ok')) {
+                e.preventDefault();
+                resolved = true;
+                win.close();
+                resolve(true);
+            }
+        });
+
+        // User đóng cửa sổ → thoát app
+        win.on('closed', () => {
+            if (!resolved) resolve(false);
+        });
+
+        win.once('ready-to-show', () => win.show());
+    });
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ─── Server Announcement (thông báo / cập nhật từ server) ────────────────────
 // Cache announcement nhận được từ server
 let cachedAnnouncement = null;
@@ -316,6 +420,47 @@ function createInternalApiServer() {
         if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
 
         const url = new URL(req.url, `http://localhost:${INTERNAL_API_PORT}`);
+
+        // Kích hoạt license từ blocked dialog (không qua preload vì dialog dùng data: URL)
+        if (req.method === 'POST' && url.pathname === '/api/activate-license') {
+            let body = await new Promise(resolve => {
+                let data = ''; req.on('data', chunk => data += chunk); req.on('end', () => resolve(data));
+            });
+            try {
+                const { licenseKey } = JSON.parse(body);
+                if (!licenseKey) { res.writeHead(400); return res.end(JSON.stringify({ success: false, message: 'Thiếu license key' })); }
+                // Tái dùng IPC handler logic
+                const deviceId = getDeviceId();
+                const reqBody = JSON.stringify({ deviceId, licenseKey });
+                const result = await new Promise((resolve, reject) => {
+                    const activateUrl = new URL(TOOLPHUC_API + '/activate');
+                    const areq = https.request({
+                        hostname: activateUrl.hostname,
+                        path: activateUrl.pathname,
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(reqBody) },
+                    }, (ares) => {
+                        let d = '';
+                        ares.on('data', c => d += c);
+                        ares.on('end', () => { try { resolve({ statusCode: ares.statusCode, body: JSON.parse(d) }); } catch (_) { resolve({ statusCode: ares.statusCode, body: {} }); } });
+                    });
+                    areq.on('error', reject);
+                    areq.setTimeout(8000, () => { areq.destroy(); reject(new Error('Timeout')); });
+                    areq.write(reqBody);
+                    areq.end();
+                });
+                if (result.statusCode === 200 && result.body.allowed) {
+                    const licenseData = { licenseKey, ...result.body.data, activatedAt: new Date().toISOString() };
+                    await fs.writeJson(LICENSE_FILE, licenseData);
+                    // Cập nhật cache access → allowed
+                    saveAccessCache({ allowed: true, reason: null });
+                    res.writeHead(200); return res.end(JSON.stringify({ success: true, message: result.body.message }));
+                }
+                res.writeHead(200); return res.end(JSON.stringify({ success: false, message: result.body.message || 'Kích hoạt thất bại' }));
+            } catch (err) {
+                res.writeHead(500); return res.end(JSON.stringify({ success: false, message: 'Lỗi server: ' + err.message }));
+            }
+        }
 
         if (req.method === 'POST' && url.pathname === '/api/passwords/sync') {
             let body = await new Promise(resolve => {
@@ -1549,41 +1694,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 app.whenReady().then(async () => {
     createWindow();
 
-    // Kiểm tra quyền truy cập + gửi heartbeat (song song với fetch announcement)
-    const [access, announcement] = await Promise.all([checkAccess(), fetchAnnouncement()]);
-    if (announcement) cachedAnnouncement = announcement;
-    if (!access.allowed) {
-        // Bị chặn — hiện dialog và thoát app
-        await dialog.showMessageBox({
-            type: 'error',
-            title: 'GeekEZ Browser — Truy cập bị từ chối',
-            message: access.message || 'Thiết bị của bạn không được phép sử dụng.',
-            detail: access.reason === 'no_license'
-                ? 'Vui lòng vào Settings → License và nhập key do giảng viên cấp.'
-                : 'Liên hệ giảng viên để được hỗ trợ mở khóa.',
-            buttons: ['Đóng'],
-            defaultId: 0,
-        });
-        app.quit();
-        return;
-    }
-
-    // Heartbeat định kỳ mỗi 5 phút (cập nhật trạng thái online)
-    setInterval(async () => {
-        const r = await sendHeartbeat();
-        if (r) saveAccessCache(r);
-        // Nếu bị chặn trong lúc đang dùng → thông báo và thoát
-        if (r && !r.allowed) {
-            dialog.showMessageBox({
-                type: 'warning',
-                title: 'GeekEZ Browser — Phiên bị thu hồi',
-                message: r.message || 'Quyền truy cập của bạn đã bị thu hồi.',
-                buttons: ['Đóng'],
-            }).then(() => app.quit());
-        }
-    }, 5 * 60 * 1000);
-
-    // Auto-start internal API server explicitly for GeekEZ Guard
+    // Khởi động internal server TRƯỚC — license dialog cần gọi /api/activate-license
     try {
         internalApiServer = createInternalApiServer();
         internalApiServer.listen(INTERNAL_API_PORT, '127.0.0.1', () => {
@@ -1595,6 +1706,31 @@ app.whenReady().then(async () => {
     } catch (e) {
         console.error('Failed to auto-start Internal Guard Server:', e);
     }
+
+    // Kiểm tra quyền truy cập + gửi heartbeat (song song với fetch announcement)
+    const [access, announcement] = await Promise.all([checkAccess(), fetchAnnouncement()]);
+    if (announcement) cachedAnnouncement = announcement;
+    if (!access.allowed) {
+        // Bị chặn — hiện custom dialog có ô nhập license key
+        const activated = await showLicenseBlockedDialog(access);
+        if (!activated) { app.quit(); return; }
+        // Nếu kích hoạt thành công → tiếp tục khởi động bình thường
+    }
+
+    // Heartbeat định kỳ mỗi 5 phút (cập nhật trạng thái online)
+    setInterval(async () => {
+        const r = await sendHeartbeat();
+        if (r) saveAccessCache(r);
+        // Nếu bị chặn trong lúc đang dùng → thông báo và thoát
+        if (r && !r.allowed) {
+            dialog.showMessageBox({
+                type: 'warning',
+                title: 'AntiDetect — Phiên bị thu hồi',
+                message: r.message || 'Quyền truy cập của bạn đã bị thu hồi.',
+                buttons: ['Đóng'],
+            }).then(() => app.quit());
+        }
+    }, 5 * 60 * 1000);
 
     // Auto-start public API server if enabled
     try {

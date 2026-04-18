@@ -70,6 +70,7 @@ const TOOLPHUC_API = 'https://tool.erp-x.com/api/geekez';
 const LICENSE_FILE          = path.join(app.getPath('userData'), 'license.json');
 const ACCESS_CACHE          = path.join(app.getPath('userData'), '.access_cache.json');
 const DATA_PATH_CONFIRMED   = path.join(app.getPath('userData'), '.data_path_confirmed');
+const SKIPPED_UPDATE_FILE   = path.join(app.getPath('userData'), '.skipped_update_version');
 const GRACE_HOURS           = 48; // Offline grace period: cho dùng tiếp 48h nếu mất mạng
 
 // Tạo device ID ổn định từ hardware UUID (không thay đổi dù reinstall app)
@@ -335,11 +336,23 @@ async function checkAndNotifyUpdate(heartbeatResult) {
     const isOutdated = latest.localeCompare(current, undefined, { numeric: true, sensitivity: 'base' }) > 0;
     if (!isOutdated) return;
 
-    updateShownThisSession = true;
     const forceUpdate = heartbeatResult.forceUpdate === true;
+
+    // Kiểm tra version đã bị skip chưa (chỉ áp dụng khi không force)
+    if (!forceUpdate) {
+        try {
+            const skipped = fs.existsSync(SKIPPED_UPDATE_FILE)
+                ? fs.readFileSync(SKIPPED_UPDATE_FILE, 'utf8').trim()
+                : null;
+            if (skipped === latest) return; // User đã bỏ qua version này rồi
+        } catch (_) {}
+    }
+
+    updateShownThisSession = true;
+    const downloadUrl = heartbeatResult.downloadUrl || 'https://tool.erp-x.com';
     const notes = heartbeatResult.releaseNotes ? `\n\n${heartbeatResult.releaseNotes}` : '';
 
-    const buttons = forceUpdate ? ['Tải ngay'] : ['Tải ngay', 'Bỏ qua'];
+    const buttons = forceUpdate ? ['Tải ngay'] : ['Tải ngay', 'Bỏ qua phiên bản này'];
     const { response } = await dialog.showMessageBox({
         type: 'info',
         title: `Có phiên bản mới — v${latest}`,
@@ -352,11 +365,17 @@ async function checkAndNotifyUpdate(heartbeatResult) {
     });
 
     if (response === 0) {
-        shell.openExternal('https://tool.erp-x.com');
-        if (forceUpdate) app.quit();
+        shell.openExternal(downloadUrl);
+        if (forceUpdate) {
+            // Đợi browser mở xong rồi mới thoát
+            setTimeout(() => app.quit(), 1500);
+        }
     }
-    // Nếu bỏ qua → reset flag sau 1 giờ để nhắc lại lần sau
+
+    // Bỏ qua version này → lưu vào file, không nhắc lại lần sau
     if (!forceUpdate && response === 1) {
+        try { fs.writeFileSync(SKIPPED_UPDATE_FILE, latest, 'utf8'); } catch (_) {}
+        // Vẫn reset session flag để nhắc nếu session này mở lâu và server ra bản mới hơn
         setTimeout(() => { updateShownThisSession = false; }, 60 * 60 * 1000);
     }
 }

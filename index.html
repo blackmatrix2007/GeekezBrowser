@@ -1989,18 +1989,20 @@
                             <h4 style="margin:0; color:var(--text-primary); font-size:14px;" data-i18n="dataPathTitle">📁 Local Storage</h4>
                             <span id="licenseDataPathWarning" style="display:none; font-size:11px; color:var(--warning);" data-i18n="dataPathRestart">Yêu cầu khởi động lại</span>
                         </div>
-                        <div style="display:flex; align-items:center; gap:10px;">
-                            <button onclick="selectDataDirectory()"
-                                style="padding:7px 14px; border-radius:6px; border:1px solid var(--border); background:var(--input-bg); color:var(--text-primary); cursor:pointer; font-size:12px; white-space:nowrap; display:flex; align-items:center; gap:6px;">
-                                📂 <span data-i18n="dataPathBrowse">Thay đổi</span>
-                            </button>
+                        <div style="display:flex; flex-direction:column; gap:8px;">
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <button onclick="selectDataDirectory()"
+                                    style="padding:7px 14px; border-radius:6px; border:1px solid var(--border); background:var(--input-bg); color:var(--text-primary); cursor:pointer; font-size:12px; white-space:nowrap; display:flex; align-items:center; gap:6px;">
+                                    📂 <span data-i18n="dataPathBrowse">Thay đổi</span>
+                                </button>
+                                <button onclick="resetDataDirectory()" id="resetDataPathBtn2"
+                                    style="display:none; padding:7px 12px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); cursor:pointer; font-size:11px; white-space:nowrap;"
+                                    data-i18n="dataPathReset">↩️ Mặc định</button>
+                            </div>
                             <div id="currentDataPath2"
-                                style="flex:1; font-size:11px; font-family:monospace; background:rgba(0,0,0,0.25); padding:7px 10px; border-radius:6px; border:1px solid var(--border); color:var(--accent); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                                style="width:100%; font-size:11px; font-family:monospace; background:rgba(0,0,0,0.25); padding:7px 10px; border-radius:6px; border:1px solid var(--border); color:var(--accent); word-break:break-all; box-sizing:border-box;">
                                 Đang tải...
                             </div>
-                            <button onclick="resetDataDirectory()" id="resetDataPathBtn2"
-                                style="display:none; padding:7px 12px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); cursor:pointer; font-size:11px; white-space:nowrap;"
-                                data-i18n="dataPathReset">↩️ Mặc định</button>
                         </div>
                     </div>
                 </div>

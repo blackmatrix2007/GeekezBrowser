@@ -67,9 +67,10 @@ fs.ensureDirSync(TRASH_PATH);
 
 // ─── License & Device Tracking ───────────────────────────────────────────────
 const TOOLPHUC_API = 'https://tool.erp-x.com/api/geekez';
-const LICENSE_FILE  = path.join(app.getPath('userData'), 'license.json');
-const ACCESS_CACHE  = path.join(app.getPath('userData'), '.access_cache.json');
-const GRACE_HOURS   = 48; // Offline grace period: cho dùng tiếp 48h nếu mất mạng
+const LICENSE_FILE          = path.join(app.getPath('userData'), 'license.json');
+const ACCESS_CACHE          = path.join(app.getPath('userData'), '.access_cache.json');
+const DATA_PATH_CONFIRMED   = path.join(app.getPath('userData'), '.data_path_confirmed');
+const GRACE_HOURS           = 48; // Offline grace period: cho dùng tiếp 48h nếu mất mạng
 
 // Tạo device ID ổn định từ hardware UUID (không thay đổi dù reinstall app)
 function getDeviceId() {
@@ -158,6 +159,17 @@ function readAccessCache() {
 // Kiểm tra quyền truy cập khi khởi động
 // Trả về { allowed, reason, message } — luôn có kết quả (offline thì dùng cache)
 async function checkAccess() {
+    // Log trạng thái file local trước khi gọi server
+    const localLicense = getSavedLicense();
+    const cacheExists = fs.existsSync(ACCESS_CACHE);
+    debugLog('LICENSE_STARTUP', {
+        licenseFileExists: fs.existsSync(LICENSE_FILE),
+        licenseKey: localLicense ? localLicense.licenseKey : null,
+        licenseType: localLicense ? localLicense.tokenType : null,
+        cacheFileExists: cacheExists,
+        cacheContent: cacheExists ? (() => { try { return fs.readJsonSync(ACCESS_CACHE); } catch(_) { return null; } })() : null,
+    });
+
     const result = await sendHeartbeat();
 
     if (result) {
@@ -167,7 +179,14 @@ async function checkAccess() {
             try { fs.removeSync(LICENSE_FILE); } catch (_) {}
             debugLog('LICENSE_REVOKED', { reason: result.reason });
         }
-        debugLog('ACCESS_CHECK', { mode: 'online', allowed: result.allowed, reason: result.reason });
+        debugLog('ACCESS_CHECK', {
+            mode: 'online',
+            allowed: result.allowed,
+            reason: result.reason,
+            requireLicense: result.requireLicense,
+            licenseStatus: result.licenseStatus,
+            willShowDialog: !result.allowed,
+        });
         return result;
     }
 
@@ -178,7 +197,7 @@ async function checkAccess() {
         debugLog('ACCESS_CHECK', { mode: 'offline_cache', hoursLeft, cachedAt: cache.cachedAt, allowed: cache.allowed !== false });
         return {
             ...cache,
-            allowed: cache.allowed !== false, // nếu cache là blocked thì vẫn giữ blocked
+            allowed: cache.allowed !== false,
             offlineMode: true,
             hoursLeft,
         };
@@ -1710,11 +1729,48 @@ app.whenReady().then(async () => {
     // Kiểm tra quyền truy cập + gửi heartbeat (song song với fetch announcement)
     const [access, announcement] = await Promise.all([checkAccess(), fetchAnnouncement()]);
     if (announcement) cachedAnnouncement = announcement;
+    const sendAskDataPath = () => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        if (mainWindow.webContents.isLoading()) {
+            mainWindow.webContents.once('did-finish-load', () => {
+                mainWindow.webContents.send('license-activated-ask-data-path');
+            });
+        } else {
+            mainWindow.webContents.send('license-activated-ask-data-path');
+        }
+    };
+
+    let justActivated = false;
+    debugLog('STARTUP_ACCESS', { allowed: access.allowed, requireLicense: access.requireLicense, licenseFileExists: fs.existsSync(LICENSE_FILE) });
+
     if (!access.allowed) {
-        // Bị chặn — hiện custom dialog có ô nhập license key
+        debugLog('STARTUP_FLOW', 'blocked → showing license dialog');
         const activated = await showLicenseBlockedDialog(access);
         if (!activated) { app.quit(); return; }
-        // Nếu kích hoạt thành công → tiếp tục khởi động bình thường
+        debugLog('STARTUP_FLOW', 'license activated via dialog');
+        justActivated = true;
+    } else if (access.requireLicense && !fs.existsSync(LICENSE_FILE)) {
+        debugLog('STARTUP_FLOW', 'allowed but no local license file → showing license dialog');
+        const activated = await showLicenseBlockedDialog({
+            ...access,
+            message: 'Vui lòng nhập license key để tiếp tục sử dụng.',
+            reason: 'no_local_license'
+        });
+        if (!activated) { app.quit(); return; }
+        debugLog('STARTUP_FLOW', 'license re-entered successfully');
+        justActivated = true;
+    } else {
+        debugLog('STARTUP_FLOW', 'license OK, skipping dialog');
+    }
+
+    // Hỏi chọn thư mục lưu dữ liệu nếu: vừa kích hoạt LẦN ĐẦU, hoặc chưa từng xác nhận
+    const dataPathAlreadyConfirmed = fs.existsSync(DATA_PATH_CONFIRMED);
+    debugLog('STARTUP_DATA_PATH', { justActivated, dataPathAlreadyConfirmed, DATA_PATH_CONFIRMED });
+    if (justActivated || (access.requireLicense && !dataPathAlreadyConfirmed)) {
+        debugLog('STARTUP_FLOW', 'sending ask-data-path event to renderer');
+        sendAskDataPath();
+    } else {
+        debugLog('STARTUP_FLOW', 'data path already confirmed, skipping');
     }
 
     // Heartbeat định kỳ mỗi 5 phút (cập nhật trạng thái online)
@@ -1789,11 +1845,17 @@ ipcMain.handle('is-packaged', () => app.isPackaged);
 
 // Lấy trạng thái license + deviceId hiện tại
 ipcMain.handle('license-get-status', async () => {
-    const saved = getSavedLicense();
-    return {
-        deviceId: getDeviceId(),
-        license: saved || null,
-    };
+    let saved = getSavedLicense();
+    // Fallback: đọc licenseKey từ ACCESS_CACHE nếu LICENSE_FILE bị xoá
+    if (!saved && fs.existsSync(ACCESS_CACHE)) {
+        try {
+            const cache = fs.readJsonSync(ACCESS_CACHE);
+            if (cache.licenseKey) {
+                saved = { licenseKey: cache.licenseKey, tokenType: cache.tokenType, fromCache: true };
+            }
+        } catch (_) {}
+    }
+    return { deviceId: getDeviceId(), license: saved || null };
 });
 
 // Kích hoạt license key
@@ -1826,6 +1888,8 @@ ipcMain.handle('license-activate', async (_, licenseKey) => {
         if (result.statusCode === 200 && result.body.allowed) {
             const licenseData = { licenseKey, ...result.body.data, activatedAt: new Date().toISOString() };
             await fs.writeJson(LICENSE_FILE, licenseData);
+            // Lưu licenseKey vào ACCESS_CACHE để dùng khi LICENSE_FILE bị xoá
+            saveAccessCache({ ...result.body, licenseKey });
             return { success: true, message: result.body.message, data: licenseData };
         }
         return { success: false, message: result.body.message || 'Kích hoạt thất bại' };
@@ -1834,19 +1898,24 @@ ipcMain.handle('license-activate', async (_, licenseKey) => {
     }
 });
 // Huỷ kích hoạt — gọi server + xoá local file
-ipcMain.handle('license-deactivate', async () => {
+// licenseKey truyền từ UI (không đọc file — file có thể đã bị xoá)
+ipcMain.handle('license-deactivate', async (_, licenseKeyFromUI) => {
     try {
         const deviceId = getDeviceId();
-        // Đọc licenseKey đang lưu (để gửi lên server)
-        let licenseKey = null;
-        if (fs.existsSync(LICENSE_FILE)) {
+        // Ưu tiên key từ UI → file local → ACCESS_CACHE
+        let licenseKey = licenseKeyFromUI || null;
+        if (!licenseKey && fs.existsSync(LICENSE_FILE)) {
             try { licenseKey = (fs.readJsonSync(LICENSE_FILE)).licenseKey; } catch (_) {}
         }
+        if (!licenseKey && fs.existsSync(ACCESS_CACHE)) {
+            try { licenseKey = (fs.readJsonSync(ACCESS_CACHE)).licenseKey || null; } catch (_) {}
+        }
 
-        // Gọi server để gỡ license khỏi device
-        if (licenseKey) {
+        // Gọi server — gửi cả deviceId lẫn licenseKey (server có thể tìm theo một trong hai)
+        debugLog('DEACTIVATE_SEND', { deviceId, licenseKey, hasKey: !!licenseKey });
+        {
             const body = JSON.stringify({ deviceId, licenseKey });
-            await new Promise((resolve) => {
+            const deactivateResult = await new Promise((resolve) => {
                 const url = new URL(TOOLPHUC_API + '/deactivate');
                 const req = https.request({
                     hostname: url.hostname,
@@ -1854,14 +1923,19 @@ ipcMain.handle('license-deactivate', async () => {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
                 }, (res) => {
-                    res.on('data', () => {});
-                    res.on('end', resolve);
+                    let data = '';
+                    res.on('data', c => data += c);
+                    res.on('end', () => {
+                        try { resolve({ statusCode: res.statusCode, body: JSON.parse(data) }); }
+                        catch (_) { resolve({ statusCode: res.statusCode, rawBody: data }); }
+                    });
                 });
-                req.on('error', resolve); // ignore network error — vẫn xoá local
-                req.setTimeout(5000, () => { req.destroy(); resolve(); });
+                req.on('error', (err) => resolve({ error: err.message }));
+                req.setTimeout(5000, () => { req.destroy(); resolve({ error: 'timeout' }); });
                 req.write(body);
                 req.end();
             });
+            debugLog('DEACTIVATE_RESPONSE', deactivateResult);
         }
 
         // Xoá local dù server có lỗi hay không
@@ -1871,6 +1945,25 @@ ipcMain.handle('license-deactivate', async () => {
     } catch (e) {
         return { success: false, message: e.message };
     }
+});
+// ─── Data Path Confirmed Flag ─────────────────────────────────────────────────
+ipcMain.handle('data-path-get-confirmed', () => fs.existsSync(DATA_PATH_CONFIRMED));
+ipcMain.handle('data-path-set-confirmed', () => {
+    try {
+        fs.ensureFileSync(DATA_PATH_CONFIRMED);
+        debugLog('DATA_PATH_CONFIRMED', { path: DATA_PATH_CONFIRMED });
+        return { success: true };
+    } catch (e) { return { success: false }; }
+});
+// ─── Restart App ──────────────────────────────────────────────────────────────
+ipcMain.handle('restart-app', () => {
+    debugLog('RESTART', 'user triggered app restart');
+    app.relaunch();
+    app.exit(0);
+});
+// ─── Debug log từ renderer ────────────────────────────────────────────────────
+ipcMain.handle('renderer-debug-log', (_, tag, data) => {
+    debugLog('RENDERER:' + tag, data);
 });
 // ─────────────────────────────────────────────────────────────────────────────
 // Thông báo từ server — nội dung & link cấu hình hoàn toàn trên tool.erp-x.com

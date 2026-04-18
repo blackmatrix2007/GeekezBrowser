@@ -494,6 +494,11 @@ async function init() {
         launch(id);
     });
 
+    // Sau khi kích hoạt license từ dialog khởi động → hỏi chọn thư mục lưu dữ liệu
+    window.electronAPI.onLicenseActivated(() => {
+        setTimeout(() => askDataPathAfterActivation(), 500);
+    });
+
     // 核心修复：版本号注入
     const info = await window.electronAPI.invoke('get-app-info');
     const verSpan = document.getElementById('app-version');
@@ -2764,31 +2769,106 @@ async function activateLicenseKey() {
 }
 
 async function askDataPathAfterActivation() {
+    await window.electronAPI.debugLog('ASK_DATA_PATH', 'dialog shown');
     const info = await window.electronAPI.invoke('get-data-path-info');
-    showConfirm(
-        `Bạn muốn chọn thư mục lưu dữ liệu profile không?\n\nHiện tại: ${info.currentPath}`,
-        async () => {
+    const defaultPath = info.currentPath;
+    await window.electronAPI.debugLog('ASK_DATA_PATH', { defaultPath });
+
+    // Helper: hỏi restart app
+    const askRestart = () => new Promise((res) => {
+        const ov = document.createElement('div');
+        ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:100000';
+        ov.innerHTML = `
+          <div style="background:#1e1e2d;border-radius:14px;padding:32px 28px;max-width:400px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.5);color:#eee;font-family:sans-serif;text-align:center">
+            <div style="font-size:2rem;margin-bottom:12px">🔄</div>
+            <div style="font-size:1rem;font-weight:600;margin-bottom:8px">Cần khởi động lại</div>
+            <div style="font-size:.85rem;color:#aaa;margin-bottom:22px">Để áp dụng cấu hình, vui lòng khởi động lại ứng dụng ngay bây giờ.</div>
+            <button id="restartNow" style="padding:10px 28px;border-radius:8px;border:none;background:#e74c3c;color:#fff;font-size:.9rem;font-weight:600;cursor:pointer">Khởi động lại ngay</button>
+          </div>`;
+        document.body.appendChild(ov);
+        ov.querySelector('#restartNow').onclick = () => { ov.remove(); res(); };
+    });
+
+    // Tạo overlay 3 nút động
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:99999';
+    overlay.innerHTML = `
+      <div style="background:#1e1e2d;border-radius:14px;padding:32px 28px;max-width:440px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.5);color:#eee;font-family:sans-serif;text-align:center">
+        <div style="font-size:2.2rem;margin-bottom:12px">📁</div>
+        <div style="font-size:1.05rem;font-weight:600;margin-bottom:8px">Chọn thư mục lưu dữ liệu profile</div>
+        <div style="font-size:.82rem;color:#aaa;margin-bottom:6px">Thư mục mặc định:</div>
+        <div style="font-size:.8rem;background:#12121e;padding:8px 10px;border-radius:7px;word-break:break-all;color:#ccc;margin-bottom:22px">${defaultPath}</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <button id="dpBtn_default" style="padding:10px;border-radius:8px;border:none;background:#e74c3c;color:#fff;font-size:.9rem;font-weight:600;cursor:pointer">✅ Dùng thư mục mặc định</button>
+          <button id="dpBtn_choose"  style="padding:10px;border-radius:8px;border:1.5px solid #555;background:transparent;color:#eee;font-size:.9rem;cursor:pointer">📂 Chọn thư mục khác...</button>
+          <button id="dpBtn_later"   style="padding:8px;border-radius:8px;border:none;background:transparent;color:#666;font-size:.8rem;cursor:pointer">Để sau (sẽ hỏi lại lần sau)</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    await new Promise((resolve) => {
+        overlay.querySelector('#dpBtn_default').onclick = async () => {
+            overlay.remove();
+            await window.electronAPI.debugLog('ASK_DATA_PATH', 'user chose default path');
+            await window.electronAPI.dataPathSetConfirmed();
+            await askRestart();
+            await window.electronAPI.debugLog('ASK_DATA_PATH', 'restarting app');
+            await window.electronAPI.restartApp();
+            resolve();
+        };
+
+        overlay.querySelector('#dpBtn_choose').onclick = async () => {
+            overlay.remove();
+            await window.electronAPI.debugLog('ASK_DATA_PATH', 'user opening folder picker');
             const newPath = await window.electronAPI.invoke('select-data-directory');
-            if (!newPath) return;
-            const migrate = confirm(t('dataPathConfirmMigrate') || 'Di chuyển dữ liệu hiện có sang thư mục mới?\n\nOK: Di chuyển\nHủy: Chỉ đổi đường dẫn');
-            showAlert(t('dataPathMigrating') || 'Đang di chuyển...');
-            const result = await window.electronAPI.invoke('set-data-directory', { newPath, migrate });
-            if (result.success) {
-                loadDataPathSetting();
-                showAlert(t('dataPathSuccess') || 'Đã đổi thư mục, vui lòng khởi động lại');
-            } else {
-                showAlert((t('dataPathError') || 'Thao tác thất bại: ') + result.error);
+            if (!newPath) {
+                await window.electronAPI.debugLog('ASK_DATA_PATH', 'folder picker cancelled → will ask again next launch');
+                resolve();
+                return;
             }
-        }
-    );
+            await window.electronAPI.debugLog('ASK_DATA_PATH', { chosenPath: newPath });
+            const migrate = confirm('Di chuyển dữ liệu hiện có sang thư mục mới?\n\nOK: Di chuyển\nHủy: Chỉ đổi đường dẫn');
+            showAlert('Đang di chuyển...', false);
+            const result = await window.electronAPI.invoke('set-data-directory', { newPath, migrate });
+            await window.electronAPI.debugLog('ASK_DATA_PATH', { setDirectoryResult: result });
+            if (result.success) {
+                await window.electronAPI.dataPathSetConfirmed();
+                loadDataPathSetting();
+                await askRestart();
+                await window.electronAPI.debugLog('ASK_DATA_PATH', 'restarting app after custom path');
+                await window.electronAPI.restartApp();
+            } else {
+                showAlert('Thao tác thất bại: ' + result.error);
+            }
+            resolve();
+        };
+
+        overlay.querySelector('#dpBtn_later').onclick = async () => {
+            overlay.remove();
+            await window.electronAPI.debugLog('ASK_DATA_PATH', 'user chose later → will ask next launch');
+            resolve();
+        };
+    });
 }
 
 async function deactivateLicense() {
-    if (!confirm('Huỷ kích hoạt license này?\n\nKey sẽ bị xoá khỏi thiết bị.')) return;
-    await window.electronAPI.invoke('license-deactivate');
-    document.getElementById('licenseKeyInput').value = '';
-    showLicenseMsg('Đã huỷ kích hoạt', true);
-    loadLicenseStatus();
+    const key = document.getElementById('licenseKeyInput')?.value?.trim() || null;
+    if (!confirm(`Huỷ kích hoạt license khỏi thiết bị này?${key ? '\n\nKey: ' + key : ''}`)) return;
+
+    const btn = document.getElementById('licenseDeactivateBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Đang huỷ...'; }
+
+    const result = await window.electronAPI.invoke('license-deactivate', key);
+
+    if (btn) { btn.disabled = false; btn.textContent = 'Huỷ kích hoạt'; }
+
+    if (result.success) {
+        document.getElementById('licenseKeyInput').value = '';
+        showLicenseMsg('✅ Đã huỷ kích hoạt', true);
+        loadLicenseStatus();
+    } else {
+        showLicenseMsg('❌ ' + (result.message || 'Huỷ thất bại'), false);
+    }
 }
 
 function showLicenseMsg(text, success) {

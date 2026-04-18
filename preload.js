@@ -41,6 +41,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // License
     licenseGetStatus: () => ipcRenderer.invoke('license-get-status'),
     licenseActivate: (key) => ipcRenderer.invoke('license-activate', key),
+    onLicenseActivated: (callback) => ipcRenderer.on('license-activated-ask-data-path', () => callback()),
+    dataPathGetConfirmed: () => ipcRenderer.invoke('data-path-get-confirmed'),
+    dataPathSetConfirmed: () => ipcRenderer.invoke('data-path-set-confirmed'),
+    restartApp: () => ipcRenderer.invoke('restart-app'),
+    debugLog: (tag, data) => ipcRenderer.invoke('renderer-debug-log', tag, data),
     // Build info
     isPackaged: () => ipcRenderer.invoke('is-packaged'),
 });

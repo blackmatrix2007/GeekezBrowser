@@ -1911,46 +1911,37 @@
 
                     <!-- Data Directory Section -->
                     <div style="margin-bottom: 25px;">
-                        <h4 style="margin-bottom:10px; color:var(--text-primary); font-size:14px;"
-                            data-i18n="dataPathTitle">📁 Data Directory</h4>
-                        <p style="font-size:12px; opacity:0.7; margin-bottom:15px;" data-i18n="dataPathDesc">
-                            Change the location where profile data is stored
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+                            <h4 style="color:var(--text-primary); font-size:14px; margin:0;"
+                                data-i18n="dataPathTitle">📁 Data Directory</h4>
+                            <span style="font-size:11px; color:var(--warning);" data-i18n="dataPathRestart">
+                                Yêu cầu khởi động lại ứng dụng
+                            </span>
+                        </div>
+                        <p style="font-size:12px; opacity:0.6; margin-bottom:12px;" data-i18n="dataPathDesc">
+                            Thay đổi nơi lưu trữ dữ liệu profile
                         </p>
 
-                        <div
-                            style="background:rgba(0,0,0,0.2); border:1px solid var(--border); border-radius:8px; padding:15px;">
-                            <div style="margin-bottom:12px;">
-                                <label style="font-size:11px; opacity:0.6; margin-bottom:5px; display:block;"
-                                    data-i18n="dataPathCurrent">Current Path:</label>
-                                <div id="currentDataPath"
-                                    style="font-size:12px; font-family:monospace; background:rgba(0,0,0,0.3); padding:8px 12px; border-radius:6px; word-break:break-all; color:var(--accent);">
-                                    Loading...
-                                </div>
+                        <!-- Path + Change button on same row, giống GPM -->
+                        <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+                            <button onclick="selectDataDirectory()"
+                                style="padding:8px 16px; border-radius:6px; border:1px solid var(--border); background:var(--input-bg); color:var(--text-primary); cursor:pointer; font-size:12px; white-space:nowrap; display:flex; align-items:center; gap:6px;">
+                                📂 <span data-i18n="dataPathBrowse">Thay đổi</span>
+                            </button>
+                            <div id="currentDataPath"
+                                style="flex:1; font-size:12px; font-family:monospace; background:rgba(0,0,0,0.25); padding:8px 12px; border-radius:6px; border:1px solid var(--border); word-break:break-all; color:var(--accent); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                                Loading...
                             </div>
+                            <button onclick="resetDataDirectory()" id="resetDataPathBtn"
+                                style="display:none; padding:8px 12px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); cursor:pointer; font-size:12px; white-space:nowrap;"
+                                data-i18n="dataPathReset">↩️ Mặc định</button>
+                        </div>
 
-                            <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                                <button class="outline" onclick="selectDataDirectory()" style="flex:1; min-width:120px;"
-                                    data-i18n="dataPathBrowse">
-                                    📂 Browse...
-                                </button>
-                                <button class="outline" onclick="resetDataDirectory()" id="resetDataPathBtn"
-                                    style="flex:1; min-width:120px; display:none;" data-i18n="dataPathReset">
-                                    ↩️ Reset to Default
-                                </button>
-                            </div>
-
-                            <div style="margin-top:12px; padding:10px; background:rgba(255,193,7,0.1); border:1px solid rgba(255,193,7,0.3); border-radius:6px; display:none;"
-                                id="dataPathWarning">
-                                <div style="display:flex; align-items:center; gap:8px;">
-                                    <span style="font-size:16px;">⚠️</span>
-                                    <span style="font-size:11px; color:var(--warning);"
-                                        data-i18n="dataPathRestart">Restart required for changes to take effect</span>
-                                </div>
-                            </div>
+                        <div id="dataPathWarning" style="display:none; padding:8px 12px; background:rgba(255,193,7,0.1); border:1px solid rgba(255,193,7,0.3); border-radius:6px;">
+                            <span style="font-size:11px; color:var(--warning);">⚠️ <span data-i18n="dataPathRestart">Khởi động lại để áp dụng thay đổi</span></span>
                         </div>
                     </div>
                 </div>
-            </div>
 
                 <!-- License Tab -->
                 <div id="settings-license" class="settings-section" style="display:none;">

@@ -2145,6 +2145,7 @@ function switchSettingsTab(tabName) {
     document.getElementById('settings-' + tabName).style.display = 'block';
     if (tabName === 'chrome') loadChromePath();
     if (tabName === 'license') loadLicenseStatus();
+    if (tabName === 'advanced') loadDataPathSetting();
 }
 // ============================================================================
 // Extension Management Functions

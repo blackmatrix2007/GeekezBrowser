@@ -1833,11 +1833,39 @@ ipcMain.handle('license-activate', async (_, licenseKey) => {
         return { success: false, message: 'Không thể kết nối server: ' + err.message };
     }
 });
-// Huỷ kích hoạt — xoá license file + access cache để lần sau buộc check lại với server
+// Huỷ kích hoạt — gọi server + xoá local file
 ipcMain.handle('license-deactivate', async () => {
     try {
+        const deviceId = getDeviceId();
+        // Đọc licenseKey đang lưu (để gửi lên server)
+        let licenseKey = null;
+        if (fs.existsSync(LICENSE_FILE)) {
+            try { licenseKey = (fs.readJsonSync(LICENSE_FILE)).licenseKey; } catch (_) {}
+        }
+
+        // Gọi server để gỡ license khỏi device
+        if (licenseKey) {
+            const body = JSON.stringify({ deviceId, licenseKey });
+            await new Promise((resolve) => {
+                const url = new URL(TOOLPHUC_API + '/deactivate');
+                const req = https.request({
+                    hostname: url.hostname,
+                    path: url.pathname,
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+                }, (res) => {
+                    res.on('data', () => {});
+                    res.on('end', resolve);
+                });
+                req.on('error', resolve); // ignore network error — vẫn xoá local
+                req.setTimeout(5000, () => { req.destroy(); resolve(); });
+                req.write(body);
+                req.end();
+            });
+        }
+
+        // Xoá local dù server có lỗi hay không
         if (fs.existsSync(LICENSE_FILE)) fs.removeSync(LICENSE_FILE);
-        // Xoá cache thay vì ghi allowed:true — tránh bypass check khi offline
         if (fs.existsSync(ACCESS_CACHE)) fs.removeSync(ACCESS_CACHE);
         return { success: true };
     } catch (e) {

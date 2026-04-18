@@ -1833,6 +1833,17 @@ ipcMain.handle('license-activate', async (_, licenseKey) => {
         return { success: false, message: 'Không thể kết nối server: ' + err.message };
     }
 });
+// Huỷ kích hoạt — xoá license file + access cache để lần sau buộc check lại với server
+ipcMain.handle('license-deactivate', async () => {
+    try {
+        if (fs.existsSync(LICENSE_FILE)) fs.removeSync(LICENSE_FILE);
+        // Xoá cache thay vì ghi allowed:true — tránh bypass check khi offline
+        if (fs.existsSync(ACCESS_CACHE)) fs.removeSync(ACCESS_CACHE);
+        return { success: true };
+    } catch (e) {
+        return { success: false, message: e.message };
+    }
+});
 // ─────────────────────────────────────────────────────────────────────────────
 // Thông báo từ server — nội dung & link cấu hình hoàn toàn trên tool.erp-x.com
 ipcMain.handle('check-app-update', async () => {

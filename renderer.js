@@ -1909,10 +1909,21 @@ function saveWatermarkStyle(style) {
 async function loadDataPathSetting() {
     try {
         const info = await window.electronAPI.invoke('get-data-path-info');
-        document.getElementById('currentDataPath').textContent = info.currentPath;
-        document.getElementById('resetDataPathBtn').style.display = info.isCustom ? 'inline-block' : 'none';
+        // Update cả tab Advanced lẫn tab License
+        ['currentDataPath', 'currentDataPath2'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = info.currentPath;
+        });
+        ['resetDataPathBtn', 'resetDataPathBtn2'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = info.isCustom ? 'inline-block' : 'none';
+        });
     } catch (e) {
-        console.error('Failed to load data path:', e);
+        console.error('[DataPath] Failed:', e);
+        ['currentDataPath', 'currentDataPath2'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = 'Lỗi: ' + e.message;
+        });
     }
 }
 
@@ -1928,17 +1939,23 @@ async function selectDataDirectory() {
     const result = await window.electronAPI.invoke('set-data-directory', { newPath, migrate });
 
     if (result.success) {
-        document.getElementById('currentDataPath').textContent = newPath;
-        document.getElementById('resetDataPathBtn').style.display = 'inline-block';
-        document.getElementById('dataPathWarning').style.display = 'block';
-        showAlert(t('dataPathSuccess') || '数据目录已更改，请重启应用');
+        ['currentDataPath', 'currentDataPath2'].forEach(id => {
+            const el = document.getElementById(id); if (el) el.textContent = newPath;
+        });
+        ['resetDataPathBtn', 'resetDataPathBtn2'].forEach(id => {
+            const el = document.getElementById(id); if (el) el.style.display = 'inline-block';
+        });
+        ['dataPathWarning'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'block'; });
+        const warnLicense = document.getElementById('licenseDataPathWarning');
+        if (warnLicense) warnLicense.style.display = 'inline';
+        showAlert(t('dataPathSuccess') || 'Đã đổi thư mục, vui lòng khởi động lại');
     } else {
-        showAlert((t('dataPathError') || '更改失败: ') + result.error);
+        showAlert((t('dataPathError') || 'Thao tác thất bại: ') + result.error);
     }
 }
 
 async function resetDataDirectory() {
-    if (!confirm(t('dataPathConfirmReset') || '确定要恢复默认数据目录吗？\n\n注意：这不会迁移数据，您需要手动处理自定义目录中的数据。')) {
+    if (!confirm(t('dataPathConfirmReset') || 'Đặt lại thư mục dữ liệu mặc định?\n\nLưu ý: Dữ liệu từ thư mục tùy chỉnh sẽ không được di chuyển.')) {
         return;
     }
 
@@ -1946,12 +1963,17 @@ async function resetDataDirectory() {
 
     if (result.success) {
         const info = await window.electronAPI.invoke('get-data-path-info');
-        document.getElementById('currentDataPath').textContent = info.defaultPath;
-        document.getElementById('resetDataPathBtn').style.display = 'none';
-        document.getElementById('dataPathWarning').style.display = 'block';
-        showAlert(t('dataPathResetSuccess') || '已恢复默认目录，请重启应用');
+        ['currentDataPath', 'currentDataPath2'].forEach(id => {
+            const el = document.getElementById(id); if (el) el.textContent = info.defaultPath;
+        });
+        ['resetDataPathBtn', 'resetDataPathBtn2'].forEach(id => {
+            const el = document.getElementById(id); if (el) el.style.display = 'none';
+        });
+        const warn = document.getElementById('dataPathWarning');
+        if (warn) warn.style.display = 'block';
+        showAlert(t('dataPathResetSuccess') || 'Đã khôi phục mặc định, vui lòng khởi động lại');
     } else {
-        showAlert((t('dataPathError') || '操作失败: ') + result.error);
+        showAlert((t('dataPathError') || 'Thao tác thất bại: ') + result.error);
     }
 }
 
@@ -2131,12 +2153,13 @@ function openApiDocs() {
     window.electronAPI.invoke('open-url', 'https://browser.geekez.net/docs.html#doc-api');
 }
 
-function switchSettingsTab(tabName) {
-    // Update tab buttons
+function switchSettingsTab(tabName, clickedBtn) {
+    // Update tab buttons — dùng tham số thay vì event.target để gọi được từ code
     document.querySelectorAll('#settingsModal .tab-btn').forEach(btn => {
         btn.classList.remove('active');
     });
-    event.target.classList.add('active');
+    const activeBtn = clickedBtn || document.querySelector(`#settingsModal .tab-btn[onclick*="'${tabName}'"]`);
+    if (activeBtn) activeBtn.classList.add('active');
 
     // Update tab content
     document.querySelectorAll('.settings-section').forEach(section => {
@@ -2144,7 +2167,7 @@ function switchSettingsTab(tabName) {
     });
     document.getElementById('settings-' + tabName).style.display = 'block';
     if (tabName === 'chrome') loadChromePath();
-    if (tabName === 'license') loadLicenseStatus();
+    if (tabName === 'license') { loadLicenseStatus(); loadDataPathSetting(); }
     if (tabName === 'advanced') loadDataPathSetting();
 }
 // ============================================================================
@@ -2727,6 +2750,8 @@ async function activateLicenseKey() {
         if (result.success) {
             showLicenseMsg('✅ ' + result.message, true);
             loadLicenseStatus();
+            // Hỏi chọn thư mục lưu dữ liệu sau khi kích hoạt thành công
+            setTimeout(() => askDataPathAfterActivation(), 800);
         } else {
             showLicenseMsg('❌ ' + result.message, false);
         }
@@ -2736,6 +2761,34 @@ async function activateLicenseKey() {
         btn.disabled = false;
         btn.textContent = 'Kích hoạt';
     }
+}
+
+async function askDataPathAfterActivation() {
+    const info = await window.electronAPI.invoke('get-data-path-info');
+    showConfirm(
+        `Bạn muốn chọn thư mục lưu dữ liệu profile không?\n\nHiện tại: ${info.currentPath}`,
+        async () => {
+            const newPath = await window.electronAPI.invoke('select-data-directory');
+            if (!newPath) return;
+            const migrate = confirm(t('dataPathConfirmMigrate') || 'Di chuyển dữ liệu hiện có sang thư mục mới?\n\nOK: Di chuyển\nHủy: Chỉ đổi đường dẫn');
+            showAlert(t('dataPathMigrating') || 'Đang di chuyển...');
+            const result = await window.electronAPI.invoke('set-data-directory', { newPath, migrate });
+            if (result.success) {
+                loadDataPathSetting();
+                showAlert(t('dataPathSuccess') || 'Đã đổi thư mục, vui lòng khởi động lại');
+            } else {
+                showAlert((t('dataPathError') || 'Thao tác thất bại: ') + result.error);
+            }
+        }
+    );
+}
+
+async function deactivateLicense() {
+    if (!confirm('Huỷ kích hoạt license này?\n\nKey sẽ bị xoá khỏi thiết bị.')) return;
+    await window.electronAPI.invoke('license-deactivate');
+    document.getElementById('licenseKeyInput').value = '';
+    showLicenseMsg('Đã huỷ kích hoạt', true);
+    loadLicenseStatus();
 }
 
 function showLicenseMsg(text, success) {

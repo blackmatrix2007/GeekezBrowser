@@ -1656,10 +1656,10 @@
             </div>
 
             <div class="tab-header" id="settingsTabHeader">
-                <div class="tab-btn dev-only active" onclick="switchSettingsTab('extensions')" data-i18n="settingsTabExtensions">Extensions</div>
-                <div class="tab-btn dev-only" onclick="switchSettingsTab('chrome')">Chrome</div>
-                <div class="tab-btn dev-only" onclick="switchSettingsTab('advanced')" data-i18n="settingsTabAdvanced">Advanced</div>
-                <div class="tab-btn" id="licenseTabBtn" onclick="switchSettingsTab('license')">🔑 License</div>
+                <div class="tab-btn dev-only active" onclick="switchSettingsTab('extensions', this)" data-i18n="settingsTabExtensions">Extensions</div>
+                <div class="tab-btn dev-only" onclick="switchSettingsTab('chrome', this)">Chrome</div>
+                <div class="tab-btn dev-only" onclick="switchSettingsTab('advanced', this)" data-i18n="settingsTabAdvanced">Advanced</div>
+                <div class="tab-btn" id="licenseTabBtn" onclick="switchSettingsTab('license', this)">🔑 License</div>
             </div>
 
             <div id="settingsContent" style="flex:1; overflow-y:auto; padding:10px;">
@@ -1964,9 +1964,8 @@
                     </div>
 
                     <!-- Form kích hoạt -->
-                    <div id="licenseActivateBox" style="background:rgba(0,0,0,0.2); border:1px solid var(--border); border-radius:10px; padding:16px;">
+                    <div id="licenseActivateBox" style="background:rgba(0,0,0,0.2); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:16px;">
                         <h4 style="margin-bottom:12px; color:var(--text-primary); font-size:14px;">Nhập License Key</h4>
-                        <p style="font-size:12px; opacity:0.65; margin-bottom:14px;">Nhập key do giảng viên cấp để kích hoạt. Nếu chưa có, bạn vẫn dùng được bình thường.</p>
                         <div style="display:flex; gap:10px;">
                             <input type="text" id="licenseKeyInput"
                                 placeholder="XXXX-XXXX-XXXX-XXXX"
@@ -1976,8 +1975,33 @@
                                 style="padding:10px 20px; border-radius:8px; background:var(--accent); color:#fff; border:none; cursor:pointer; font-size:13px; font-weight:600; white-space:nowrap;">
                                 Kích hoạt
                             </button>
+                            <button onclick="deactivateLicense()" id="licenseDeactivateBtn"
+                                style="padding:10px 16px; border-radius:8px; background:transparent; color:var(--text-secondary); border:1px solid var(--border); cursor:pointer; font-size:13px; white-space:nowrap;">
+                                Huỷ kích hoạt
+                            </button>
                         </div>
                         <div id="licenseMsg" style="display:none; margin-top:10px; font-size:12px; padding:8px 12px; border-radius:6px;"></div>
+                    </div>
+
+                    <!-- Local Storage Path — hiện trong tab License để release build có thể chọn -->
+                    <div style="background:rgba(0,0,0,0.2); border:1px solid var(--border); border-radius:10px; padding:16px;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                            <h4 style="margin:0; color:var(--text-primary); font-size:14px;" data-i18n="dataPathTitle">📁 Local Storage</h4>
+                            <span id="licenseDataPathWarning" style="display:none; font-size:11px; color:var(--warning);" data-i18n="dataPathRestart">Yêu cầu khởi động lại</span>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <button onclick="selectDataDirectory()"
+                                style="padding:7px 14px; border-radius:6px; border:1px solid var(--border); background:var(--input-bg); color:var(--text-primary); cursor:pointer; font-size:12px; white-space:nowrap; display:flex; align-items:center; gap:6px;">
+                                📂 <span data-i18n="dataPathBrowse">Thay đổi</span>
+                            </button>
+                            <div id="currentDataPath2"
+                                style="flex:1; font-size:11px; font-family:monospace; background:rgba(0,0,0,0.25); padding:7px 10px; border-radius:6px; border:1px solid var(--border); color:var(--accent); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                                Đang tải...
+                            </div>
+                            <button onclick="resetDataDirectory()" id="resetDataPathBtn2"
+                                style="display:none; padding:7px 12px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); cursor:pointer; font-size:11px; white-space:nowrap;"
+                                data-i18n="dataPathReset">↩️ Mặc định</button>
+                        </div>
                     </div>
                 </div>
 

@@ -68,7 +68,10 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "allowElevation": true,
+      "warningsAsErrors": false,
+      "include": "build/installer.nsh"
     },
     "mac": {
       "target": "dmg",

@@ -1845,6 +1845,26 @@ app.whenReady().then(async () => {
         debugLog('STARTUP_FLOW', 'data path already confirmed, skipping');
     }
 
+    // Thông báo dùng thử miễn phí nếu chưa có license
+    if (access.trialMode && access.trialHoursLeft) {
+        const showTrialNotice = () => {
+            dialog.showMessageBox(mainWindow, {
+                type: 'info',
+                title: 'Đang dùng thử miễn phí',
+                message: `Còn ${access.trialHoursLeft} giờ dùng thử miễn phí`,
+                detail: 'Sau khi hết thời gian dùng thử, bạn cần license key để tiếp tục sử dụng.\nLiên hệ đội hỗ trợ để được cấp key.',
+                buttons: ['OK'],
+            }).catch(() => {});
+        };
+        if (!mainWindow || mainWindow.isDestroyed()) {
+            // skip
+        } else if (mainWindow.webContents.isLoading()) {
+            mainWindow.webContents.once('did-finish-load', () => setTimeout(showTrialNotice, 1500));
+        } else {
+            setTimeout(showTrialNotice, 1500);
+        }
+    }
+
     // Kiểm tra version ngay khi khởi động
     await checkAndNotifyUpdate(access);
 

@@ -1821,7 +1821,7 @@ app.whenReady().then(async () => {
         if (!activated) { app.quit(); return; }
         debugLog('STARTUP_FLOW', 'license activated via dialog');
         justActivated = true;
-    } else if (access.requireLicense && !fs.existsSync(LICENSE_FILE)) {
+    } else if (access.requireLicense && !fs.existsSync(LICENSE_FILE) && !access.trialMode) {
         debugLog('STARTUP_FLOW', 'allowed but no local license file → showing license dialog');
         const activated = await showLicenseBlockedDialog({
             ...access,

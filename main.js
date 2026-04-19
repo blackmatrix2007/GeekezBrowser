@@ -174,21 +174,27 @@ async function checkAccess() {
     const result = await sendHeartbeat();
 
     if (result) {
-        saveAccessCache(result);
-        // Nếu server báo license bị thu hồi → xóa license.json local để UI cập nhật đúng
-        if (result.licenseRevoked) {
-            try { fs.removeSync(LICENSE_FILE); } catch (_) {}
-            debugLog('LICENSE_REVOKED', { reason: result.reason });
+        // Validate response — server có thể trả lỗi dạng {message: "..."} không có "allowed"
+        // Trường hợp này coi như server lỗi, fallback về cache thay vì block user
+        if (typeof result.allowed !== 'boolean') {
+            debugLog('ACCESS_CHECK', { mode: 'server_error', serverMessage: result.message || result.error || 'unknown', action: 'fallback to cache' });
+        } else {
+            saveAccessCache(result);
+            // Nếu server báo license bị thu hồi → xóa license.json local để UI cập nhật đúng
+            if (result.licenseRevoked) {
+                try { fs.removeSync(LICENSE_FILE); } catch (_) {}
+                debugLog('LICENSE_REVOKED', { reason: result.reason });
+            }
+            debugLog('ACCESS_CHECK', {
+                mode: 'online',
+                allowed: result.allowed,
+                reason: result.reason,
+                requireLicense: result.requireLicense,
+                licenseStatus: result.licenseStatus,
+                willShowDialog: !result.allowed,
+            });
+            return result;
         }
-        debugLog('ACCESS_CHECK', {
-            mode: 'online',
-            allowed: result.allowed,
-            reason: result.reason,
-            requireLicense: result.requireLicense,
-            licenseStatus: result.licenseStatus,
-            willShowDialog: !result.allowed,
-        });
-        return result;
     }
 
     // Mất mạng — dùng cache
@@ -230,7 +236,7 @@ function showLicenseBlockedDialog(access) {
             fullscreenable: false,
             alwaysOnTop: true,
             center: true,
-            title: 'AntiDetect — Truy cập bị từ chối',
+            title: 'BNC — Truy cập bị từ chối',
             show: false,
             webPreferences: { nodeIntegration: false, contextIsolation: true },
         });
@@ -255,7 +261,7 @@ function showLicenseBlockedDialog(access) {
   .err { font-size:12px; color:#ff6666; min-height:16px; }
   .ok  { font-size:12px; color:#4CAF50; min-height:16px; }
 </style></head><body>
-  <div class="title">&#9888; AntiDetect — Truy cập bị từ chối</div>
+  <div class="title">&#9888; BNC — Truy cập bị từ chối</div>
   <div class="msg">${msg.replace(/</g,'&lt;')}</div>
   <div class="device">Device ID: ${deviceId}</div>
   <input id="k" type="text" placeholder="Nhập license key (XXXX-XXXX-XXXX-XXXX)" autofocus>
@@ -328,13 +334,16 @@ let updateShownThisSession = false;
 
 // Kiểm tra version và hiện dialog nếu có bản mới — chỉ hiện 1 lần/session
 async function checkAndNotifyUpdate(heartbeatResult) {
-    if (updateShownThisSession) return;
-    if (!heartbeatResult || !heartbeatResult.latestVersion) return;
+    debugLog('UPDATE_CHECK', { updateShownThisSession, hasResult: !!heartbeatResult, latestVersion: heartbeatResult?.latestVersion });
+
+    if (updateShownThisSession) { debugLog('UPDATE_CHECK', 'skip — already shown this session'); return; }
+    if (!heartbeatResult || !heartbeatResult.latestVersion) { debugLog('UPDATE_CHECK', 'skip — no latestVersion in heartbeat response'); return; }
 
     const current = app.getVersion();
     const latest = heartbeatResult.latestVersion;
     const isOutdated = latest.localeCompare(current, undefined, { numeric: true, sensitivity: 'base' }) > 0;
-    if (!isOutdated) return;
+    debugLog('UPDATE_CHECK', { current, latest, isOutdated });
+    if (!isOutdated) { debugLog('UPDATE_CHECK', 'skip — already on latest'); return; }
 
     const forceUpdate = heartbeatResult.forceUpdate === true;
 
@@ -344,10 +353,12 @@ async function checkAndNotifyUpdate(heartbeatResult) {
             const skipped = fs.existsSync(SKIPPED_UPDATE_FILE)
                 ? fs.readFileSync(SKIPPED_UPDATE_FILE, 'utf8').trim()
                 : null;
-            if (skipped === latest) return; // User đã bỏ qua version này rồi
+            debugLog('UPDATE_CHECK', { skippedVersion: skipped });
+            if (skipped === latest) { debugLog('UPDATE_CHECK', `skip — user previously skipped v${latest}`); return; }
         } catch (_) {}
     }
 
+    debugLog('UPDATE_CHECK', { action: 'showing dialog', forceUpdate });
     updateShownThisSession = true;
     const downloadUrl = heartbeatResult.downloadUrl || 'https://tool.erp-x.com';
     const notes = heartbeatResult.releaseNotes ? `\n\n${heartbeatResult.releaseNotes}` : '';
@@ -356,7 +367,7 @@ async function checkAndNotifyUpdate(heartbeatResult) {
     const { response } = await dialog.showMessageBox({
         type: 'info',
         title: `Có phiên bản mới — v${latest}`,
-        message: `AntiDetect Browser ${latest} đã sẵn sàng`,
+        message: `BNC Browser ${latest} đã sẵn sàng`,
         detail: `Bạn đang dùng v${current}. Tải phiên bản mới để có trải nghiệm tốt hơn.${notes}`,
         buttons,
         defaultId: 0,
@@ -364,18 +375,23 @@ async function checkAndNotifyUpdate(heartbeatResult) {
         noLink: true,
     });
 
+    debugLog('UPDATE_CHECK', { userResponse: response, buttonLabel: buttons[response] });
+
     if (response === 0) {
+        debugLog('UPDATE_CHECK', { action: 'opening download URL', downloadUrl });
         shell.openExternal(downloadUrl);
         if (forceUpdate) {
-            // Đợi browser mở xong rồi mới thoát
+            debugLog('UPDATE_CHECK', 'forceUpdate — quitting in 1.5s');
             setTimeout(() => app.quit(), 1500);
         }
     }
 
     // Bỏ qua version này → lưu vào file, không nhắc lại lần sau
     if (!forceUpdate && response === 1) {
-        try { fs.writeFileSync(SKIPPED_UPDATE_FILE, latest, 'utf8'); } catch (_) {}
-        // Vẫn reset session flag để nhắc nếu session này mở lâu và server ra bản mới hơn
+        try {
+            fs.writeFileSync(SKIPPED_UPDATE_FILE, latest, 'utf8');
+            debugLog('UPDATE_CHECK', { action: 'saved skipped version', version: latest });
+        } catch (_) {}
         setTimeout(() => { updateShownThisSession = false; }, 60 * 60 * 1000);
     }
 }
@@ -1180,7 +1196,7 @@ function createTray(win) {
         ? nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 })
         : nativeImage.createEmpty();
     tray = new Tray(trayIcon);
-    tray.setToolTip('AntiDetect Browser');
+    tray.setToolTip('BNC Browser');
     const contextMenu = Menu.buildFromTemplate([
         { label: 'Show', click: () => { win.show(); win.focus(); } },
         { type: 'separator' },
@@ -1194,7 +1210,7 @@ function createWindow() {
     const { width, height } = screen.getPrimaryDisplay().workAreaSize;
     const win = new BrowserWindow({
         width: Math.round(width * 0.5), height: Math.round(height * 0.601), minWidth: 900, minHeight: 600,
-        title: "AntiDetect Browser", backgroundColor: '#1e1e2d',
+        title: "BNC Browser", backgroundColor: '#1e1e2d',
         icon: path.join(__dirname, 'icon.png'),
         titleBarOverlay: { color: '#1e1e2d', symbolColor: '#ffffff', height: 35 },
         titleBarStyle: 'hidden',
@@ -1797,7 +1813,7 @@ app.whenReady().then(async () => {
     };
 
     let justActivated = false;
-    debugLog('STARTUP_ACCESS', { allowed: access.allowed, requireLicense: access.requireLicense, licenseFileExists: fs.existsSync(LICENSE_FILE) });
+    debugLog('STARTUP_ACCESS', { allowed: access.allowed, requireLicense: access.requireLicense, licenseFileExists: fs.existsSync(LICENSE_FILE), offlineMode: access.offlineMode || false });
 
     if (!access.allowed) {
         debugLog('STARTUP_FLOW', 'blocked → showing license dialog');
@@ -1840,7 +1856,7 @@ app.whenReady().then(async () => {
         if (r && !r.allowed) {
             dialog.showMessageBox({
                 type: 'warning',
-                title: 'AntiDetect — Phiên bị thu hồi',
+                title: 'BNC — Phiên bị thu hồi',
                 message: r.message || 'Quyền truy cập của bạn đã bị thu hồi.',
                 buttons: ['Đóng'],
             }).then(() => app.quit());
@@ -2034,16 +2050,40 @@ ipcMain.handle('check-app-update', async () => {
     const fresh = await fetchAnnouncement();
     if (fresh) cachedAnnouncement = fresh;
 
+    // Đọc heartbeat cache để lấy downloadUrl / latestVersion làm fallback
+    const hbCache = readAccessCache();
+
     const ann = cachedAnnouncement;
     if (ann && ann.show) {
+        const url = ann.url || hbCache?.downloadUrl || '';
+        const remote = ann.version || hbCache?.latestVersion || '';
+        debugLog('CHECK_APP_UPDATE', { source: 'announcement', remote, url, skipable: ann.skipable });
         return {
             update: true,
-            remote: ann.version || '',        // hiện trong tiêu đề popup
-            url:    ann.url    || '',          // nút "Tải xuống" mở URL này
-            notes:  ann.notes  || '',          // nội dung markdown bên dưới
-            skipable: ann.skipable !== false,  // false = không cho phép bỏ qua
+            remote,
+            url,
+            notes:    ann.notes  || hbCache?.releaseNotes || '',
+            skipable: ann.skipable !== false,
         };
     }
+
+    // Không có announcement nhưng heartbeat báo có bản mới
+    if (hbCache?.latestVersion) {
+        const current = app.getVersion();
+        const isOutdated = hbCache.latestVersion.localeCompare(current, undefined, { numeric: true, sensitivity: 'base' }) > 0;
+        if (isOutdated) {
+            debugLog('CHECK_APP_UPDATE', { source: 'heartbeat_cache', remote: hbCache.latestVersion, url: hbCache.downloadUrl });
+            return {
+                update: true,
+                remote:   hbCache.latestVersion,
+                url:      hbCache.downloadUrl || '',
+                notes:    hbCache.releaseNotes || '',
+                skipable: hbCache.forceUpdate !== true,
+            };
+        }
+    }
+
+    debugLog('CHECK_APP_UPDATE', { update: false });
     return { update: false };
 });
 ipcMain.handle('check-xray-update', async () => { try { const data = await fetchJson('https://api.github.com/repos/XTLS/Xray-core/releases/latest'); if (!data || !data.tag_name) return { update: false }; const remoteVer = data.tag_name; const currentVer = await getLocalXrayVersion(); if (remoteVer !== currentVer) { let assetName = ''; const arch = os.arch(); const platform = os.platform(); if (platform === 'win32') assetName = `Xray-windows-${arch === 'x64' ? '64' : '32'}.zip`; else if (platform === 'darwin') assetName = `Xray-macos-${arch === 'arm64' ? 'arm64-v8a' : '64'}.zip`; else assetName = `Xray-linux-${arch === 'x64' ? '64' : '32'}.zip`; const downloadUrl = `https://gh-proxy.com/https://github.com/XTLS/Xray-core/releases/download/${remoteVer}/${assetName}`; return { update: true, remote: remoteVer.replace(/^v/, ''), downloadUrl }; } return { update: false }; } catch (e) { return { update: false }; } });

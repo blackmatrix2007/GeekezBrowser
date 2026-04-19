@@ -1,4 +1,4 @@
-; Custom NSIS installer script for AntiDetect Browser
+; Custom NSIS installer script for BNC Browser
 ; Tự động đóng app trước khi cài đặt (kể cả khi đang chạy ở system tray)
 
 !macro preInit

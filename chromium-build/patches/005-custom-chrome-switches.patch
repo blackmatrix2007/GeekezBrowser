@@ -1,0 +1,97 @@
+From: GeekezBrowser <build@geekez.net>
+Date: 2026-01-01
+Subject: [PATCH 005] Register custom GeekezBrowser command line switches
+
+Registers all custom command line switches used by GeekezBrowser patches
+so they are recognized by the Chromium switch system.
+
+Switches registered:
+  --canvas-noise-seed=<uint32>     Canvas fingerprint seed
+  --audio-noise-seed=<uint32>      Audio fingerprint seed
+  --audio-noise-level=<float>      Audio noise magnitude
+  --webgl-vendor=<string>          WebGL vendor string override
+  --webgl-renderer=<string>        WebGL renderer string override
+  --webgl-profile=<path>           WebGL profile JSON file
+  --perf-noise-seed=<uint32>       performance.now() noise seed
+  --show-webdriver                 Debug: show real webdriver value
+  --geekez-profile-id=<string>     GeekezBrowser profile identifier
+---
+ chrome/common/chrome_switches.h | 22 ++++++++++++++++++++++
+ chrome/common/chrome_switches.cc | 22 ++++++++++++++++++++++
+ 2 files changed, 44 insertions(+)
+
+diff --git a/chrome/common/chrome_switches.h b/chrome/common/chrome_switches.h
+index BBBBBBB..CCCCCCC 100644
+--- a/chrome/common/chrome_switches.h
++++ b/chrome/common/chrome_switches.h
+@@ -1,6 +1,28 @@
+ #ifndef CHROME_COMMON_CHROME_SWITCHES_H_
+ #define CHROME_COMMON_CHROME_SWITCHES_H_
+
+ namespace switches {
+
++// ─────────────────────────────────────────────────────────────────────────────
++// [GEEKEZ PATCH 005] Custom GeekezBrowser Anti-Detect Switches
++// ─────────────────────────────────────────────────────────────────────────────
+
++// Canvas fingerprint: seed for deterministic noise injection
++// Usage: --canvas-noise-seed=1234567
++extern const char kCanvasNoiseSeed[];
+
++// Audio fingerprint: seed for deterministic noise injection
++// Usage: --audio-noise-seed=7654321
++extern const char kAudioNoiseSeed[];
+
++// Audio fingerprint: noise magnitude (default: 0.0000001)
++// Usage: --audio-noise-level=0.0000001
++extern const char kAudioNoiseLevel[];
+
++// WebGL: override vendor string
++// Usage: --webgl-vendor="Intel Inc."
++extern const char kWebGLVendor[];
+
++// WebGL: override renderer string
++// Usage: --webgl-renderer="Intel(R) UHD Graphics 630"
++extern const char kWebGLRenderer[];
+
++// WebGL: path to JSON profile file
++// Usage: --webgl-profile=/tmp/webgl-profile.json
++extern const char kWebGLProfile[];
+
++// performance.now(): noise seed
++// Usage: --perf-noise-seed=9999999
++extern const char kPerfNoiseSeed[];
+
++// Debug: expose real webdriver value (default: hidden)
++extern const char kShowWebDriver[];
+
++// GeekezBrowser: profile identifier for logging/debugging
++extern const char kGeekezProfileId[];
+
+ }  // namespace switches
+ #endif
+
+diff --git a/chrome/common/chrome_switches.cc b/chrome/common/chrome_switches.cc
+index DDDDDDD..EEEEEEE 100644
+--- a/chrome/common/chrome_switches.cc
++++ b/chrome/common/chrome_switches.cc
+@@ -1,6 +1,28 @@
+ #include "chrome/common/chrome_switches.h"
+
+ namespace switches {
+
++// ─────────────────────────────────────────────────────────────────────────────
++// [GEEKEZ PATCH 005] Custom Switch Definitions
++// ─────────────────────────────────────────────────────────────────────────────
+
++const char kCanvasNoiseSeed[]   = "canvas-noise-seed";
++const char kAudioNoiseSeed[]    = "audio-noise-seed";
++const char kAudioNoiseLevel[]   = "audio-noise-level";
++const char kWebGLVendor[]       = "webgl-vendor";
++const char kWebGLRenderer[]     = "webgl-renderer";
++const char kWebGLProfile[]      = "webgl-profile";
++const char kPerfNoiseSeed[]     = "perf-noise-seed";
++const char kShowWebDriver[]     = "show-webdriver";
++const char kGeekezProfileId[]   = "geekez-profile-id";
+
+ }  // namespace switches

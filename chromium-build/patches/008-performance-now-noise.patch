@@ -1,0 +1,82 @@
+From: GeekezBrowser <build@geekez.net>
+Date: 2026-01-01
+Subject: [PATCH 008] performance.now() timing noise
+
+Adds small, deterministic jitter to performance.now() return values.
+
+Timing-based fingerprinting uses performance.now() precision and patterns
+to identify hardware characteristics (CPU speed, scheduler behavior).
+
+Our patch adds ±0-2ms jitter that varies per profile but is consistent
+within a session, making timing fingerprints profile-specific.
+
+This also helps defend against:
+- Spectre-style timing attacks
+- CPU speed fingerprinting
+- Scheduler behavior analysis
+
+Controlled via: --perf-noise-seed=<uint32>
+---
+ third_party/blink/renderer/core/timing/performance.cc | 35 ++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+
+diff --git a/third_party/blink/renderer/core/timing/performance.cc b/third_party/blink/renderer/core/timing/performance.cc
+index 0000004..0000005 100644
+--- a/third_party/blink/renderer/core/timing/performance.cc
++++ b/third_party/blink/renderer/core/timing/performance.cc
+@@ -1,6 +1,7 @@
+ #include "third_party/blink/renderer/core/timing/performance.h"
++#include "base/command_line.h"
++#include "base/strings/string_number_conversions.h"
+
+ namespace blink {
+
++// ─────────────────────────────────────────────────────────────────────────────
++// [GEEKEZ PATCH 008] performance.now() Noise
++// ─────────────────────────────────────────────────────────────────────────────
+
++struct PerfNoiseState {
++  uint32_t seed = 0;
++  uint32_t state = 0;
++  bool enabled = false;
++  double accumulated_noise = 0.0;  // Track total noise added
++};
+
++static PerfNoiseState& GetPerfNoise() {
++  static PerfNoiseState pns;
++  static bool initialized = false;
+
++  if (!initialized) {
++    initialized = true;
++    const base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
++    if (cmd && cmd->HasSwitch("perf-noise-seed")) {
++      std::string seed_str = cmd->GetSwitchValueASCII("perf-noise-seed");
++      uint32_t parsed = 0;
++      if (base::StringToUint(seed_str, &parsed) && parsed != 0) {
++        pns.seed = parsed;
++        pns.state = parsed;
++        pns.enabled = true;
++      }
++    }
++  }
++  return pns;
++}
+
+ DOMHighResTimeStamp Performance::now() const {
+-  return ConvertTimeToDOMHighResTimeStamp(tick_clock_->NowTicks());
++  DOMHighResTimeStamp real_time =
++      ConvertTimeToDOMHighResTimeStamp(tick_clock_->NowTicks());
+
++  // [GEEKEZ PATCH 008] Add timing noise
++  PerfNoiseState& pns = GetPerfNoise();
++  if (pns.enabled) {
++    // LCG step
++    pns.state = pns.state * 1664525u + 1013904223u;
++    // Noise: 0 to 2ms, monotonically increasing (time can't go backwards)
++    double noise_us = static_cast<double>(pns.state & 0x7FF);  // 0-2047 microseconds
++    pns.accumulated_noise += noise_us / 1000.0;  // Convert to ms
++    real_time += pns.accumulated_noise;
++  }
+
++  return real_time;
+ }

@@ -1,0 +1,48 @@
+From: GeekezBrowser <build@geekez.net>
+Date: 2026-01-01
+Subject: [PATCH 001] navigator.webdriver always returns false
+
+Force navigator.webdriver to return false regardless of automation flags.
+This makes the browser undetectable as automated at C++ level.
+
+Unlike JavaScript injection, this patch modifies the actual Blink
+rendering engine so the property descriptor is completely native.
+
+Detection tests this bypasses:
+- navigator.webdriver === true
+- Object.getOwnPropertyDescriptor(navigator, 'webdriver')
+- Property descriptor configurable/enumerable checks
+---
+ third_party/blink/renderer/core/frame/navigator.cc | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/third_party/blink/renderer/core/frame/navigator.cc b/third_party/blink/renderer/core/frame/navigator.cc
+index 1111111..2222222 100644
+--- a/third_party/blink/renderer/core/frame/navigator.cc
++++ b/third_party/blink/renderer/core/frame/navigator.cc
+@@ -1,6 +1,7 @@
+ #include "third_party/blink/renderer/core/frame/navigator.h"
++#include "base/command_line.h"
+ #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+
+ namespace blink {
+@@ -180,8 +181,15 @@ String Navigator::product() const {
+ }
+
+ bool Navigator::webdriver() const {
+-  // Returns true if --enable-automation flag is set
+-  return RuntimeEnabledFeatures::AutomationControlledEnabled();
++  // [GEEKEZ PATCH 001] Force webdriver to always return false.
++  // This hides automation from JavaScript fingerprinting.
++  //
++  // Allow override via --show-webdriver flag for debugging.
++  const base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
++  if (cmd && cmd->HasSwitch("show-webdriver")) {
++    // Debug mode: show real value
++    return RuntimeEnabledFeatures::AutomationControlledEnabled();
++  }
++  // Production: always false
++  return false;
+ }
+
+ String Navigator::platform() const {

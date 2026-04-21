@@ -1,0 +1,112 @@
+From: GeekezBrowser <build@geekez.net>
+Date: 2026-01-01
+Subject: [PATCH 004] AudioContext/AudioBuffer noise injection
+
+Adds deterministic noise to AudioBuffer channel data to randomize
+AudioContext fingerprinting at C++ level.
+
+AudioContext fingerprinting works by:
+1. Creating an oscillator with known frequency
+2. Reading the resulting waveform samples
+3. Hashing the sample values as a fingerprint
+
+Our patch adds imperceptible noise (+/-0.0001 range) to the samples
+using a seed-based LCG, so the hash changes per profile while audio
+quality remains perfect.
+
+Controlled via:
+  --audio-noise-seed=<uint32>   (default: disabled)
+  --audio-noise-level=<float>   (default: 0.0000001)
+---
+ .../renderer/modules/webaudio/audio_buffer.cc | 55 +++++++++++++++++++
+ 1 file changed, 55 insertions(+)
+
+diff --git a/third_party/blink/renderer/modules/webaudio/audio_buffer.cc b/third_party/blink/renderer/modules/webaudio/audio_buffer.cc
+index 9999999..AAAAAAA 100644
+--- a/third_party/blink/renderer/modules/webaudio/audio_buffer.cc
++++ b/third_party/blink/renderer/modules/webaudio/audio_buffer.cc
+@@ -1,6 +1,9 @@
+ #include "third_party/blink/renderer/modules/webaudio/audio_buffer.h"
++#include "base/command_line.h"
++#include "base/strings/string_number_conversions.h"
++#include <algorithm>
+
+ namespace blink {
+
++// ─────────────────────────────────────────────────────────────────────────────
++// [GEEKEZ PATCH 004] Audio Buffer Noise
++// ─────────────────────────────────────────────────────────────────────────────
++
++struct AudioNoiseConfig {
++  uint32_t seed = 0;
++  float level = 0.0000001f;
++  bool enabled = false;
++};
++
++static const AudioNoiseConfig& GetAudioNoiseConfig() {
++  static AudioNoiseConfig config;
++  static bool initialized = false;
++
++  if (!initialized) {
++    initialized = true;
++    const base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
++    if (!cmd) return config;
++
++    if (cmd->HasSwitch("audio-noise-seed")) {
++      std::string seed_str = cmd->GetSwitchValueASCII("audio-noise-seed");
++      uint32_t parsed = 0;
++      if (base::StringToUint(seed_str, &parsed) && parsed != 0) {
++        config.seed = parsed;
++        config.enabled = true;
++      }
++    }
++
++    if (cmd->HasSwitch("audio-noise-level")) {
++      std::string level_str = cmd->GetSwitchValueASCII("audio-noise-level");
++      double parsed = 0.0;
++      if (base::StringToDouble(level_str, &parsed)) {
++        config.level = static_cast<float>(parsed);
++      }
++    }
++  }
++  return config;
++}
++
++static uint32_t LcgStep(uint32_t& state) {
++  state = state * 1664525u + 1013904223u;
++  return state;
++}
++
+ NotShared<DOMFloat32Array> AudioBuffer::getChannelData(
+     unsigned channel_index,
+     ExceptionState& exception_state) {
+-  // ... existing implementation ...
+-  return result;
++  NotShared<DOMFloat32Array> result = GetChannelDataInternal(
++      channel_index, exception_state);
++
++  if (exception_state.HadException() || !result) return result;
++
++  // [GEEKEZ PATCH 004] Apply audio noise
++  const AudioNoiseConfig& config = GetAudioNoiseConfig();
++  if (config.enabled) {
++    float* data = result->Data();
++    size_t length = result->length();
++
++    if (data && length > 0) {
++      uint32_t state = config.seed ^ (channel_index * 2654435761u);
++
++      // Modify first 100 samples (enough to change fingerprint hash)
++      // Modifying all samples would be overkill and potentially audible
++      size_t samples = std::min(length, static_cast<size_t>(100));
++      for (size_t i = 0; i < samples; i++) {
++        uint32_t rnd = LcgStep(state);
++        float noise = (static_cast<float>(rnd & 0xFFFF) / 65535.0f - 0.5f)
++                      * config.level * 2.0f;
++        data[i] = std::max(-1.0f, std::min(1.0f, data[i] + noise));
++      }
++    }
++  }
++
++  return result;
+ }

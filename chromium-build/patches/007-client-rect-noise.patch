@@ -1,0 +1,86 @@
+From: GeekezBrowser <build@geekez.net>
+Date: 2026-01-01
+Subject: [PATCH 007] ClientRect/DOMRect noise for getBoundingClientRect
+
+Adds imperceptible sub-pixel noise to DOMRect return values from
+getBoundingClientRect(), getClientRects(), and similar methods.
+
+ClientRect fingerprinting works by measuring tiny rendering differences
+between systems based on font metrics, anti-aliasing, and sub-pixel rendering.
+
+Our patch adds ±0.5px noise to return values, making each profile have
+a unique and consistent rendering signature.
+
+Controlled via: --canvas-noise-seed (shared seed for consistency)
+---
+ .../renderer/core/geometry/dom_rect_read_only.cc | 40 +++++++++++++++++++
+ 1 file changed, 40 insertions(+)
+
+diff --git a/third_party/blink/renderer/core/geometry/dom_rect_read_only.cc b/third_party/blink/renderer/core/geometry/dom_rect_read_only.cc
+index 0000002..0000003 100644
+--- a/third_party/blink/renderer/core/geometry/dom_rect_read_only.cc
++++ b/third_party/blink/renderer/core/geometry/dom_rect_read_only.cc
+@@ -1,6 +1,7 @@
+ #include "third_party/blink/renderer/core/geometry/dom_rect_read_only.h"
++#include "base/command_line.h"
++#include "base/strings/string_number_conversions.h"
+
+ namespace blink {
+
++// ─────────────────────────────────────────────────────────────────────────────
++// [GEEKEZ PATCH 007] DOMRect Noise
++// ─────────────────────────────────────────────────────────────────────────────
++
++static uint32_t GetRectNoiseSeed() {
++  static uint32_t seed = 0;
++  static bool initialized = false;
++
++  if (!initialized) {
++    initialized = true;
++    const base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
++    if (cmd && cmd->HasSwitch("canvas-noise-seed")) {
++      // Reuse canvas seed (same profile → same rect measurements)
++      std::string seed_str = cmd->GetSwitchValueASCII("canvas-noise-seed");
++      uint32_t parsed = 0;
++      if (base::StringToUint(seed_str, &parsed)) {
++        // Derive rect seed from canvas seed (different but correlated)
++        seed = parsed ^ 0xDEADBEEF;
++      }
++    }
++  }
++  return seed;
++}
++
++static float ApplyRectNoise(float value, uint32_t& state) {
++  // LCG step
++  state = state * 1664525u + 1013904223u;
++  // Generate noise in range [-0.5, +0.5] pixels
++  float noise = (static_cast<float>(state & 0xFFFF) / 65535.0f - 0.5f);
++  return value + noise;
++}
++
+ DOMRectReadOnly* DOMRectReadOnly::FromRect(const gfx::RectF& rect) {
+-  return MakeGarbageCollected<DOMRectReadOnly>(
+-      rect.x(), rect.y(), rect.width(), rect.height());
++  uint32_t seed = GetRectNoiseSeed();
++
++  if (seed == 0) {
++    // No noise: return original
++    return MakeGarbageCollected<DOMRectReadOnly>(
++        rect.x(), rect.y(), rect.width(), rect.height());
++  }
++
++  // [GEEKEZ PATCH 007] Apply sub-pixel noise
++  // Use deterministic state based on rect position (same element = same noise)
++  uint32_t state = seed;
++  state ^= static_cast<uint32_t>(rect.x() * 1000) * 2654435761u;
++  state ^= static_cast<uint32_t>(rect.y() * 1000) * 2246822519u;
++
++  float noisy_x = ApplyRectNoise(rect.x(), state);
++  float noisy_y = ApplyRectNoise(rect.y(), state);
++  float noisy_w = ApplyRectNoise(rect.width(), state);
++  float noisy_h = ApplyRectNoise(rect.height(), state);
++
++  return MakeGarbageCollected<DOMRectReadOnly>(noisy_x, noisy_y,
++                                               noisy_w, noisy_h);
+ }

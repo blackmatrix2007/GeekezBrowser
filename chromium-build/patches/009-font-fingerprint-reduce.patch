@@ -1,0 +1,102 @@
+From: GeekezBrowser <build@geekez.net>
+Date: 2026-01-01
+Subject: [PATCH 009] Font fingerprint - reduce enumerable fonts
+
+Limits the font list returned by CSS font enumeration APIs to a
+consistent, common set of fonts that matches a "normal" Windows/macOS system.
+
+Font fingerprinting checks which fonts are installed by measuring
+text rendering width/height for specific font families.
+
+Our patch intercepts the font cache lookup and returns "not found"
+for fonts not in a whitelist, making the font fingerprint consistent
+across different machines running the same profile.
+
+Whitelist is the intersection of commonly installed fonts across:
+- Windows 10/11 default fonts
+- macOS system fonts (common names)
+- Popular third-party fonts (Arial, Georgia, etc.)
+
+This makes all GeekezBrowser profiles appear to have the same font set.
+---
+ .../renderer/platform/fonts/font_cache.cc | 45 ++++++++++++++++++++
+ 1 file changed, 45 insertions(+)
+
+diff --git a/third_party/blink/renderer/platform/fonts/font_cache.cc b/third_party/blink/renderer/platform/fonts/font_cache.cc
+index 0000006..0000007 100644
+--- a/third_party/blink/renderer/platform/fonts/font_cache.cc
++++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
+@@ -1,6 +1,9 @@
+ #include "third_party/blink/renderer/platform/fonts/font_cache.h"
++#include "base/command_line.h"
++#include <set>
++#include <string>
+
+ namespace blink {
+
++// ─────────────────────────────────────────────────────────────────────────────
++// [GEEKEZ PATCH 009] Font Fingerprint Reduction
++// ─────────────────────────────────────────────────────────────────────────────
+
++// Common fonts present on virtually all Windows + macOS systems
++// This is the "safe" font whitelist that won't leak system identity
++static const std::set<std::string>& GetAllowedFonts() {
++  static std::set<std::string> allowed = {
++    // Web-safe fonts (universal)
++    "arial", "arial black", "comic sans ms", "courier new", "georgia",
++    "impact", "times new roman", "trebuchet ms", "verdana", "webdings",
++    "wingdings",
++    // Windows default
++    "calibri", "cambria", "candara", "consolas", "constantia", "corbel",
++    "franklin gothic medium", "gabriola", "gill sans mt", "leelawadee",
++    "lucida console", "lucida sans unicode", "malgun gothic",
++    "microsoft sans serif", "segoe ui", "segoe ui emoji", "symbol",
++    "tahoma",
++    // macOS common
++    "helvetica", "helvetica neue", "monaco", "optima", "palatino",
++    "apple chancery",
++    // Google Fonts (commonly installed)
++    "roboto", "open sans", "lato", "montserrat", "source sans pro",
++    "raleway", "ubuntu",
++    // Development fonts
++    "courier", "monospace", "sans-serif", "serif",
++    // Generic fallbacks
++    "fantasy", "cursive",
++  };
++  return allowed;
++}
++
++static bool IsFontReductionEnabled() {
++  static int cached = -1;  // -1 = uninitialized
++  if (cached < 0) {
++    const base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
++    // Enabled if any anti-detect seed is set (canvas-noise-seed implies full protection)
++    cached = (cmd && (cmd->HasSwitch("canvas-noise-seed") ||
++                      cmd->HasSwitch("reduce-fonts"))) ? 1 : 0;
++  }
++  return cached == 1;
++}
++
+ const FontPlatformData* FontCache::GetFontPlatformData(
+     const FontDescription& font_description,
+     const FontFaceCreationParams& creation_params,
+     AlternateFontName alternate_font_name) {
+-  // ... existing implementation ...
++  // [GEEKEZ PATCH 009] Block non-whitelisted fonts
++  if (IsFontReductionEnabled()) {
++    std::string font_name = creation_params.Family().Utf8();
++    // Convert to lowercase for comparison
++    std::transform(font_name.begin(), font_name.end(), font_name.begin(),
++                   [](unsigned char c) { return std::tolower(c); });
++
++    const auto& allowed = GetAllowedFonts();
++    if (!font_name.empty() && allowed.find(font_name) == allowed.end()) {
++      // Font not in whitelist: return null (as if font is not installed)
++      return nullptr;
++    }
++  }
++
++  // Continue with normal font loading
++  return GetFontPlatformDataOriginal(font_description, creation_params,
++                                     alternate_font_name);
+ }

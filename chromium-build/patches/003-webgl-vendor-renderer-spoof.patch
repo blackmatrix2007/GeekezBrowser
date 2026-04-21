@@ -1,0 +1,159 @@
+From: GeekezBrowser <build@geekez.net>
+Date: 2026-01-01
+Subject: [PATCH 003] WebGL vendor/renderer spoofing from profile JSON
+
+Allows spoofing WebGL UNMASKED_VENDOR_WEBGL and UNMASKED_RENDERER_WEBGL
+parameters via command line flags, reading from a JSON profile file.
+
+This bypasses WebGL fingerprinting at C++ level - the values returned
+are truly native, no JavaScript hooks required.
+
+Command line flags:
+  --webgl-vendor="Intel Inc."
+  --webgl-renderer="Intel(R) UHD Graphics 630"
+  --webgl-profile=/path/to/webgl-profile.json
+
+WebGL profile JSON format:
+  {
+    "vendor": "Intel Inc.",
+    "renderer": "Intel(R) UHD Graphics 630",
+    "maxVertexUniformVectors": 1024,
+    "maxFragmentUniformVectors": 1024,
+    "maxTextureSize": 16384
+  }
+---
+ .../renderer/modules/webgl/webgl_rendering_context_base.cc | 80 +++++++++++++++
+ 1 file changed, 80 insertions(+)
+
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index 7777777..8888888 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -1,6 +1,9 @@
+ #include "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h"
++#include "base/command_line.h"
++#include "base/json/json_reader.h"
++#include "base/files/file_util.h"
+
+ namespace blink {
+
++// ─────────────────────────────────────────────────────────────────────────────
++// [GEEKEZ PATCH 003] WebGL Spoofing
++// ─────────────────────────────────────────────────────────────────────────────
++
++struct GeekezWebGLProfile {
++  std::string vendor;
++  std::string renderer;
++  int max_vertex_uniform_vectors = -1;
++  int max_fragment_uniform_vectors = -1;
++  int max_texture_size = -1;
++  bool loaded = false;
++};
++
++static const GeekezWebGLProfile& GetWebGLProfile() {
++  static GeekezWebGLProfile profile;
++  static bool initialized = false;
++
++  if (!initialized) {
++    initialized = true;
++    const base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
++    if (!cmd) return profile;
++
++    // Option 1: Individual flags
++    if (cmd->HasSwitch("webgl-vendor")) {
++      profile.vendor = cmd->GetSwitchValueASCII("webgl-vendor");
++      profile.loaded = true;
++    }
++    if (cmd->HasSwitch("webgl-renderer")) {
++      profile.renderer = cmd->GetSwitchValueASCII("webgl-renderer");
++      profile.loaded = true;
++    }
++
++    // Option 2: JSON profile file (overrides individual flags)
++    if (cmd->HasSwitch("webgl-profile")) {
++      std::string profile_path = cmd->GetSwitchValueASCII("webgl-profile");
++      std::string json_content;
++      if (base::ReadFileToString(base::FilePath::FromUTF8Unsafe(profile_path),
++                                 &json_content)) {
++        auto value = base::JSONReader::Read(json_content);
++        if (value && value->is_dict()) {
++          const auto& dict = value->GetDict();
++          if (const std::string* v = dict.FindString("vendor")) {
++            profile.vendor = *v;
++            profile.loaded = true;
++          }
++          if (const std::string* r = dict.FindString("renderer")) {
++            profile.renderer = *r;
++            profile.loaded = true;
++          }
++          if (auto n = dict.FindInt("maxVertexUniformVectors")) {
++            profile.max_vertex_uniform_vectors = *n;
++          }
++          if (auto n = dict.FindInt("maxFragmentUniformVectors")) {
++            profile.max_fragment_uniform_vectors = *n;
++          }
++          if (auto n = dict.FindInt("maxTextureSize")) {
++            profile.max_texture_size = *n;
++          }
++        }
++      }
++    }
++  }
++  return profile;
++}
++
+ ScriptValue WebGLRenderingContextBase::getParameter(
+     ScriptState* script_state, GLenum pname) {
+
++  // [GEEKEZ PATCH 003] Intercept WebGL fingerprinting parameters
++  const GeekezWebGLProfile& profile = GetWebGLProfile();
++  if (profile.loaded) {
++    switch (pname) {
++      case GL_VENDOR:
++        if (!profile.vendor.empty()) {
++          return ScriptValue::From(script_state,
++              String::FromUTF8(profile.vendor));
++        }
++        break;
++      case GL_RENDERER:
++        if (!profile.renderer.empty()) {
++          return ScriptValue::From(script_state,
++              String::FromUTF8(profile.renderer));
++        }
++        break;
++      case 0x9245:  // UNMASKED_VENDOR_WEBGL (WGL_AMD_gpu_association)
++        if (!profile.vendor.empty()) {
++          return ScriptValue::From(script_state,
++              String::FromUTF8(profile.vendor));
++        }
++        break;
++      case 0x9246:  // UNMASKED_RENDERER_WEBGL
++        if (!profile.renderer.empty()) {
++          return ScriptValue::From(script_state,
++              String::FromUTF8(profile.renderer));
++        }
++        break;
++      case GL_MAX_VERTEX_UNIFORM_VECTORS:
++        if (profile.max_vertex_uniform_vectors > 0) {
++          return ScriptValue::From(script_state,
++              profile.max_vertex_uniform_vectors);
++        }
++        break;
++      case GL_MAX_FRAGMENT_UNIFORM_VECTORS:
++        if (profile.max_fragment_uniform_vectors > 0) {
++          return ScriptValue::From(script_state,
++              profile.max_fragment_uniform_vectors);
++        }
++        break;
++      case GL_MAX_TEXTURE_SIZE:
++        if (profile.max_texture_size > 0) {
++          return ScriptValue::From(script_state,
++              profile.max_texture_size);
++        }
++        break;
++    }
++  }
++
+   // Fall through to original implementation
+   return GetParameterInternal(script_state, pname);
+ }

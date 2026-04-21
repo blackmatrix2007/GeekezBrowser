@@ -40,6 +40,10 @@ const APP_CONFIG_FILE = path.join(app.getPath('userData'), 'app-config.json');
 const DEFAULT_DATA_PATH = path.join(app.getPath('userData'), 'BrowserProfiles');
 const FINGERPRINT_CHROMIUM_DIR = path.join(app.getPath('userData'), 'fingerprint-chromium');
 const CHROME_FOR_TESTING_DIR = path.join(app.getPath('userData'), 'chrome-for-testing');
+// Custom Chromium build (user's own fork/build hosted on their GitHub)
+// Change CUSTOM_CHROMIUM_REPO to your own repo after running chromium-build scripts
+const CUSTOM_CHROMIUM_REPO = 'adryfish/fingerprint-chromium'; // Replace: 'your-username/geekez-chromium'
+const CUSTOM_CHROMIUM_DIR = path.join(app.getPath('userData'), 'custom-chromium');
 
 // 读取自定义数据目录
 function getCustomDataPath() {
@@ -934,6 +938,14 @@ function getChromiumPath() {
             }
         }
     } catch (e) {}
+
+    // 1.4. Custom Chromium build (user's own build from chromium-build/ scripts)
+    // This has C++ level anti-detect patches - highest quality fingerprinting
+    const customPath = getCustomChromiumPath();
+    if (customPath) {
+        console.log('[Chrome] Using Custom Chromium (C++ patches):', customPath);
+        return customPath;
+    }
 
     // 1.5. Auto-downloaded Chrome for Testing (Google official Chromium — real canvas hash)
     const cftPath = getChromeForTestingPath();
@@ -2538,6 +2550,158 @@ ipcMain.handle('download-fingerprint-chromium', async (event) => {
     }
 });
 
+// ─── Custom Chromium (User's own build) ──────────────────────────────────────
+// Download from user's own GitHub repo (set CUSTOM_CHROMIUM_REPO above)
+
+function getCustomChromiumPath() {
+    try {
+        const exe = process.platform === 'win32' ? 'chrome.exe' : 'chrome';
+        const candidate = path.join(CUSTOM_CHROMIUM_DIR, exe);
+        if (fs.existsSync(candidate)) return candidate;
+    } catch (e) {}
+    return null;
+}
+
+ipcMain.handle('check-custom-chromium', async () => {
+    const exePath = getCustomChromiumPath();
+    if (!exePath) return { installed: false, repo: CUSTOM_CHROMIUM_REPO };
+    try {
+        const metaPath = path.join(CUSTOM_CHROMIUM_DIR, 'geekez-meta.json');
+        const fpMetaPath = path.join(CUSTOM_CHROMIUM_DIR, 'fp-meta.json');
+        const meta = fs.existsSync(metaPath) ? fs.readJsonSync(metaPath) :
+                     fs.existsSync(fpMetaPath) ? fs.readJsonSync(fpMetaPath) : {};
+        return { installed: true, path: exePath, version: meta.version || 'unknown',
+                 repo: CUSTOM_CHROMIUM_REPO, patches: meta.patches || [] };
+    } catch (e) {
+        return { installed: true, path: exePath, version: 'unknown', repo: CUSTOM_CHROMIUM_REPO };
+    }
+});
+
+ipcMain.handle('download-custom-chromium', async (event) => {
+    const sender = event.sender;
+    const sendProgress = (stage, percent) => {
+        try { sender.send('custom-chromium-progress', { stage, percent }); } catch (e) {}
+    };
+
+    try {
+        sendProgress('Fetching release info from ' + CUSTOM_CHROMIUM_REPO + '...', 2);
+
+        const releaseData = await new Promise((resolve, reject) => {
+            https.get(
+                `https://api.github.com/repos/${CUSTOM_CHROMIUM_REPO}/releases/latest`,
+                { headers: { 'User-Agent': 'GeekezBrowser/1.4.0' } },
+                (res) => {
+                    let body = '';
+                    res.on('data', d => body += d);
+                    res.on('end', () => {
+                        try { resolve(JSON.parse(body)); }
+                        catch (e) { reject(new Error('Failed to parse release info')); }
+                    });
+                    res.on('error', reject);
+                }
+            ).on('error', reject);
+        });
+
+        const version = releaseData.tag_name;
+        if (!version) throw new Error('No release found in ' + CUSTOM_CHROMIUM_REPO);
+
+        // Select asset based on platform
+        const platformMap = { win32: 'windows', darwin: 'mac', linux: 'linux' };
+        const platformKey = platformMap[process.platform] || process.platform;
+
+        const asset = (releaseData.assets || []).find(a => {
+            const n = a.name.toLowerCase();
+            return n.includes('.zip') && (
+                n.includes(platformKey) ||
+                (process.platform === 'win32' && n.includes('win')) ||
+                (process.platform === 'darwin' && (n.includes('mac') || n.includes('darwin')))
+            );
+        });
+
+        if (!asset) {
+            const available = (releaseData.assets || []).map(a => a.name).join(', ');
+            throw new Error(`No ${platformKey} asset found. Available: ${available}`);
+        }
+
+        const sizeMB = Math.round(asset.size / 1024 / 1024);
+        sendProgress(`Downloading ${asset.name} (${sizeMB} MB)...`, 5);
+
+        const tempFile = path.join(app.getPath('temp'), `custom-chromium-${version}.zip`);
+        const total = asset.size;
+
+        await new Promise((resolve, reject) => {
+            const file = fs.createWriteStream(tempFile);
+            let received = 0;
+            function doGet(url) {
+                https.get(url, { headers: { 'User-Agent': 'GeekezBrowser/1.4.0' } }, (res) => {
+                    if ([301, 302, 307, 308].includes(res.statusCode)) {
+                        res.resume();
+                        return doGet(res.headers.location);
+                    }
+                    if (res.statusCode !== 200) { res.resume(); return reject(new Error(`HTTP ${res.statusCode}`)); }
+                    res.on('data', chunk => {
+                        received += chunk.length;
+                        file.write(chunk);
+                        const pct = Math.round((received / total) * 75) + 5;
+                        sendProgress(`Downloading... ${Math.round(received/1024/1024)}/${sizeMB} MB`, pct);
+                    });
+                    res.on('end', () => { file.end(); resolve(); });
+                    res.on('error', reject);
+                }).on('error', reject);
+            }
+            doGet(asset.browser_download_url);
+        });
+
+        sendProgress('Extracting...', 82);
+        fs.ensureDirSync(CUSTOM_CHROMIUM_DIR);
+        fs.emptyDirSync(CUSTOM_CHROMIUM_DIR);
+
+        const AdmZip = require('adm-zip');
+        const zip = new AdmZip(tempFile);
+        zip.extractAllTo(CUSTOM_CHROMIUM_DIR, true);
+
+        sendProgress('Locating chrome binary...', 93);
+
+        const exeName = process.platform === 'win32' ? 'chrome.exe' : 'chrome';
+        function findExe(dir, target) {
+            for (const entry of fs.readdirSync(dir)) {
+                const full = path.join(dir, entry);
+                if (fs.statSync(full).isDirectory()) { const r = findExe(full, target); if (r) return r; }
+                else if (entry === target) return full;
+            }
+            return null;
+        }
+
+        let exePath = findExe(CUSTOM_CHROMIUM_DIR, exeName);
+        if (!exePath) throw new Error('Chrome binary not found in zip');
+
+        const exeDir = path.dirname(exePath);
+        if (exeDir !== CUSTOM_CHROMIUM_DIR) {
+            for (const entry of fs.readdirSync(exeDir)) {
+                fs.moveSync(path.join(exeDir, entry), path.join(CUSTOM_CHROMIUM_DIR, entry), { overwrite: true });
+            }
+            exePath = path.join(CUSTOM_CHROMIUM_DIR, exeName);
+        }
+
+        if (process.platform !== 'win32') {
+            fs.chmodSync(exePath, 0o755);
+        }
+
+        fs.writeJsonSync(path.join(CUSTOM_CHROMIUM_DIR, 'fp-meta.json'), {
+            version, downloadedAt: new Date().toISOString(), source: CUSTOM_CHROMIUM_REPO
+        });
+
+        try { fs.removeSync(tempFile); } catch (e) {}
+
+        sendProgress('Done!', 100);
+        return { success: true, version, path: exePath };
+
+    } catch (err) {
+        sendProgress(`Error: ${err.message}`, -1);
+        throw err;
+    }
+});
+
 ipcMain.handle('check-chrome-for-testing', async () => {
     const p = getChromeForTestingPath();
     if (!p) return { installed: false };
@@ -3523,6 +3687,29 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             '--disk-cache-size=52428800',        // 限制磁盘缓存为 50MB
             '--media-cache-size=52428800'        // 限制媒体缓存为 50MB
         ];
+
+        // 4b. Custom Chromium C++ patch flags (only when using custom/fingerprint chromium)
+        // These flags are recognized by our C++ patches to control anti-detect behavior
+        const isCustomBuild = chromePath && (
+            chromePath.startsWith(CUSTOM_CHROMIUM_DIR) ||
+            chromePath.startsWith(FINGERPRINT_CHROMIUM_DIR)
+        );
+        if (isCustomBuild && profile.fingerprint.noiseSeed) {
+            const seed = getFingerprintSeed(profile.fingerprint.noiseSeed);
+            launchArgs.push(
+                `--canvas-noise-seed=${seed}`,
+                `--audio-noise-seed=${seed ^ 0xABCD1234}`,
+                `--audio-noise-level=0.0000001`,
+                `--perf-noise-seed=${seed ^ 0xFFFF0000}`
+            );
+            if (profile.fingerprint.webgl?.vendor) {
+                launchArgs.push(`--webgl-vendor=${profile.fingerprint.webgl.vendor}`);
+            }
+            if (profile.fingerprint.webgl?.renderer) {
+                launchArgs.push(`--webgl-renderer=${profile.fingerprint.webgl.renderer}`);
+            }
+            console.log(`[GeekezChromium] C++ patch flags: seed=${seed}`);
+        }
 
         // 5. Remote Debugging Port (if enabled)
         if (settings.enableRemoteDebugging && profile.debugPort) {

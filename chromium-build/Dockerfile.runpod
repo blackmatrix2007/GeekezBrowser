@@ -1,0 +1,71 @@
+# =============================================================================
+# GeekezBrowser Custom Chromium - RunPod Build Environment
+# =============================================================================
+# Usage:
+#   docker build -f Dockerfile.runpod -t geekez-chromium-builder .
+#   docker run --rm -it \
+#     -v /workspace:/workspace \
+#     -e GITHUB_TOKEN=ghp_xxx \
+#     -e GITHUB_REPO=yourname/geekez-chromium \
+#     geekez-chromium-builder
+# =============================================================================
+
+FROM ubuntu:22.04
+
+LABEL maintainer="GeekezBrowser Build System"
+LABEL description="Custom Chromium build environment for GeekezBrowser anti-detect patches"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+ENV PATH="/workspace/depot_tools:$PATH"
+
+# ─── Install system packages ──────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y \
+    # Version control
+    git curl wget \
+    # Build tools
+    python3 python3-pip python3-pkg-resources \
+    ninja-build pkg-config \
+    lsb-release sudo tzdata \
+    # Compilers
+    clang lld llvm \
+    # Chromium dependencies
+    libglib2.0-dev libpango1.0-dev libatk1.0-dev \
+    libcups2-dev libexpat1-dev \
+    libxcomposite-dev libxdamage-dev libxrandr-dev \
+    libxkbcommon-dev libgbm-dev \
+    libasound2-dev libpulse-dev \
+    libnspr4-dev libnss3-dev \
+    # Utilities
+    zip unzip jq file \
+    # Network
+    ca-certificates openssl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install AWS CLI for R2/S3 upload
+RUN pip3 install --quiet awscli
+
+# Install GitHub CLI
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] \
+        https://cli.github.com/packages stable main" \
+        | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
+    apt-get update && apt-get install -y gh && \
+    rm -rf /var/lib/apt/lists/*
+
+# ─── Setup depot_tools ────────────────────────────────────────────────────────
+RUN git clone --depth 1 \
+    https://chromium.googlesource.com/chromium/tools/depot_tools.git \
+    /workspace/depot_tools
+
+# ─── Workspace ────────────────────────────────────────────────────────────────
+WORKDIR /workspace
+
+# Copy build scripts and patches
+COPY . /build-scripts/
+
+RUN chmod +x /build-scripts/runpod-build.sh
+
+# ─── Entrypoint ───────────────────────────────────────────────────────────────
+ENTRYPOINT ["bash", "/build-scripts/runpod-build.sh"]

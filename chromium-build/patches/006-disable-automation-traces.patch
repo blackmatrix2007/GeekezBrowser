@@ -1,0 +1,88 @@
+From: GeekezBrowser <build@geekez.net>
+Date: 2026-01-01
+Subject: [PATCH 006] Remove automation fingerprint traces
+
+Removes various automation traces that leak browser identity:
+1. $cdc_ DevTools variables in window scope
+2. chrome.runtime properties revealing automation
+3. __playwright__ and __puppeteer__ global markers
+4. cdc_adoQpoasnfa76pfcZLmcfl_ variable (CDP marker)
+5. Removes --enable-automation from command line args sent to renderer
+
+These are checked by anti-bot systems to detect headless/automated browsers.
+---
+ content/renderer/render_frame_impl.cc | 35 +++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+
+diff --git a/content/renderer/render_frame_impl.cc b/content/renderer/render_frame_impl.cc
+index FFFFFFF..0000001 100644
+--- a/content/renderer/render_frame_impl.cc
++++ b/content/renderer/render_frame_impl.cc
+@@ -1,6 +1,8 @@
+ #include "content/renderer/render_frame_impl.h"
++#include "base/command_line.h"
++#include "third_party/blink/public/web/web_script_source.h"
+
+ namespace content {
+
++// ─────────────────────────────────────────────────────────────────────────────
++// [GEEKEZ PATCH 006] Remove Automation Traces
++// ─────────────────────────────────────────────────────────────────────────────
++
++// Script injected into every page to clean up automation artifacts
++// This runs BEFORE any page JS, so page can't detect the cleanup itself
++static const char kRemoveAutomationTraces[] = R"(
++(function() {
++  // Remove CDP DevTools markers (cdc_ variables injected by ChromeDriver)
++  try {
++    const cdcKeys = Object.keys(window).filter(k => k.startsWith('cdc_'));
++    cdcKeys.forEach(k => {
++      try { delete window[k]; } catch(e) {}
++    });
++  } catch(e) {}
++
++  // Remove Puppeteer/Playwright markers
++  const automationKeys = [
++    '__puppeteer_evaluation_script__',
++    '__playwright_evaluation_script__',
++    '__playwright__',
++    '_pw_',
++  ];
++  automationKeys.forEach(k => {
++    try { delete window[k]; } catch(e) {}
++  });
++
++  // Ensure chrome.runtime looks like real Chrome (not headless)
++  if (typeof window.chrome === 'undefined') {
++    window.chrome = {};
++  }
++  if (!window.chrome.runtime) {
++    window.chrome.runtime = {
++      onConnect: { addListener: function() {} },
++      onMessage: { addListener: function() {} },
++      connect: function() { return {}; },
++      sendMessage: function() {},
++      id: undefined,
++    };
++  }
++})();
++)";
++
+ void RenderFrameImpl::DidCreateScriptContext(
+     v8::Local<v8::Context> context,
+     int32_t world_id) {
+-  // ... existing code ...
++  // [GEEKEZ PATCH 006] Inject cleanup script in main world only
++  if (world_id == 0) {  // Main world
++    const base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
++    bool show_webdriver = cmd && cmd->HasSwitch("show-webdriver");
++
++    if (!show_webdriver) {  // Only in production mode
++      blink::WebScriptSource cleanup_source(
++          blink::WebString::FromUTF8(kRemoveAutomationTraces));
++      GetWebFrame()->ExecuteScript(cleanup_source);
++    }
++  }
++
+   // ... rest of existing code ...
+ }

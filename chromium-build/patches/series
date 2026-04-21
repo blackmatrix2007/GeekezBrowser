@@ -1,0 +1,15 @@
+# GeekezBrowser Custom Chromium Patch Series
+# Applied in order after ungoogled-chromium and fingerprint-chromium patches
+#
+# Format: one patch filename per line
+# Lines starting with # are comments
+
+001-navigator-webdriver-always-false.patch
+002-canvas-noise-seed-based.patch
+003-webgl-vendor-renderer-spoof.patch
+004-audio-buffer-noise.patch
+005-custom-chrome-switches.patch
+006-disable-automation-traces.patch
+007-client-rect-noise.patch
+008-performance-now-noise.patch
+009-font-fingerprint-reduce.patch

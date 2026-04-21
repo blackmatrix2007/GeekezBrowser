@@ -218,6 +218,22 @@ ok "Windows toolchain ready"
 # ──────────────────────────────────────────────────────────────────────────────
 # PHASE 6 — APPLY PATCHES
 # ──────────────────────────────────────────────────────────────────────────────
+hdr "Phase 5.5 — Apply ungoogled-chromium patches (privacy)"
+
+UGC_DIR="$BUILD_ROOT/ungoogled-chromium"
+if [[ ! -d "$UGC_DIR" ]]; then
+    git clone --depth 1 --branch "$CHROMIUM_VERSION" \
+        https://github.com/ungoogled-software/ungoogled-chromium.git "$UGC_DIR" 2>/dev/null || \
+    git clone --depth 1 \
+        https://github.com/ungoogled-software/ungoogled-chromium.git "$UGC_DIR" 2>/dev/null || \
+        warn "Không clone được ungoogled-chromium, bỏ qua"
+fi
+if [[ -d "$UGC_DIR" ]]; then
+    "$UGC_DIR/utils/patches.py" apply "$CHROMIUM_SRC" "$UGC_DIR/patches/core" 2>/dev/null || \
+        warn "Một số ungoogled patches thất bại (version mismatch), tiếp tục..."
+    ok "ungoogled-chromium patches applied"
+fi
+
 hdr "Phase 6 — Apply anti-detect patches"
 
 cd "$CHROMIUM_SRC"
@@ -309,7 +325,7 @@ proprietary_codecs = true
 
 # ─── Tắt features không cần ──────────────────────────
 enable_nacl        = false
-enable_widevine    = true
+enable_widevine    = false
 use_cups           = false
 
 # ─── Tắt Google services ─────────────────────────────
@@ -322,8 +338,11 @@ google_default_client_secret = ""
 symbol_level       = 0
 blink_symbol_level = 0
 
+# Disable PGO (no profile data available on RunPod)
+chrome_pgo_phase = 0
+
 # ─── Tốc độ build ────────────────────────────────────
-jumbo_file_merge_limit = 50
+use_thin_lto = false
 EOF
 
 log "Chạy gn gen..."

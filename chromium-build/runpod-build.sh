@@ -144,8 +144,26 @@ apt-get install -y -qq \
     libxrandr-dev libxkbcommon-dev libgbm-dev \
     libasound2-dev libpulse-dev \
     libnspr4-dev libnss3-dev \
+    ccache \
     zip unzip jq \
     2>/dev/null || true
+
+# Setup ccache for faster incremental rebuilds
+export CCACHE_DIR="$BUILD_ROOT/ccache"
+export CCACHE_MAXSIZE="30G"
+export PATH="/usr/lib/ccache:$PATH"
+ok "ccache configured (dir: $CCACHE_DIR)"
+
+# Setup swap if RAM < 64GB to prevent OOM
+TOTAL_RAM=$(free -g | awk '/Mem:/{print $2}')
+if [[ $TOTAL_RAM -lt 64 && ! -f /workspace/swapfile ]]; then
+    log "RAM ${TOTAL_RAM}GB < 64GB, tạo 32GB swap file..."
+    fallocate -l 32G /workspace/swapfile && \
+    chmod 600 /workspace/swapfile && \
+    mkswap /workspace/swapfile && \
+    swapon /workspace/swapfile && \
+    ok "Swap 32GB activated" || warn "Không tạo được swap file"
+fi
 
 # AWS CLI for S3/R2 upload (optional)
 if [[ -n "$R2_ENDPOINT" ]]; then
@@ -351,7 +369,7 @@ proprietary_codecs = true
 
 # Disable unnecessary features
 enable_nacl = false
-enable_widevine = true
+enable_widevine = false
 use_cups = false
 
 # Compiler: use system clang
@@ -367,8 +385,8 @@ google_api_key = ""
 google_default_client_id = ""
 google_default_client_secret = ""
 
-# Remove Chrome branding (optional)
-# chrome_pgo_phase = 0
+# Disable PGO (no profile data available on RunPod)
+chrome_pgo_phase = 0
 
 # Linux-specific: prefer system libs where possible
 use_system_libffi = false
@@ -378,15 +396,12 @@ use_system_libjpeg = false
 symbol_level = 0
 blink_symbol_level = 0
 
-# Sandbox
-use_sysroot = false
-
 # Additional features
 enable_vulkan = false
 use_vaapi = false
 
-# Speed up build
-jumbo_file_merge_limit = 50
+# Speed up build via thin LTO
+use_thin_lto = false
 EOF
 
 log "GN args written to $BUILD_DIR/args.gn"
@@ -402,14 +417,12 @@ log "Starting build with $CORES cores..."
 log "Build start time: $(date)"
 START_TIME=$(date +%s)
 
-# Build chrome binary
-autoninja -C "$BUILD_DIR" chrome -j"$CORES" 2>&1 | \
-    grep -E "^\[|error:|warning:|FAILED|ninja:" | \
-    tail -f &
-BUILD_PID=$!
+# Build chrome binary + sandbox
+autoninja -C "$BUILD_DIR" chrome chrome_sandbox -j"$CORES" 2>&1 | \
+    grep -E "^\[|error:|warning:|FAILED|ninja:"
+BUILD_EXIT=${PIPESTATUS[0]}
 
-# Wait for build
-wait $BUILD_PID || true
+[[ $BUILD_EXIT -ne 0 ]] && err "autoninja failed with exit code $BUILD_EXIT"
 
 END_TIME=$(date +%s)
 BUILD_DURATION=$(( (END_TIME - START_TIME) / 60 ))

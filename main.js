@@ -3697,10 +3697,10 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
         if (isCustomBuild && profile.fingerprint.noiseSeed) {
             const seed = getFingerprintSeed(profile.fingerprint.noiseSeed);
             launchArgs.push(
-                `--canvas-noise-seed=${seed}`,
-                `--audio-noise-seed=${seed ^ 0xABCD1234}`,
+                `--canvas-noise-seed=${seed >>> 0}`,
+                `--audio-noise-seed=${(seed ^ 0xABCD1234) >>> 0}`,
                 `--audio-noise-level=0.0000001`,
-                `--perf-noise-seed=${seed ^ 0xFFFF0000}`
+                `--perf-noise-seed=${(seed ^ 0xFFFF0000) >>> 0}`
             );
             if (profile.fingerprint.webgl?.vendor) {
                 launchArgs.push(`--webgl-vendor=${profile.fingerprint.webgl.vendor}`);

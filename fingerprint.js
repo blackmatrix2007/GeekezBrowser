@@ -344,15 +344,9 @@ function getInjectScript(fp, profileName, watermarkStyle) {
             // TypeError (non-configurable), silently killing all subsequent patches.
             // Always override, isolated in own try-catch.
             try {
-                Object.defineProperty(Navigator.prototype, 'webdriver', {
-                    get: () => false, configurable: true
-                });
+                Reflect.deleteProperty(Navigator.prototype, 'webdriver');
             } catch(e) {
-                try {
-                    Object.defineProperty(navigator, 'webdriver', {
-                        get: () => false, configurable: true
-                    });
-                } catch(e2) {}
+                try { Reflect.deleteProperty(navigator, 'webdriver'); } catch(e2) {}
             }
             const cdcRegex = /cdc_[a-zA-Z0-9]+/;
             for (const key in window) {

@@ -719,7 +719,7 @@ async function handleApiRequest(method, pathname, body, params) {
         const proc = activeProcesses[profile.id];
         if (!proc) return { status: 404, data: { success: false, error: 'Profile not running' } };
         await forceKill(proc.xrayPid);
-        try { await proc.browser.close(); } catch (e) { }
+        try { await forceKill(proc.chromeProcess?.pid); } catch (e) { }
         if (proc.logFd !== undefined) {
             try { fs.closeSync(proc.logFd); } catch (e) { }
         }
@@ -1271,8 +1271,27 @@ async function generateExtension(profilePath, fingerprint, profileName, watermar
         host_permissions: ["http://127.0.0.1/*", "http://localhost/*"],
         background: { service_worker: "background.js" },
         content_scripts: [
-            { matches: ["<all_urls>"], js: ["content.js"], run_at: "document_start", all_frames: true, world: "MAIN" },
-            { matches: ["<all_urls>"], js: ["content_pw.js"], run_at: "document_idle", all_frames: false, world: "ISOLATED" }
+            {
+                matches: ["<all_urls>"],
+                exclude_matches: [
+                    "https://accounts.google.com/*",
+                    "https://accounts.youtube.com/*",
+                    "https://myaccount.google.com/*",
+                    "https://mail.google.com/*"
+                ],
+                js: ["content.js"],
+                run_at: "document_start",
+                all_frames: true,
+                world: "MAIN"
+            },
+            {
+                matches: ["<all_urls>"],
+                exclude_matches: ["https://accounts.google.com/*", "https://accounts.youtube.com/*"],
+                js: ["content_pw.js"],
+                run_at: "document_idle",
+                all_frames: false,
+                world: "ISOLATED"
+            }
         ],
         action: { default_popup: "popup.html" }
     };
@@ -2207,19 +2226,35 @@ ipcMain.handle('get-running-ids', () => Object.keys(activeProcesses));
 
 ipcMain.handle('verify-profile', async (event, profileId) => {
     const proc = activeProcesses[profileId];
-    if (!proc || !proc.browser || !proc.browser.isConnected()) {
+    const isAlive = proc && proc.chromeProcess && proc.chromeProcess.exitCode === null;
+    if (!isAlive) {
         return { error: 'Profile is not running. Please launch it first.' };
     }
 
     const profiles = await fs.readJson(PROFILES_FILE);
     const profile = profiles.find(p => p.id === profileId);
     const proxyIp = profile?.proxyStr?.split(':')[0] || '';
+    const chromePath = getChromiumPath();
+    const userDataDir = path.join(DATA_DIR, 'profiles', profileId, 'userdata');
 
-    const results = await runVerify(proc.browser, proxyIp, (progress) => {
-        event.sender.send('verify-progress', progress);
-    });
-
-    return { success: true, results };
+    // Launch headless Chrome for verification without interfering with the running instance
+    let verifyBrowser;
+    try {
+        verifyBrowser = await puppeteer.launch({
+            headless: 'new',
+            executablePath: chromePath,
+            args: ['--no-first-run', '--disable-extensions', '--no-sandbox',
+                   ...(profile?.proxyStr && profile.proxyStr !== 'direct' ? [`--proxy-server=socks5://${proxyIp}:${profile.proxyStr.split(':')[1]}`] : [])],
+            defaultViewport: null,
+            ignoreDefaultArgs: ['--enable-automation']
+        });
+        const results = await runVerify(verifyBrowser, proxyIp, (progress) => {
+            event.sender.send('verify-progress', progress);
+        });
+        return { success: true, results };
+    } finally {
+        if (verifyBrowser) { try { await verifyBrowser.close(); } catch(e) {} }
+    }
 });
 ipcMain.handle('get-profiles', async () => { if (!fs.existsSync(PROFILES_FILE)) return []; return fs.readJson(PROFILES_FILE); });
 ipcMain.handle('update-profile', async (event, updatedProfile) => { let profiles = await fs.readJson(PROFILES_FILE); const index = profiles.findIndex(p => p.id === updatedProfile.id); if (index > -1) { profiles[index] = updatedProfile; await fs.writeJson(PROFILES_FILE, profiles); return true; } return false; });
@@ -2322,9 +2357,7 @@ ipcMain.handle('delete-profile', async (event, id) => {
     // 关闭正在运行的进程
     if (activeProcesses[id]) {
         await forceKill(activeProcesses[id].xrayPid);
-        try {
-            await activeProcesses[id].browser.close();
-        } catch (e) { }
+        try { await forceKill(activeProcesses[id].chromeProcess?.pid); } catch (e) { }
 
         // 关闭日志文件描述符（Windows 必须）
         if (activeProcesses[id].logFd !== undefined) {
@@ -3472,32 +3505,14 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
 
     if (activeProcesses[profileId]) {
         const proc = activeProcesses[profileId];
-        if (proc.browser && proc.browser.isConnected()) {
-            try {
-                const targets = await proc.browser.targets();
-                const pageTarget = targets.find(t => t.type() === 'page');
-                if (pageTarget) {
-                    const page = await pageTarget.page();
-                    if (page) {
-                        const session = await pageTarget.createCDPSession();
-                        const { windowId } = await session.send('Browser.getWindowForTarget');
-                        await session.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'minimized' } });
-                        setTimeout(async () => {
-                            try { await session.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'normal' } }); } catch (e) { }
-                        }, 100);
-                        await page.bringToFront();
-                    }
-                }
-                return "环境已唤醒";
-            } catch (e) {
-                await forceKill(proc.xrayPid);
-                delete activeProcesses[profileId];
-            }
+        const isAlive = proc.chromeProcess && proc.chromeProcess.exitCode === null;
+        if (isAlive) {
+            return "环境已唤醒";
         } else {
             await forceKill(proc.xrayPid);
+            if (proc.logFd !== undefined) { try { fs.closeSync(proc.logFd); } catch(e) {} }
             delete activeProcesses[profileId];
         }
-        if (activeProcesses[profileId]) return "环境已唤醒";
     }
 
     await new Promise(resolve => setTimeout(resolve, 500));
@@ -3669,7 +3684,7 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             '--restore-last-session',
             '--no-sandbox',
             '--disable-setuid-sandbox',
-            '--disable-blink-features=AutomationControlled',
+
             '--disable-features=IsolateOrigins,site-per-process,ExtensionsMenuAccessControl',
             '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
             `--lang=${targetLang}`,
@@ -3764,275 +3779,43 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             env.TZ = profile.fingerprint.timezone;
         }
 
-        const browser = await puppeteer.launch({
-            headless: false,
-            executablePath: chromePath,
-            userDataDir: userDataDir,
-            args: launchArgs,
-            defaultViewport: null,
-            ignoreDefaultArgs: ['--enable-automation'],
-            pipe: false,
-            dumpio: false,
-            env: env  // 注入环境变量
+        // Add User-Agent from profile (--user-agent flag works for all Chrome builds)
+        const spawnUA = profile.fingerprint?.userAgent ||
+            `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36`;
+        launchArgs.push(`--user-agent=${spawnUA}`);
+
+        const chromeProcess = spawn(chromePath, launchArgs, {
+            env: env,
+            detached: false,
+            stdio: 'ignore'
         });
 
-        // ==========================================
-        // Fix: Auto-close empty and extension tabs
-        // ==========================================
-        try {
-            // Extension background scripts might open tabs immediately upon load
-            // We use targetcreated to aggressively close them during the first 3 seconds
-            const startTime = Date.now();
-            const startupWindowMs = 3000;
-
-            // Allow chrome-extension:// and remote URLs (like onboarding.immersivetranslate.com) 
-            // to be caught and closed if they open dynamically during startup.
-            const interceptor = async (target) => {
-                if (Date.now() - startTime > startupWindowMs) {
-                    browser.off('targetcreated', interceptor); // remove listener after 3s
-                    return;
-                }
-
-                if (target.type() === 'page') {
-                    try {
-                        const page = await target.page();
-                        if (page) {
-                            const url = page.url();
-                            // If it's an extension welcome page (either extension scheme or a remote onboarding URL)
-                            // Note: we can't reliably guess all remote URLs, but typically restore-session pages 
-                            // were already created BEFORE targetcreated fires for new extension tabs, or they load silently.
-                            // Actually, Chrome session restore creates targets too.
-                            // To be safe, we mainly target the active welcome pages that usually steal focus.
-                            if (url.startsWith('chrome-extension://')) {
-                                await page.close();
-                            } else {
-                                // For remote URLs like immersive translate, extensions often use chrome.tabs.create
-                                // Wait for the URL to resolve and block the request so it doesn't flash
-                                try {
-                                    await page.setRequestInterception(true);
-                                    page.on('request', async (request) => {
-                                        if (Date.now() - startTime > startupWindowMs + 2000) {
-                                            try { await request.continue(); } catch (e) { }
-                                            return;
-                                        }
-                                        const reqUrl = request.url();
-                                        if (request.isNavigationRequest() && (reqUrl.includes('onboarding.') || reqUrl.includes('welcome') || reqUrl.includes('install') || reqUrl.startsWith('chrome-extension://'))) {
-                                            try { await request.abort(); } catch (e) { }
-                                            try { await page.close(); } catch (e) { }
-                                        } else {
-                                            try { await request.continue(); } catch (e) { }
-                                        }
-                                    });
-                                } catch (e) { }
-                            }
-                        }
-                    } catch (e) { }
-                }
-            };
-
-            browser.on('targetcreated', interceptor);
-
-            // Wait a moment for the initial session to restore
-            await new Promise(r => setTimeout(r, 1500));
-            const pages = await browser.pages();
-
-            let realTabCount = pages.filter(p => {
-                const url = p.url();
-                return url !== 'about:blank' && !url.startsWith('chrome-extension://') && !url.includes('onboarding.');
-            }).length;
-
-            for (const page of pages) {
-                try {
-                    const url = page.url();
-                    if (url.startsWith('chrome-extension://') || url.includes('onboarding.')) {
-                        await page.close();
-                        continue;
-                    }
-                    if (url === 'about:blank' && realTabCount > 0) {
-                        await page.close();
-                    }
-                } catch (e) { }
-            }
-        } catch (e) {
-            console.error('Failed to cleanup initial tabs:', e);
+        if (!chromeProcess.pid) {
+            if (xrayProcess) await forceKill(xrayProcess.pid);
+            throw new Error('Failed to spawn Chrome process.');
         }
 
         activeProcesses[profileId] = {
             xrayPid: xrayProcess ? xrayProcess.pid : null,
-            browser,
+            xrayLocalPort: isDirect ? null : localPort,
+            chromeProcess,
             logFd: logFd
         };
         sender.send('profile-status', { id: profileId, status: 'running' });
+        console.log(`[Launch] Chrome PID=${chromeProcess.pid}, mode=${profile.chromeBinaryMode || 'auto'}, binary=${path.basename(chromePath)}`);
 
-        // CDP Timezone Override (Windows only)
-        // On macOS/Linux, TZ env var changes V8's timezone natively.
-        // On Windows, V8 ignores TZ and uses Win32 API, so we use CDP instead.
-        // This changes V8's internal timezone at the engine level - all Date methods
-        // (toString, getTimezoneOffset, getHours, etc.) and Intl APIs work correctly.
-        const targetTimezone = profile.fingerprint?.timezone;
-        if (process.platform === 'win32' && targetTimezone && targetTimezone !== 'Auto') {
-            try {
-                const pages = await browser.pages();
-                for (const page of pages) {
-                    try {
-                        const s = await page.createCDPSession();
-                        await s.send('Emulation.setTimezoneOverride', { timezoneId: targetTimezone });
-                    } catch (e) { }
-                }
-                browser.on('targetcreated', async (target) => {
-                    if (target.type() === 'page') {
-                        try {
-                            // Use createCDPSession directly — faster than target.page().
-                            // Avoids race condition where page loads and computes timezone
-                            // before emulateTimezone() is called.
-                            const session = await target.createCDPSession();
-                            await session.send('Emulation.setTimezoneOverride', { timezoneId: targetTimezone });
-                        } catch (e) { }
-                    }
-                });
-            } catch (e) {
-                console.error('CDP timezone override failed:', e.message);
-            }
-        }
-
-        // CDP UA-CH Override — fix Chrome for Testing missing "Google Chrome" brand
-        // CfT sends: "Chromium";v="147", "Not.A/Brand";v="8"
-        // Real Chrome: "Google Chrome";v="147", "Chromium";v="147", "Not.A/Brand";v="99"
-        // Pixelscan /s/api/hh checks secUA, secArch, secBitness, secPlatformVersion, secFullVersion
-        // All empty → inconsistency signal. CDP Network.setUserAgentOverride with userAgentMetadata
-        // fills these at V8 level — consistent across all contexts including Workers.
-        {
-            // Detect actual Chrome version from binary path (e.g. mac_arm-143.0.7499.169)
-            let actualChromeVer = null;
-            if (chromePath) {
-                const m = chromePath.replace(/\\/g, '/').match(/-((\d+)\.(\d+)\.(\d+)\.(\d+))[/\\]/);
-                if (m) actualChromeVer = m[1];
-            }
-
-            // Determine platform/arch from Node.js process
-            const isMac = process.platform === 'darwin';
-            const isArm = process.arch === 'arm64';
-
-            // Get macOS version for Sec-CH-UA-Platform-Version (e.g. "14.0.0")
-            let osMajorVersion = '10.0.0';
-            if (isMac) {
-                try {
-                    const sysVer = process.getSystemVersion ? process.getSystemVersion() : '';
-                    // sysVer is like "14.5" or "13.6.1"
-                    const parts = sysVer.split('.');
-                    osMajorVersion = `${parts[0] || '14'}.${parts[1] || '0'}.${parts[2] || '0'}`;
-                } catch (e) { osMajorVersion = '14.0.0'; }
-            }
-
-            // Build a platform-correct fallback UA using the actual Chrome binary version
-            const fallbackVer = actualChromeVer || (isMac ? '143.0.7499.169' : '147.0.7727.24');
-            const fallbackUA = isMac
-                ? `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${fallbackVer} Safari/537.36`
-                : `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${fallbackVer} Safari/537.36`;
-
-            // Use stored UA if present, but force-correct the Chrome version to match actual binary
-            let ua = profile.fingerprint?.userAgent || fallbackUA;
-            if (actualChromeVer) {
-                ua = ua.replace(/Chrome\/[\d.]+/, `Chrome/${actualChromeVer}`);
-            }
-
-            const uaMatch = ua.match(/Chrome\/(\d+)\.(\d+)\.(\d+)\.(\d+)/);
-            const major = uaMatch ? uaMatch[1] : fallbackVer.split('.')[0];
-            const fullVer = uaMatch ? `${uaMatch[1]}.${uaMatch[2]}.${uaMatch[3]}.${uaMatch[4]}` : fallbackVer;
-
-            const uaPlatform = isMac ? 'macOS' : 'Windows';
-            const uaArch = isArm ? 'arm' : 'x86';
-
-            const uaMetadata = {
-                brands: [
-                    { brand: 'Google Chrome', version: major },
-                    { brand: 'Chromium', version: major },
-                    { brand: 'Not.A/Brand', version: '99' }
-                ],
-                fullVersionList: [
-                    { brand: 'Google Chrome', version: fullVer },
-                    { brand: 'Chromium', version: fullVer },
-                    { brand: 'Not.A/Brand', version: '99.0.0.0' }
-                ],
-                fullVersion: fullVer,
-                platform: uaPlatform,
-                platformVersion: osMajorVersion,
-                architecture: uaArch,
-                bitness: '64',
-                model: '',
-                mobile: false,
-                wow64: false
-            };
-            // High-entropy UA-CH hints (Sec-CH-UA-Arch, Bitness, etc.) are only sent by
-            // browsers when the server requests them via Accept-CH response header.
-            // Chrome for Testing may not have stored Accept-CH permissions for Pixelscan,
-            // so we inject them directly via Network.setExtraHTTPHeaders to ensure
-            // secArch/secBitness/secPlatformVersion are populated in Pixelscan's /s/api/hh.
-            const highEntropyHeaders = {
-                'Sec-CH-UA-Arch': `"${uaArch}"`,
-                'Sec-CH-UA-Bitness': '"64"',
-                'Sec-CH-UA-Platform-Version': `"${osMajorVersion}"`,
-                'Sec-CH-UA-Full-Version-List': `"Google Chrome";v="${fullVer}", "Chromium";v="${fullVer}", "Not.A/Brand";v="99.0.0.0"`,
-                'Sec-CH-UA-Model': '""',
-                'Sec-CH-UA-WoW64': '?0'
-            };
-            const applyUACH = async (session) => {
-                try {
-                    await session.send('Network.setUserAgentOverride', {
-                        userAgent: ua,
-                        userAgentMetadata: uaMetadata
-                    });
-                    await session.send('Network.setExtraHTTPHeaders', {
-                        headers: highEntropyHeaders
-                    });
-                } catch (e) {}
-            };
-            try {
-                const pages = await browser.pages();
-                for (const page of pages) {
-                    try { await applyUACH(await page.createCDPSession()); } catch (e) {}
-                }
-                browser.on('targetcreated', async (target) => {
-                    if (target.type() === 'page') {
-                        try { await applyUACH(await target.createCDPSession()); } catch (e) {}
-                    }
-                });
-                console.log(`[CDP] UA-CH override: Chrome/${major}, platform=${uaPlatform}, arch=${uaArch}, ver=${fullVer}`);
-            } catch (e) {
-                console.error('CDP UA-CH override failed:', e.message);
-            }
-        }
-
-        // NOTE: CDP Emulation.setDeviceMetricsOverride is a known detection vector.
-        // Pixelscan detects it as "Masking detected". Screen values in profiles must
-        // match the real machine's logical screen dimensions (real DPR × logical = physical).
-        // No screen spoofing — profile screen should be set to real hardware values.
-
-        browser.on('disconnected', async () => {
+        chromeProcess.on('exit', async () => {
             if (activeProcesses[profileId]) {
-                const pid = activeProcesses[profileId].xrayPid;
-                const logFd = activeProcesses[profileId].logFd;
-
-                // 关闭日志文件描述符
-                if (logFd !== undefined) {
-                    try {
-                        fs.closeSync(logFd);
-                    } catch (e) { }
-                }
-
+                const { xrayPid, logFd: fd } = activeProcesses[profileId];
+                if (fd !== undefined) { try { fs.closeSync(fd); } catch(e) {} }
                 delete activeProcesses[profileId];
-                await forceKill(pid);
-
-                // 性能优化：清理缓存文件，节省磁盘空间
+                await forceKill(xrayPid);
                 try {
                     const cacheDir = path.join(userDataDir, 'Default', 'Cache');
                     const codeCacheDir = path.join(userDataDir, 'Default', 'Code Cache');
                     if (fs.existsSync(cacheDir)) await fs.emptyDir(cacheDir);
                     if (fs.existsSync(codeCacheDir)) await fs.emptyDir(codeCacheDir);
-                } catch (e) {
-                    // 忽略清理错误
-                }
-
+                } catch (e) {}
                 if (!sender.isDestroyed()) sender.send('profile-status', { id: profileId, status: 'stopped' });
             }
         });
@@ -4050,7 +3833,10 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
     app.isQuiting = true;
-    Object.values(activeProcesses).forEach(p => forceKill(p.xrayPid));
+    Object.values(activeProcesses).forEach(p => {
+        forceKill(p.xrayPid);
+        if (p.chromeProcess) forceKill(p.chromeProcess.pid);
+    });
 });
 // Helpers (Same)
 function fetchJson(url) { return new Promise((resolve, reject) => { const req = https.get(url, { headers: { 'User-Agent': 'GeekEZ-Browser' } }, (res) => { let data = ''; res.on('data', c => data += c); res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } }); }); req.on('error', reject); }); }

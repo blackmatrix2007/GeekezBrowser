@@ -1910,6 +1910,36 @@ function saveWatermarkStyle(style) {
     showAlert('水印样式已保存，重启环境后生效');
 }
 
+// --- Taskbar Icon Mode ---
+async function loadTaskbarModeSetting() {
+    try {
+        const settings = await window.electronAPI.getSettings();
+        const mode = settings.taskbarIconMode || 'group';
+        const radio = document.getElementById(mode === 'spread' ? 'taskbarSpread' : 'taskbarGroup');
+        if (radio) { radio.checked = true; updateAllTaskbarLabelBorders(); }
+    } catch(e) {}
+}
+async function saveTaskbarMode(mode) {
+    try {
+        const settings = await window.electronAPI.getSettings();
+        settings.taskbarIconMode = mode;
+        await window.electronAPI.saveSettings(settings);
+        updateAllTaskbarLabelBorders();
+    } catch(e) {}
+}
+function updateTaskbarLabelBorder(label, radioId) {
+    const radio = document.getElementById(radioId);
+    label.style.borderColor = radio && radio.checked ? 'var(--accent)' : 'var(--border)';
+}
+function updateAllTaskbarLabelBorders() {
+    ['taskbarGroup','taskbarSpread'].forEach(id => {
+        const radio = document.getElementById(id);
+        if (radio && radio.closest('label')) {
+            radio.closest('label').style.borderColor = radio.checked ? 'var(--accent)' : 'var(--border)';
+        }
+    });
+}
+
 // --- 自定义数据目录 ---
 async function loadDataPathSetting() {
     try {
@@ -2172,7 +2202,7 @@ function switchSettingsTab(tabName, clickedBtn) {
     });
     document.getElementById('settings-' + tabName).style.display = 'block';
     if (tabName === 'chrome') loadChromePath();
-    if (tabName === 'license') { loadLicenseStatus(); loadDataPathSetting(); }
+    if (tabName === 'license') { loadLicenseStatus(); loadDataPathSetting(); loadTaskbarModeSetting(); }
     if (tabName === 'advanced') loadDataPathSetting();
 }
 // ============================================================================

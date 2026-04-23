@@ -3499,6 +3499,53 @@ ipcMain.handle('export-data', async (e, type) => {
     return false;
 });
 
+// Set per-window AppUserModelID via SHGetPropertyStoreForWindow (Win32 C# via PowerShell).
+// Window-level AUMID overrides Chrome's process-level AUMID → each profile = separate taskbar group.
+function applyWindowAUMID(chromePid, aumid) {
+    if (process.platform !== 'win32' || !chromePid) return;
+    const cs = [
+        'using System;using System.Runtime.InteropServices;',
+        'public class GKZ{',
+        '[ComImport,Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+        'interface IPS{void A(out uint c);void B(uint i,out PK k);void C(ref PK k,out PV v);void SetValue(ref PK k,ref PV v);void Commit();}',
+        '[StructLayout(LayoutKind.Sequential,Pack=4)]struct PK{public Guid G;public uint P;}',
+        '[StructLayout(LayoutKind.Explicit)]struct PV{[FieldOffset(0)]public ushort V;[FieldOffset(8)]public IntPtr S;}',
+        '[DllImport("shell32.dll")]static extern int SHGetPropertyStoreForWindow(IntPtr h,ref Guid g,[MarshalAs(UnmanagedType.Interface)]out IPS s);',
+        '[DllImport("user32.dll")]static extern bool EnumWindows(EWP p,IntPtr l);',
+        '[DllImport("user32.dll")]static extern int GetWindowThreadProcessId(IntPtr h,out int p);',
+        '[DllImport("user32.dll")]static extern bool IsWindowVisible(IntPtr h);',
+        'delegate bool EWP(IntPtr h,IntPtr l);',
+        'public static void Set(int pid,string id){',
+        'Guid g=new Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99");',
+        'EnumWindows(delegate(IntPtr h,IntPtr _){int p;GetWindowThreadProcessId(h,out p);',
+        'if(p==pid&&IsWindowVisible(h)){IPS s;',
+        'if(SHGetPropertyStoreForWindow(h,ref g,out s)==0&&s!=null){',
+        'var k=new PK{G=new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"),P=5};',
+        'var ptr=Marshal.StringToCoTaskMemUni(id);var v=new PV{V=31,S=ptr};',
+        'try{s.SetValue(ref k,ref v);s.Commit();}finally{Marshal.FreeCoTaskMem(ptr);}}}',
+        'return true;},IntPtr.Zero);}}'
+    ].join('\n');
+    const scriptPath = path.join(os.tmpdir(), `gkz-${chromePid}.ps1`);
+    try {
+        const psScript = [
+            `Add-Type -TypeDefinition @'\n${cs}\n'@ -Language CSharp`,
+            `Write-Host "[GKZ] Calling Set for PID=${chromePid}, AUMID=${aumid}"`,
+            `[GKZ]::Set(${chromePid},'${aumid}')`,
+            `Write-Host "[GKZ] Done"`
+        ].join('\n');
+        fs.writeFileSync(scriptPath, psScript, 'utf8');
+        const ps = spawn('powershell', ['-NonInteractive','-ExecutionPolicy','Bypass','-File',scriptPath],
+            { detached: false, stdio: ['ignore', 'pipe', 'pipe'] });
+        let out = '';
+        ps.stdout.on('data', d => out += d);
+        ps.stderr.on('data', d => out += d);
+        ps.on('close', code => {
+            console.log(`[Taskbar] PS exit=${code} | ${out.trim().replace(/\n/g,' | ')}`);
+            try { fs.unlinkSync(scriptPath); } catch(_) {}
+        });
+    } catch(e) { console.warn('[Taskbar] AUMID error:', e.message); }
+}
+
 // --- 核心启动逻辑 ---
 ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
     const sender = event.sender;
@@ -3802,7 +3849,15 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             logFd: logFd
         };
         sender.send('profile-status', { id: profileId, status: 'running' });
-        console.log(`[Launch] Chrome PID=${chromeProcess.pid}, mode=${profile.chromeBinaryMode || 'auto'}, binary=${path.basename(chromePath)}`);
+        console.log(`[Launch] Chrome PID=${chromeProcess.pid}, binary=${path.basename(chromePath)}`);
+
+        // Taskbar spread mode: set unique window-level AUMID after Chrome window appears
+        console.log(`[Taskbar] mode=${settings.taskbarIconMode}, pid=${chromeProcess.pid}`);
+        if (settings.taskbarIconMode === 'spread' && chromeProcess.pid) {
+            const aumid = `GKZ.${profileId.replace(/-/g,'').slice(0,16)}`;
+            console.log(`[Taskbar] Spread scheduled: PID=${chromeProcess.pid}, AUMID=${aumid}`);
+            setTimeout(() => applyWindowAUMID(chromeProcess.pid, aumid), 3000);
+        }
 
         chromeProcess.on('exit', async () => {
             if (activeProcesses[profileId]) {

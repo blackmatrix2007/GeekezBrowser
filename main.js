@@ -1277,7 +1277,11 @@ async function generateExtension(profilePath, fingerprint, profileName, watermar
                     "https://accounts.google.com/*",
                     "https://accounts.youtube.com/*",
                     "https://myaccount.google.com/*",
-                    "https://mail.google.com/*"
+                    "https://mail.google.com/*",
+                    "https://*.gstatic.com/*",
+                    "https://www.google.com/recaptcha/*",
+                    "https://recaptcha.google.com/*",
+                    "https://*.doubleclick.net/*"
                 ],
                 js: ["content.js"],
                 run_at: "document_start",
@@ -1286,7 +1290,12 @@ async function generateExtension(profilePath, fingerprint, profileName, watermar
             },
             {
                 matches: ["<all_urls>"],
-                exclude_matches: ["https://accounts.google.com/*", "https://accounts.youtube.com/*"],
+                exclude_matches: [
+                    "https://accounts.google.com/*",
+                    "https://accounts.youtube.com/*",
+                    "https://mail.google.com/*",
+                    "https://myaccount.google.com/*"
+                ],
                 js: ["content_pw.js"],
                 run_at: "document_idle",
                 all_frames: false,
@@ -1299,7 +1308,7 @@ async function generateExtension(profilePath, fingerprint, profileName, watermar
     // fingerprint.js: canvas/audio/WebGL/clientrects/permissions/mediaDevices all "mode real"
     // (no JS hooks) to avoid Worker comparison mismatch. makeNative + screen + plugins + chrome
     // are safe since Workers don't have navigator.plugins or window.screen.
-    const scriptContent = getInjectScript(fingerprint, profileName, style);
+    const scriptContent = getInjectScript(fingerprint, profileName, style, fpChromiumMode);
     // (old manual fpChromiumMode injection removed — use getInjectScript above)
     if (false) `(function() {
     // --- makeNative: override Function.prototype.toString so injected functions look native ---
@@ -2262,9 +2271,9 @@ ipcMain.handle('save-profile', async (event, data) => {
     const profiles = fs.existsSync(PROFILES_FILE) ? await fs.readJson(PROFILES_FILE) : [];
     const fingerprint = data.fingerprint || generateFingerprint();
 
-    // Apply timezone
+    // Apply timezone — "Auto" means geo-detect from proxy IP at launch time
     if (data.timezone) fingerprint.timezone = data.timezone;
-    else fingerprint.timezone = "America/Los_Angeles";
+    else fingerprint.timezone = "Auto";
 
     // Apply city and geolocation
     if (data.city) fingerprint.city = data.city;
@@ -3587,10 +3596,11 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
 
         // 0. Auto-detect geo signals from proxy IP (only when proxy present)
         if (!isDirect && profile.proxyStr) {
-            const needsTimezone = !profile.fingerprint.timezone || profile.fingerprint.timezone === 'Auto';
-            // Language needs sync when: not set, or default 'en-US' and timezone is non-English
-            const needsLanguage = !profile.fingerprint.language || profile.fingerprint.language === 'auto'
-                || profile.fingerprint.language === 'en-US';
+            const needsTimezone = !profile.fingerprint.timezone
+                || profile.fingerprint.timezone === 'Auto'
+                || profile.fingerprint.timezone === 'America/Los_Angeles'; // migrate legacy default
+            // Language sync: only when not explicitly set by user
+            const needsLanguage = !profile.fingerprint.language || profile.fingerprint.language === 'auto';
 
             if (needsTimezone || needsLanguage) {
                 console.log('🔍 Detecting proxy geo signals...');
@@ -3677,15 +3687,27 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
 
         // 4. 构建启动参数（性能优化）
 
+        // Google domains that should bypass proxy — login/auth requires direct TLS
+        const GOOGLE_BYPASS = [
+            'accounts.google.com', '*.google.com', '*.googleapis.com',
+            '*.gstatic.com', 'accounts.youtube.com', '*.youtube.com'
+        ].join(';');
+
         const launchArgs = [
-            ...(isDirect ? ['--no-proxy-server'] : [`--proxy-server=socks5://127.0.0.1:${localPort}`]),
+            ...(isDirect
+                ? ['--no-proxy-server']
+                : [
+                    `--proxy-server=socks5://127.0.0.1:${localPort}`,
+                    `--proxy-bypass-list=${GOOGLE_BYPASS}`
+                  ]
+            ),
             `--user-data-dir=${userDataDir}`,
             `--window-size=${profile.fingerprint?.window?.width || 1280},${profile.fingerprint?.window?.height || 800}`,
             '--restore-last-session',
             '--no-sandbox',
             '--disable-setuid-sandbox',
 
-            '--disable-features=IsolateOrigins,site-per-process,ExtensionsMenuAccessControl',
+            '--disable-features=IsolateOrigins,ExtensionsMenuAccessControl',
             '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
             `--lang=${targetLang}`,
             `--accept-lang=${targetLang}`,
@@ -3699,8 +3721,8 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             '--disable-backgrounding-occluded-windows',
             '--disable-renderer-backgrounding',
             '--disable-dev-shm-usage',           // 减少共享内存使用
-            '--disk-cache-size=52428800',        // 限制磁盘缓存为 50MB
-            '--media-cache-size=52428800'        // 限制媒体缓存为 50MB
+            '--disk-cache-size=314572800',       // 300MB — realistic for real user
+            '--media-cache-size=104857600'       // 100MB — enough for YouTube buffering
         ];
 
         // 4b. Custom Chromium C++ patch flags (only when using custom/fingerprint chromium)
@@ -3779,9 +3801,23 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             env.TZ = profile.fingerprint.timezone;
         }
 
-        // Add User-Agent from profile (--user-agent flag works for all Chrome builds)
-        const spawnUA = profile.fingerprint?.userAgent ||
-            `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36`;
+        // Add User-Agent from profile.
+        // FP-Chromium: always use Windows UA because --fingerprint-platform=windows
+        //   patches Sec-CH-UA-Platform at C++ level — profile UA may be macOS if generated on Mac.
+        // CfT / stock Chrome: use profile UA (platform-matched on creation) or fall back
+        //   to a UA that matches the actual host OS, so Sec-CH-UA-Platform is consistent.
+        let spawnUA;
+        if (isFingerprintChromium(chromePath)) {
+            spawnUA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36`;
+        } else {
+            spawnUA = profile.fingerprint?.userAgent || (
+                process.platform === 'darwin'
+                    ? `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36`
+                    : process.platform === 'win32'
+                        ? `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36`
+                        : `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36`
+            );
+        }
         launchArgs.push(`--user-agent=${spawnUA}`);
 
         const chromeProcess = spawn(chromePath, launchArgs, {
@@ -3811,10 +3847,18 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
                 delete activeProcesses[profileId];
                 await forceKill(xrayPid);
                 try {
+                    // Only clear Cache when it exceeds 300MB — preserve Service Workers and normal cache
+                    // Real browsers evict cache automatically, not wipe it entirely on exit
                     const cacheDir = path.join(userDataDir, 'Default', 'Cache');
-                    const codeCacheDir = path.join(userDataDir, 'Default', 'Code Cache');
-                    if (fs.existsSync(cacheDir)) await fs.emptyDir(cacheDir);
-                    if (fs.existsSync(codeCacheDir)) await fs.emptyDir(codeCacheDir);
+                    if (fs.existsSync(cacheDir)) {
+                        const { size: cacheSize } = await fs.stat(cacheDir).catch(() => ({ size: 0 }));
+                        const CACHE_LIMIT = 300 * 1024 * 1024; // 300MB
+                        if (cacheSize > CACHE_LIMIT) {
+                            await fs.emptyDir(cacheDir);
+                            console.log(`[Cache] Cleared ${Math.round(cacheSize/1024/1024)}MB cache (exceeded 300MB limit)`);
+                        }
+                    }
+                    // Never clear Code Cache — V8 compiled bytecode, speeds up reload, not a fingerprint risk
                 } catch (e) {}
                 if (!sender.isDestroyed()) sender.send('profile-status', { id: profileId, status: 'stopped' });
             }

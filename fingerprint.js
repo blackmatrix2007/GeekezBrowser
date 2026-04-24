@@ -1,5 +1,9 @@
 const os = require('os');
 
+// Chrome version used when generating UA strings for new profiles.
+// Update this to match the CfT/FP-Chromium version you distribute.
+const CHROME_VERSION = '136.0.0.0';
+
 // dpr = devicePixelRatio — must be consistent with resolution to avoid Pixelscan "2049x1152" bug
 // (Pixelscan computes physical pixels = screen.width * devicePixelRatio)
 const RESOLUTIONS = [
@@ -145,9 +149,33 @@ const GPU_PRESETS = {
             glParams: { 3379: 16384, 34076: 16384, 34024: 16384, 36638: 8, 36063: 8, 36183: 8, 32883: 2048, 35071: 2048 }
         },
         {
+            webgl: { vendor: 'Apple Inc.', renderer: 'Apple M1 Pro' },
+            webgpu: {
+                info: { vendor: 'apple', architecture: 'common-3', device: '', description: '', vendorID: '0x106b', deviceID: '0xa141' },
+                features: ['depth-clip-control', 'depth32float-stencil8', 'texture-compression-bc', 'texture-compression-etc2', 'texture-compression-astc', 'indirect-first-instance', 'rg11b10ufloat-renderable', 'bgra8unorm-storage', 'float32-filterable', 'dual-source-blending']
+            },
+            glParams: { 3379: 16384, 34076: 16384, 34024: 16384, 36638: 8, 36063: 8, 36183: 8, 32883: 2048, 35071: 2048 }
+        },
+        {
             webgl: { vendor: 'Apple Inc.', renderer: 'Apple M2' },
             webgpu: {
                 info: { vendor: 'apple', architecture: 'common-3', device: '', description: '', vendorID: '0x106b', deviceID: '0xa132' },
+                features: ['depth-clip-control', 'depth32float-stencil8', 'texture-compression-bc', 'texture-compression-etc2', 'texture-compression-astc', 'indirect-first-instance', 'rg11b10ufloat-renderable', 'bgra8unorm-storage', 'float32-filterable', 'dual-source-blending']
+            },
+            glParams: { 3379: 16384, 34076: 16384, 34024: 16384, 36638: 8, 36063: 8, 36183: 8, 32883: 2048, 35071: 2048 }
+        },
+        {
+            webgl: { vendor: 'Apple Inc.', renderer: 'Apple M2 Pro' },
+            webgpu: {
+                info: { vendor: 'apple', architecture: 'common-3', device: '', description: '', vendorID: '0x106b', deviceID: '0xa136' },
+                features: ['depth-clip-control', 'depth32float-stencil8', 'texture-compression-bc', 'texture-compression-etc2', 'texture-compression-astc', 'indirect-first-instance', 'rg11b10ufloat-renderable', 'bgra8unorm-storage', 'float32-filterable', 'dual-source-blending']
+            },
+            glParams: { 3379: 16384, 34076: 16384, 34024: 16384, 36638: 8, 36063: 8, 36183: 8, 32883: 2048, 35071: 2048 }
+        },
+        {
+            webgl: { vendor: 'Apple Inc.', renderer: 'Apple M3' },
+            webgpu: {
+                info: { vendor: 'apple', architecture: 'common-3', device: '', description: '', vendorID: '0x106b', deviceID: '0xa158' },
                 features: ['depth-clip-control', 'depth32float-stencil8', 'texture-compression-bc', 'texture-compression-etc2', 'texture-compression-astc', 'indirect-first-instance', 'rg11b10ufloat-renderable', 'bgra8unorm-storage', 'float32-filterable', 'dual-source-blending']
             },
             glParams: { 3379: 16384, 34076: 16384, 34024: 16384, 36638: 8, 36063: 8, 36183: 8, 32883: 2048, 35071: 2048 }
@@ -234,8 +262,20 @@ function generateFingerprint() {
     // Build mediaDevices list deterministically from noiseSeed
     const mediaDevices = buildMediaDevices(platform, noiseSeed);
 
+    // Generate UA string matching host platform so CfT Sec-CH-UA-Platform is consistent.
+    // FP-Chromium overrides this at spawn time via --fingerprint-platform=windows.
+    let userAgent;
+    if (platform === 'darwin') {
+        userAgent = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VERSION} Safari/537.36`;
+    } else if (platform === 'win32') {
+        userAgent = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VERSION} Safari/537.36`;
+    } else {
+        userAgent = `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VERSION} Safari/537.36`;
+    }
+
     return {
         platform: osData.platform,
+        userAgent,
         screen: { width: res.w, height: res.h },
         window: { width: res.w, height: res.h },
         languages: ['en-US', 'en'],
@@ -245,7 +285,7 @@ function generateFingerprint() {
         audioNoise: (prng() * 0.000001 + 0.0000001),
         noiseSeed,
         devicePixelRatio: res.dpr,
-        timezone: 'America/Los_Angeles',
+        timezone: 'Auto',
         webgl: {
             vendor: gpuPreset.webgl.vendor,
             renderer: gpuPreset.webgl.renderer,
@@ -276,7 +316,7 @@ function buildMediaDevices(platform, seed) {
     ];
 }
 
-function getInjectScript(fp, profileName, watermarkStyle) {
+function getInjectScript(fp, profileName, watermarkStyle, fpChromiumMode = false) {
     const fpJson = JSON.stringify(fp);
     const safeProfileName = (profileName || 'Profile').replace(/[<>"'&]/g, '');
     const style = watermarkStyle || 'enhanced';
@@ -552,7 +592,66 @@ function getInjectScript(fp, profileName, watermarkStyle) {
             // Fake adapter was plain {} - instanceof GPUAdapter fails, detectable.
             // Real GPU (RTX 3060) is hardware-backed anyway.
 
-            // --- 15. Watermark UI ---
+            // --- 15. navigator.userAgentData (Sec-CH-UA JS API) ---
+            // CfT only includes "Chromium" brand; real Chrome includes "Google Chrome".
+            // Override at JS level so fingerprint detectors see the correct brands.
+            // Note: HTTP Sec-CH-UA headers require FP-Chromium C++ patch to fix.
+            (function() {
+                if (!navigator.userAgentData) return;
+                const ua = fp.userAgent || navigator.userAgent || '';
+                const chromeVer = (ua.match(/Chrome\/([\d]+)/) || [])[1] || '136';
+                const brands = [
+                    { brand: 'Google Chrome',  version: chromeVer },
+                    { brand: 'Chromium',        version: chromeVer },
+                    { brand: 'Not/A)Brand',     version: '8' }
+                ];
+                // FP-Chromium uses --fingerprint-platform=windows to spoof Sec-CH-UA-Platform
+                // at C++ level → our JS should report Windows too, regardless of fp.platform
+                const effectivePlatform = ${fpChromiumMode} ? 'Win32' : fp.platform;
+                const uaPlatform = effectivePlatform === 'Win32' ? 'Windows'
+                                 : effectivePlatform === 'MacIntel' ? 'macOS'
+                                 : 'Linux';
+                const isArm = effectivePlatform === 'MacIntel';
+                const arch = isArm ? 'arm' : 'x86';
+                const platformVer = effectivePlatform === 'Win32' ? '10.0.0' : '14.0.0';
+
+                const fakeGetHighEntropy = makeNative(function getHighEntropyValues(hints) {
+                    const result = {};
+                    hints = hints || [];
+                    if (hints.includes('brands'))          result.brands = brands;
+                    if (hints.includes('mobile'))          result.mobile = false;
+                    if (hints.includes('platform'))        result.platform = uaPlatform;
+                    if (hints.includes('architecture'))    result.architecture = arch;
+                    if (hints.includes('bitness'))         result.bitness = '64';
+                    if (hints.includes('model'))           result.model = '';
+                    if (hints.includes('platformVersion')) result.platformVersion = platformVer;
+                    if (hints.includes('uaFullVersion'))   result.uaFullVersion = chromeVer + '.0.0.0';
+                    if (hints.includes('fullVersionList')) result.fullVersionList = brands.map(b => ({ brand: b.brand, version: chromeVer + '.0.0.0' }));
+                    if (hints.includes('wow64'))           result.wow64 = false;
+                    return Promise.resolve(result);
+                }, 'getHighEntropyValues');
+
+                const fakeToJSON = makeNative(function toJSON() {
+                    return { brands, mobile: false, platform: uaPlatform };
+                }, 'toJSON');
+
+                // Build a plain object that looks like NavigatorUAData
+                const uaDataObj = Object.create(null);
+                Object.defineProperties(uaDataObj, {
+                    brands:               { value: brands,            enumerable: true,  configurable: true },
+                    mobile:               { value: false,             enumerable: true,  configurable: true },
+                    platform:             { value: uaPlatform,        enumerable: true,  configurable: true },
+                    getHighEntropyValues: { value: fakeGetHighEntropy, enumerable: true, configurable: true },
+                    toJSON:               { value: fakeToJSON,        enumerable: true,  configurable: true }
+                });
+
+                Object.defineProperty(Navigator.prototype, 'userAgentData', {
+                    get: makeNative(function userAgentData() { return uaDataObj; }, 'userAgentData'),
+                    configurable: true, enumerable: true
+                });
+            })();
+
+            // --- 16. Watermark UI ---
             const watermarkStyle = '${style}';
             function createWatermark() {
                 try {

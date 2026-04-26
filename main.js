@@ -1234,62 +1234,71 @@ function applyWindowAUMID(chromePid, aumid) {
         '  public struct PropertyKey { public Guid fmtid; public uint pid; }',
         '  [StructLayout(LayoutKind.Explicit)]',
         '  public struct PropVariant {',
-        '    [FieldOffset(0)] public ushort vt;       // VT_LPWSTR = 31',
+        '    [FieldOffset(0)] public ushort vt;',
         '    [FieldOffset(8)] public IntPtr pwszVal;',
         '  }',
         '  [DllImport("shell32.dll")]',
         '  static extern int SHGetPropertyStoreForWindow(IntPtr hwnd, ref Guid riid,',
         '    [MarshalAs(UnmanagedType.Interface)] out IPropertyStore ps);',
+        '  [DllImport("shell32.dll")]',
+        '  static extern void SHChangeNotify(int wEventId, int uFlags, IntPtr dwItem1, IntPtr dwItem2);',
         '  [DllImport("user32.dll")] static extern bool EnumWindows(EnumWndProc p, IntPtr l);',
         '  [DllImport("user32.dll")] static extern int GetWindowThreadProcessId(IntPtr h, out int pid);',
-        '  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);',
         '  delegate bool EnumWndProc(IntPtr h, IntPtr l);',
         '  public static int SetAUMID(int pid, string aumid) {',
-        '    int count = 0;',
+        '    int count = 0, total = 0;',
         '    var iid  = new Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99");',
         '    var pkey = new PropertyKey {',
         '      fmtid = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), pid = 5 };',
         '    EnumWindows(delegate(IntPtr hwnd, IntPtr _) {',
         '      int wp; GetWindowThreadProcessId(hwnd, out wp);',
-        '      if (wp == pid && IsWindowVisible(hwnd)) {',
-        '        IPropertyStore ps;',
-        '        if (SHGetPropertyStoreForWindow(hwnd, ref iid, out ps) == 0 && ps != null) {',
+        '      if (wp == pid) {',
+        '        total++;',
+        '        IPropertyStore store;',
+        '        int hr = SHGetPropertyStoreForWindow(hwnd, ref iid, out store);',
+        '        if (hr == 0 && store != null) {',
         '          var ptr = Marshal.StringToCoTaskMemUni(aumid);',
         '          try {',
         '            var pv = new PropVariant { vt = 31, pwszVal = ptr };',
-        '            if (ps.SetValue(ref pkey, ref pv) == 0) { ps.Commit(); count++; }',
+        '            int hrSet = store.SetValue(ref pkey, ref pv);',
+        '            int hrCmt = store.Commit();',
+        '            Console.Error.WriteLine("[GKZ] hwnd=" + hwnd.ToInt64() + " hrSet=0x" + hrSet.ToString("X") + " hrCmt=0x" + hrCmt.ToString("X"));',
+        '            if (hrSet == 0 && hrCmt == 0) count++;',
         '          } finally { Marshal.FreeCoTaskMem(ptr); }',
+        '        } else {',
+        '          Console.Error.WriteLine("[GKZ] hwnd=" + hwnd.ToInt64() + " SHGetPS hr=0x" + hr.ToString("X"));',
         '        }',
         '      }',
         '      return true;',
         '    }, IntPtr.Zero);',
+        '    if (count > 0) SHChangeNotify(0x08000000, 0x0000, IntPtr.Zero, IntPtr.Zero);',
+        '    Console.Out.WriteLine("[GKZ-Taskbar] PID=" + pid + " total=" + total + " set=" + count + " AUMID=" + aumid);',
         '    return count;',
         '  }',
         '}'
     ].join('\n');
 
     const scriptPath = path.join(os.tmpdir(), `gkz-aumid-${chromePid}.ps1`);
-    // Sanitize aumid to avoid PowerShell injection (profileId is a UUID so safe, but be explicit)
     const safeAumid = aumid.replace(/[^A-Za-z0-9.\-_]/g, '');
     const psScript = [
         `Add-Type -TypeDefinition @'\n${cs}\n'@ -Language CSharp -ErrorAction Stop`,
-        `$n = [GKZ]::SetAUMID(${chromePid}, '${safeAumid}')`,
-        `Write-Host "[GKZ-Taskbar] PID=${chromePid} AUMID=${safeAumid} windows_updated=$n"`
+        `[GKZ]::SetAUMID(${chromePid}, '${safeAumid}') | Out-Null`
     ].join('\n');
 
     try {
         fs.writeFileSync(scriptPath, psScript, 'utf8');
+        // No detached:true — keep pipe open until process exits so stdout/stderr are fully captured
         const ps = spawn('powershell', [
             '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath
-        ], { detached: true, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
-        let out = '';
+        ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+        let out = '', err = '';
         ps.stdout?.on('data', d => { out += d; });
-        ps.stderr?.on('data', d => { out += d; });
+        ps.stderr?.on('data', d => { err += d; });
         ps.on('close', code => {
-            console.log(`[Taskbar] exit=${code} ${out.trim().replace(/\r?\n/g, ' | ')}`);
+            const diag = [out.trim(), err.trim()].filter(Boolean).join(' | ').replace(/\r?\n/g, ' | ');
+            console.log(`[Taskbar] exit=${code} ${diag}`);
             try { fs.unlinkSync(scriptPath); } catch(_) {}
         });
-        ps.unref();
     } catch(e) {
         console.warn('[Taskbar] AUMID apply error:', e.message);
         try { fs.unlinkSync(scriptPath); } catch(_) {}

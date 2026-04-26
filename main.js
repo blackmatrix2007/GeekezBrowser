@@ -3732,12 +3732,14 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
         } catch (e) { }
 
         // Direct mode: no proxy — skip Xray entirely
-        const isDirect = !profile.proxyStr || profile.proxyStr.trim() === '' || profile.proxyStr.trim().toLowerCase() === 'direct';
+        // Falls back to settings.defaultProxy when profile has no proxy configured
+        const effectiveProxy = profile.proxyStr?.trim() || settings.defaultProxy?.trim() || '';
+        const isDirect = !effectiveProxy || effectiveProxy.toLowerCase() === 'direct';
 
         let xrayProcess = null;
         let logFd = null;
         if (!isDirect) {
-            const config = generateXrayConfig(profile.proxyStr, localPort, finalPreProxyConfig);
+            const config = generateXrayConfig(effectiveProxy, localPort, finalPreProxyConfig);
             fs.writeJsonSync(xrayConfigPath, config);
             logFd = fs.openSync(xrayLogPath, 'a');
             xrayProcess = spawn(BIN_PATH, ['-c', xrayConfigPath], { cwd: BIN_DIR, env: { ...process.env, 'XRAY_LOCATION_ASSET': RESOURCES_BIN }, stdio: ['ignore', logFd, logFd], windowsHide: true });
@@ -3746,7 +3748,7 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
         }
 
         // 0. Auto-detect geo signals from proxy IP (only when proxy present)
-        if (!isDirect && profile.proxyStr) {
+        if (!isDirect && effectiveProxy) {
             const needsTimezone = !profile.fingerprint.timezone
                 || profile.fingerprint.timezone === 'Auto'
                 || profile.fingerprint.timezone === 'America/Los_Angeles'; // migrate legacy default
@@ -3755,7 +3757,7 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
 
             if (needsTimezone || needsLanguage) {
                 console.log('🔍 Detecting proxy geo signals...');
-                const geoData = await getProxyGeolocation(profile.proxyStr).catch(() => null);
+                const geoData = await getProxyGeolocation(effectiveProxy).catch(() => null);
                 if (geoData) {
                     if (needsTimezone && geoData.timezone) {
                         profile.fingerprint.timezone = geoData.timezone;
@@ -3806,7 +3808,7 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
         debugLog('PROFILE_LAUNCH', {
             id:   profileId,
             name: profile.name,
-            proxy: profile.proxyStr ? profile.proxyStr.split(':').slice(0,2).join(':') + ':***' : 'none',
+            proxy: effectiveProxy ? effectiveProxy.split(':').slice(0,2).join(':') + ':***' : 'none',
             chromeBinary: chromePath || 'NOT FOUND',
             usingFpChromium: isFingerprintChromium(chromePath),
             fingerprint: {

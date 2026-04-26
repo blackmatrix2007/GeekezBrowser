@@ -1869,6 +1869,7 @@ async function openSettings() {
             loadCustomArgsSetting();
             loadApiServerSetting();
             loadDataPathSetting();
+            loadDefaultProxySetting();
         }
     } catch (_) {
         loadUserExtensions();
@@ -1877,6 +1878,7 @@ async function openSettings() {
         loadCustomArgsSetting();
         loadApiServerSetting();
         loadDataPathSetting();
+        loadDefaultProxySetting();
     }
 }
 function closeSettings() {
@@ -2034,6 +2036,21 @@ async function loadRemoteDebuggingSetting() {
         checkbox.checked = settings.enableRemoteDebugging || false;
         updateToggleVisual(checkbox);
     }
+}
+
+async function loadDefaultProxySetting() {
+    const settings = await window.electronAPI.getSettings();
+    const input = document.getElementById('defaultProxy');
+    if (input) input.value = settings.defaultProxy || '';
+}
+
+async function saveDefaultProxy() {
+    const input = document.getElementById('defaultProxy');
+    if (!input) return;
+    const settings = await window.electronAPI.getSettings();
+    settings.defaultProxy = input.value.trim();
+    await window.electronAPI.saveSettings(settings);
+    showAlert('✅ Đã lưu proxy mặc định');
 }
 
 // Custom Args Settings

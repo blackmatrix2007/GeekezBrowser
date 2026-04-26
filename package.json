@@ -9,6 +9,9 @@
     "postinstall": "node setup.js",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
+    "build:macarm": "electron-builder --mac --arm64",
+    "build:macintel": "electron-builder --mac --x64",
+    "build:macall": "electron-builder --mac --arm64 --x64",
     "build:linux": "electron-builder --linux"
   },
   "build": {

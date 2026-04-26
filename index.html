@@ -1268,13 +1268,13 @@
                         style="padding: 10px 15px; cursor: pointer; font-size: 13px;"
                         onmouseover="this.style.background='rgba(128,128,128,0.1)'"
                         onmouseout="this.style.background='transparent'">
-                        🔐 导入完整备份 (.geekez)
+                        🔐 Nhập backup đầy đủ (.geekez)
                     </div>
                     <div onclick="importData(); closeImportMenu();"
                         style="padding: 10px 15px; cursor: pointer; border-bottom: 1px solid var(--border); font-size: 13px;"
                         onmouseover="this.style.background='rgba(128,128,128,0.1)'"
                         onmouseout="this.style.background='transparent'">
-                        📄 导入 YAML 配置
+                        📄 Nhập cấu hình YAML
                     </div>
                 </div>
             </div>
@@ -1519,26 +1519,26 @@
                     onclick="closeExportModal()">✕</span></div>
             <div class="export-option" onclick="openExportSelectModal('full-backup')">
                 <div>
-                    <div class="export-title" style="color: var(--accent);" data-i18n="expFullBackup">🔐 完整备份（全部）</div>
-                    <div class="export-desc" data-i18n="expFullBackupDesc">含浏览器数据（Cookie/密码/书签），AES-256加密</div>
+                    <div class="export-title" style="color: var(--accent);" data-i18n="expFullBackup">🔐 Sao lưu đầy đủ (Tất cả)</div>
+                    <div class="export-desc" data-i18n="expFullBackupDesc">Bao gồm Cookie/Mật khẩu/Bookmark, mã hóa AES-256</div>
                 </div><span>🔒</span>
             </div>
             <div class="export-option" onclick="openExportSelectModal('all')">
                 <div>
-                    <div class="export-title" data-i18n="expAllProfiles">完整备份（指纹环境）</div>
-                    <div class="export-desc" data-i18n="expAllProfilesDesc">导出指纹配置 + 前置代理（不含浏览器数据）</div>
+                    <div class="export-title" data-i18n="expAllProfiles">Sao lưu đầy đủ (Profiles)</div>
+                    <div class="export-desc" data-i18n="expAllProfilesDesc">Xuất profiles + proxy (không có dữ liệu trình duyệt)</div>
                 </div><span>📦</span>
             </div>
             <div class="export-option" onclick="openExportSelectModal('proxies')">
                 <div>
-                    <div class="export-title" data-i18n="expProxies">前置代理</div>
-                    <div class="export-desc" data-i18n="expProxiesDesc">导出手动节点和订阅配置</div>
+                    <div class="export-title" data-i18n="expProxies">Chỉ Proxy</div>
+                    <div class="export-desc" data-i18n="expProxiesDesc">Proxy chuỗi &amp; cài đặt đăng ký</div>
                 </div><span>🔗</span>
             </div>
             <div class="export-option" onclick="openExportSelectModal('profiles')">
                 <div>
-                    <div class="export-title" data-i18n="expProfiles">指纹环境</div>
-                    <div class="export-desc" data-i18n="expProfilesDesc">仅导出环境指纹配置</div>
+                    <div class="export-title" data-i18n="expProfiles">Chỉ Profiles</div>
+                    <div class="export-desc" data-i18n="expProfilesDesc">Môi trường trình duyệt &amp; dấu tay</div>
                 </div><span>👤</span>
             </div>
         </div>
@@ -1550,7 +1550,7 @@
                 <span id="exportSelectTitle"
                     style="font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
                     <span style="color: var(--accent);">📦</span>
-                    <span data-i18n="expSelectTitle">选择要导出的环境</span>
+                    <span data-i18n="expSelectTitle">Chọn Profiles để xuất</span>
                 </span>
                 <span style="cursor:pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.15s;"
                     onmouseover="this.style.background='rgba(255,255,255,0.1)'"
@@ -1564,12 +1564,12 @@
                         style="display: flex; align-items: center; gap: 10px; cursor: pointer; white-space: nowrap; font-size: 13px;">
                         <input type="checkbox" id="exportSelectAll" checked onchange="toggleExportSelectAll()"
                             style="width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer;">
-                        <span data-i18n="expSelectAll" style="font-weight: 500;">全选</span>
+                        <span data-i18n="expSelectAll" style="font-weight: 500;">Chọn tất cả</span>
                     </label>
                     <div style="display: flex; align-items: center; gap: 6px;">
                         <span id="exportSelectedCount"
                             style="font-size: 12px; color: var(--accent); font-weight: 600; background: rgba(0,255,255,0.1); padding: 4px 10px; border-radius: 12px;">0/0</span>
-                        <span style="font-size: 12px; color: var(--text-secondary);" data-i18n="expSelected">已选择</span>
+                        <span style="font-size: 12px; color: var(--text-secondary);" data-i18n="expSelected">đã chọn</span>
                     </div>
                 </div>
                 <!-- 环境列表 -->
@@ -1580,31 +1580,31 @@
             <div class="modal-footer"
                 style="display: flex; justify-content: flex-end; gap: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
                 <button class="outline" onclick="closeExportSelectModal()" data-i18n="cancel"
-                    style="padding: 8px 20px;">取消</button>
+                    style="padding: 8px 20px;">Hủy</button>
                 <button onclick="confirmExport()" data-i18n="expConfirm"
-                    style="padding: 8px 24px; background: var(--accent); color: var(--bg-color); font-weight: 600;">导出</button>
+                    style="padding: 8px 24px; background: var(--accent); color: var(--bg-color); font-weight: 600;">Xuất</button>
             </div>
         </div>
     </div>
-    <!-- 密码输入模态框 -->
+    <!-- Password modal for backup/restore -->
     <div id="passwordModal" class="modal-overlay" style="z-index: 2400;">
         <div class="modal-content" style="width: 380px;">
             <div class="modal-header">
-                <span id="passwordModalTitle">设置备份密码</span>
+                <span id="passwordModalTitle">Đặt mật khẩu sao lưu</span>
                 <span style="cursor:pointer" onclick="closePasswordModal()">✕</span>
             </div>
             <div class="modal-body">
                 <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 15px;">
-                    完整备份包含敏感数据（Cookie、密码等），将使用 AES-256 加密保护。
+                    Backup đầy đủ chứa dữ liệu nhạy cảm (Cookie, mật khẩu...), sẽ được mã hóa AES-256.
                 </p>
-                <label style="font-size: 12px;">密码</label>
-                <input type="password" id="backupPassword" placeholder="请输入密码" style="margin-bottom: 10px;">
-                <label style="font-size: 12px;" id="confirmPasswordLabel">确认密码</label>
-                <input type="password" id="backupPasswordConfirm" placeholder="请再次输入密码">
+                <label style="font-size: 12px;">Mật khẩu</label>
+                <input type="password" id="backupPassword" placeholder="Nhập mật khẩu..." style="margin-bottom: 10px;">
+                <label style="font-size: 12px;" id="confirmPasswordLabel">Xác nhận mật khẩu</label>
+                <input type="password" id="backupPasswordConfirm" placeholder="Nhập lại mật khẩu...">
             </div>
             <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px;">
-                <button class="outline" onclick="closePasswordModal()">取消</button>
-                <button onclick="submitPassword()">确定</button>
+                <button class="outline" onclick="closePasswordModal()">Hủy</button>
+                <button onclick="submitPassword()">Xác nhận</button>
             </div>
         </div>
     </div>

@@ -1677,7 +1677,7 @@ async function confirmExport() {
         // 保存到全局变量供密码提交后使用
         selectedProfileIds = idsToExport;
         isImportMode = false;
-        openPasswordModal('设置备份密码', true);
+        openPasswordModal('Đặt mật khẩu sao lưu', true);
     } else {
         // 直接导出
         try {
@@ -1686,7 +1686,7 @@ async function confirmExport() {
                 profileIds: idsToExport
             });
             if (result.success) {
-                showAlert(`导出成功！共 ${result.count} 个环境`);
+                showAlert(`Xuất dữ liệu thành công! ${result.count} profile.`);
             } else if (!result.cancelled) {
                 showAlert(result.error || t('msgNoData'));
             }
@@ -1727,17 +1727,17 @@ async function submitPassword() {
     const confirmPassword = document.getElementById('backupPasswordConfirm').value;
 
     if (!password) {
-        showAlert('请输入密码');
+        showAlert('Vui lòng nhập mật khẩu');
         return;
     }
 
     if (!isImportMode && password !== confirmPassword) {
-        showAlert('两次输入的密码不一致');
+        showAlert('Hai mật khẩu không khớp');
         return;
     }
 
     if (password.length < 4) {
-        showAlert('密码长度至少 4 位');
+        showAlert('Mật khẩu phải có ít nhất 4 ký tự');
         return;
     }
 
@@ -1748,28 +1748,28 @@ async function submitPassword() {
         try {
             const result = await window.electronAPI.invoke('import-full-backup', { password });
             if (result.success) {
-                showAlert(`导入成功！共 ${result.count} 个环境`);
+                showAlert(`Nhập dữ liệu thành công! ${result.count} profile đã được khôi phục.`);
                 loadProfiles();
                 globalSettings = await window.electronAPI.getSettings();
                 renderGroupTabs();
                 updateToolbar();
             } else if (!result.cancelled) {
-                showAlert(result.error || '导入失败');
+                showAlert(result.error || 'Nhập dữ liệu thất bại');
             }
         } catch (e) {
             showAlert("Import Failed: " + e.message);
         }
     } else {
-        // 导出完整备份
+        // Export full backup
         try {
             const result = await window.electronAPI.invoke('export-full-backup', {
                 profileIds: selectedProfileIds,
                 password
             });
             if (result.success) {
-                showAlert(`完整备份成功！共 ${result.count} 个环境`);
+                showAlert(`Backup thành công! ${result.count} profile đã được xuất.`);
             } else if (!result.cancelled) {
-                showAlert(result.error || '备份失败');
+                showAlert(result.error || 'Backup thất bại');
             }
         } catch (e) {
             showAlert("Backup Failed: " + e.message);
@@ -1794,7 +1794,7 @@ async function importData() {
 // 导入完整备份（.geekez 文件）
 async function importFullBackup() {
     isImportMode = true;
-    openPasswordModal('输入备份密码', false);
+    openPasswordModal('Nhập mật khẩu backup', false);
 }
 
 // Import Menu Toggle

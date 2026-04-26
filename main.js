@@ -833,12 +833,14 @@ async function handleApiRequest(method, pathname, body, params) {
                     let imported = 0;
                     for (const item of yamlData) {
                         const name = generateUniqueName(item.name || `Imported-${Date.now()}`);
+                        const fp = item.fingerprint || generateFingerprint();
+                        normalizeFingerprintForPlatform(fp);
                         const newProfile = {
                             id: uuidv4(),
                             name,
                             proxyStr: item.proxyStr || '',
                             tags: item.tags || [],
-                            fingerprint: item.fingerprint || await generateFingerprint({}),
+                            fingerprint: fp,
                             createdAt: Date.now()
                         };
                         profiles.push(newProfile);
@@ -862,6 +864,7 @@ async function handleApiRequest(method, pathname, body, params) {
                 let imported = 0;
                 for (const profile of backupData.profiles || []) {
                     const name = generateUniqueName(profile.name);
+                    normalizeFingerprintForPlatform(profile.fingerprint);
                     const newProfile = { ...profile, id: uuidv4(), name };
                     profiles.push(newProfile);
                     imported++;
@@ -1200,6 +1203,99 @@ async function getProxyGeolocation(proxyStr) {
     }
 }
 
+// ─── Windows Taskbar: 1 profile = 1 icon ─────────────────────────────────────
+// Sets the AppUserModelID on each visible Chrome window via SHGetPropertyStoreForWindow.
+// This overrides Chrome's process-level AUMID at window-level, so Windows taskbar
+// groups each profile window separately instead of merging all Chrome windows.
+// Uses inline C# via PowerShell Add-Type — no native addon required.
+//
+// Fixes vs origin/feature/1profile-1icon branch:
+//   - Marshal.FreeCoTaskMem() called in finally block (no memory leak)
+//   - Proper HRESULT return types on IPropertyStore interface methods
+//   - retry parameter for slower machines
+//   - Always enabled on Win32 (no settings.taskbarIconMode guard needed)
+function applyWindowAUMID(chromePid, aumid) {
+    if (process.platform !== 'win32' || !chromePid) return;
+
+    const cs = [
+        'using System;',
+        'using System.Runtime.InteropServices;',
+        'public class GKZ {',
+        '  [ComImport, Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99"),',
+        '   InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+        '  interface IPropertyStore {',
+        '    int GetCount(out uint cProps);',
+        '    int GetAt(uint iProp, out PropertyKey pkey);',
+        '    int GetValue(ref PropertyKey key, out PropVariant pv);',
+        '    int SetValue(ref PropertyKey key, ref PropVariant pv);',
+        '    int Commit();',
+        '  }',
+        '  [StructLayout(LayoutKind.Sequential, Pack=4)]',
+        '  public struct PropertyKey { public Guid fmtid; public uint pid; }',
+        '  [StructLayout(LayoutKind.Explicit)]',
+        '  public struct PropVariant {',
+        '    [FieldOffset(0)] public ushort vt;       // VT_LPWSTR = 31',
+        '    [FieldOffset(8)] public IntPtr pwszVal;',
+        '  }',
+        '  [DllImport("shell32.dll")]',
+        '  static extern int SHGetPropertyStoreForWindow(IntPtr hwnd, ref Guid riid,',
+        '    [MarshalAs(UnmanagedType.Interface)] out IPropertyStore ps);',
+        '  [DllImport("user32.dll")] static extern bool EnumWindows(EnumWndProc p, IntPtr l);',
+        '  [DllImport("user32.dll")] static extern int GetWindowThreadProcessId(IntPtr h, out int pid);',
+        '  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);',
+        '  delegate bool EnumWndProc(IntPtr h, IntPtr l);',
+        '  public static int SetAUMID(int pid, string aumid) {',
+        '    int count = 0;',
+        '    var iid  = new Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99");',
+        '    var pkey = new PropertyKey {',
+        '      fmtid = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), pid = 5 };',
+        '    EnumWindows(delegate(IntPtr hwnd, IntPtr _) {',
+        '      int wp; GetWindowThreadProcessId(hwnd, out wp);',
+        '      if (wp == pid && IsWindowVisible(hwnd)) {',
+        '        IPropertyStore ps;',
+        '        if (SHGetPropertyStoreForWindow(hwnd, ref iid, out ps) == 0 && ps != null) {',
+        '          var ptr = Marshal.StringToCoTaskMemUni(aumid);',
+        '          try {',
+        '            var pv = new PropVariant { vt = 31, pwszVal = ptr };',
+        '            if (ps.SetValue(ref pkey, ref pv) == 0) { ps.Commit(); count++; }',
+        '          } finally { Marshal.FreeCoTaskMem(ptr); }',
+        '        }',
+        '      }',
+        '      return true;',
+        '    }, IntPtr.Zero);',
+        '    return count;',
+        '  }',
+        '}'
+    ].join('\n');
+
+    const scriptPath = path.join(os.tmpdir(), `gkz-aumid-${chromePid}.ps1`);
+    // Sanitize aumid to avoid PowerShell injection (profileId is a UUID so safe, but be explicit)
+    const safeAumid = aumid.replace(/[^A-Za-z0-9.\-_]/g, '');
+    const psScript = [
+        `Add-Type -TypeDefinition @'\n${cs}\n'@ -Language CSharp -ErrorAction Stop`,
+        `$n = [GKZ]::SetAUMID(${chromePid}, '${safeAumid}')`,
+        `Write-Host "[GKZ-Taskbar] PID=${chromePid} AUMID=${safeAumid} windows_updated=$n"`
+    ].join('\n');
+
+    try {
+        fs.writeFileSync(scriptPath, psScript, 'utf8');
+        const ps = spawn('powershell', [
+            '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath
+        ], { detached: true, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+        let out = '';
+        ps.stdout?.on('data', d => { out += d; });
+        ps.stderr?.on('data', d => { out += d; });
+        ps.on('close', code => {
+            console.log(`[Taskbar] exit=${code} ${out.trim().replace(/\r?\n/g, ' | ')}`);
+            try { fs.unlinkSync(scriptPath); } catch(_) {}
+        });
+        ps.unref();
+    } catch(e) {
+        console.warn('[Taskbar] AUMID apply error:', e.message);
+        try { fs.unlinkSync(scriptPath); } catch(_) {}
+    }
+}
+
 let tray = null;
 
 function createTray(win) {
@@ -1232,12 +1328,34 @@ function createWindow() {
     win.loadFile('index.html');
     mainWindow = win;
 
-    // Minimize to tray instead of closing
-    win.on('close', (e) => {
-        if (!app.isQuiting) {
-            e.preventDefault();
-            win.hide();
+    // Show confirm dialog on X — give user 3 choices instead of closing silently
+    win.on('close', async (e) => {
+        if (app.isQuiting) return; // Already going through quit flow, let it close
+        e.preventDefault();
+
+        const runningCount = Object.keys(activeProcesses).length;
+        const warningLine = runningCount > 0
+            ? `Cảnh báo: ${runningCount} profile đang chạy sẽ bị dừng khi đóng ứng dụng.\n\n`
+            : '';
+
+        const { response } = await dialog.showMessageBox(win, {
+            type: 'question',
+            title: 'GeekezBrowser',
+            message: 'Bạn muốn làm gì?',
+            detail: `${warningLine}Chọn hành động để tiếp tục.`,
+            buttons: ['Thu nhỏ vào tray', 'Đóng ứng dụng', 'Hủy'],
+            defaultId: 0,
+            cancelId: 2,
+            noLink: true
+        });
+
+        if (response === 0) {
+            win.hide(); // Minimize to tray, keep running
+        } else if (response === 1) {
+            app.isQuiting = true;
+            app.quit();
         }
+        // response === 2: Hủy — do nothing, window stays open
     });
 
     createTray(win);
@@ -3033,10 +3151,30 @@ ipcMain.handle('reset-data-directory', async () => {
 function cleanFingerprint(fp) {
     if (!fp) return fp;
     const cleaned = { ...fp };
+    // Strip all OS-specific fields — these are regenerated for the target OS on first launch
     delete cleaned.userAgent;
     delete cleaned.userAgentMetadata;
     delete cleaned.webgl;
+    delete cleaned.webgpu;
+    delete cleaned.platform;
+    delete cleaned.mediaDevices;
     return cleaned;
+}
+
+// Re-generate OS-specific fingerprint fields for the current platform.
+// Called after importing a profile from another OS so it works correctly on this machine.
+function normalizeFingerprintForPlatform(fp) {
+    if (!fp) return fp;
+    const needsRegen = !fp.platform || !fp.webgl || !fp.webgpu || !fp.mediaDevices || !fp.userAgent;
+    if (needsRegen) {
+        const fresh = generateFingerprint();
+        if (!fp.platform)     fp.platform     = fresh.platform;
+        if (!fp.userAgent)    fp.userAgent     = fresh.userAgent;
+        if (!fp.webgl)        fp.webgl         = fresh.webgl;
+        if (!fp.webgpu)       fp.webgpu        = fresh.webgpu;
+        if (!fp.mediaDevices) fp.mediaDevices  = fresh.mediaDevices;
+    }
+    return fp;
 }
 
 // 加密辅助函数
@@ -3307,6 +3445,8 @@ ipcMain.handle('import-full-backup', async (e, { password }) => {
         const currentProfiles = fs.existsSync(PROFILES_FILE) ? await fs.readJson(PROFILES_FILE) : [];
         let importedCount = 0;
         for (const profile of backupData.profiles) {
+            // Re-generate platform-specific fingerprint fields for the target OS
+            normalizeFingerprintForPlatform(profile.fingerprint);
             const idx = currentProfiles.findIndex(cp => cp.id === profile.id);
             if (idx > -1) { currentProfiles[idx] = profile; } else { currentProfiles.push(profile); }
             importedCount++;
@@ -3433,6 +3573,8 @@ ipcMain.handle('import-data', async () => {
                 if (Array.isArray(data.profiles)) {
                     const currentProfiles = fs.existsSync(PROFILES_FILE) ? await fs.readJson(PROFILES_FILE) : [];
                     data.profiles.forEach(p => {
+                        // Re-generate platform-specific fingerprint fields for this OS
+                        normalizeFingerprintForPlatform(p.fingerprint);
                         const idx = currentProfiles.findIndex(cp => cp.id === p.id);
                         if (idx > -1) currentProfiles[idx] = p;
                         else {
@@ -3630,6 +3772,11 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
                 }
             }
         }
+
+        // Normalize platform-specific fingerprint fields for this OS.
+        // Handles profiles imported from another OS (Win→Mac or Mac→Win) where
+        // platform/webgl/userAgent/mediaDevices are missing or wrong for this machine.
+        normalizeFingerprintForPlatform(profile.fingerprint);
 
         // Fallback: ensure devicePixelRatio exists (old profiles created before this field was added)
         if (!profile.fingerprint.devicePixelRatio) {
@@ -3839,6 +3986,15 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
         };
         sender.send('profile-status', { id: profileId, status: 'running' });
         console.log(`[Launch] Chrome PID=${chromeProcess.pid}, mode=${profile.chromeBinaryMode || 'auto'}, binary=${path.basename(chromePath)}`);
+
+        // Windows: set unique AppUserModelID per profile window so each profile gets its own
+        // taskbar button instead of all Chrome windows being grouped together.
+        // Try at 3s (normal machines) and again at 8s (slower machines / cold start).
+        if (process.platform === 'win32' && chromeProcess.pid) {
+            const aumid = `GKZ.${profileId.replace(/-/g, '').slice(0, 16)}`;
+            setTimeout(() => applyWindowAUMID(chromeProcess.pid, aumid), 3000);
+            setTimeout(() => applyWindowAUMID(chromeProcess.pid, aumid), 8000);
+        }
 
         chromeProcess.on('exit', async () => {
             if (activeProcesses[profileId]) {

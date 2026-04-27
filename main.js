@@ -2912,7 +2912,9 @@ ipcMain.handle('download-chrome-for-testing', async (event) => {
         if (!stable) throw new Error('Stable channel not found in CfT API response');
         const version = stable.version;
 
-        const platform = process.platform === 'win32' ? 'win64' : process.platform === 'darwin' ? 'mac-x64' : 'linux64';
+        const platform = process.platform === 'win32' ? 'win64'
+            : process.platform === 'darwin' ? (process.arch === 'arm64' ? 'mac-arm64' : 'mac-x64')
+            : 'linux64';
         const chromeDownloads = stable.downloads && stable.downloads.chrome;
         if (!chromeDownloads) throw new Error('Chrome downloads not found in CfT API response');
         const asset = chromeDownloads.find(d => d.platform === platform);
@@ -3947,16 +3949,17 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             if (profile.fingerprint?.hardwareConcurrency) {
                 launchArgs.push(`--fingerprint-hardware-concurrency=${profile.fingerprint.hardwareConcurrency}`);
             }
-            if (profile.fingerprint?.timezone && profile.fingerprint.timezone !== 'Auto') {
-                launchArgs.push(`--timezone=${profile.fingerprint.timezone}`);
-            }
             console.log(`[FP-Chromium] platform=windows, brand=Chrome (no canvas noise)`);
         }
 
-        // 时区设置
+        // Timezone setup:
+        // - env.TZ works on macOS/Linux (POSIX) but Windows ignores TZ env var entirely
+        // - --timezone= flag (valid Chrome 92+) works on all platforms including Windows
+        // → always push --timezone= so Windows CfT gets correct timezone
         const env = { ...process.env };
         if (profile.fingerprint?.timezone && profile.fingerprint.timezone !== 'Auto') {
-            env.TZ = profile.fingerprint.timezone;
+            launchArgs.push(`--timezone=${profile.fingerprint.timezone}`);
+            env.TZ = profile.fingerprint.timezone; // fallback for macOS/Linux; no-op on Windows
         }
 
         // Add User-Agent from profile.

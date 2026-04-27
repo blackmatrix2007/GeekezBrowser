@@ -2200,7 +2200,6 @@ async function loadChromePath() {
     const el = document.getElementById('chrome-path-display');
     if (el) el.textContent = info.current || 'Not found';
     checkCft();
-    checkFpChromium();
 }
 
 async function checkCft() {
@@ -2214,6 +2213,20 @@ async function checkCft() {
             statusEl.style.color = 'var(--success, #22c55e)';
             if (btnEl) { btnEl.textContent = 'Update'; btnEl.disabled = false; }
         } else {
+            // Check if app is currently using bundled CfT (from resources/puppeteer/)
+            try {
+                const pathInfo = await window.electronAPI.invoke('get-chrome-path-info');
+                const activePath = (pathInfo?.current || '').replace(/\\/g, '/');
+                if (activePath.includes('puppeteer') && activePath.includes('Google Chrome for Testing')) {
+                    // Extract version from path e.g. mac_arm-143.0.7499.169
+                    const m = activePath.match(/[\-_]([\d]+\.[\d]+\.[\d]+\.[\d]+)/);
+                    const ver = m ? m[1] : '';
+                    statusEl.textContent = `Bundled${ver ? ' — v' + ver : ''} (dùng sẵn trong app)`;
+                    statusEl.style.color = 'var(--success, #22c55e)';
+                    if (btnEl) { btnEl.textContent = 'Update'; btnEl.disabled = false; }
+                    return;
+                }
+            } catch (_) {}
             statusEl.textContent = 'Not installed';
             statusEl.style.color = '';
             if (btnEl) { btnEl.textContent = 'Download'; btnEl.disabled = false; }
@@ -2260,62 +2273,6 @@ async function downloadCft() {
     }
 }
 
-async function checkFpChromium() {
-    const statusEl = document.getElementById('fp-chromium-status');
-    const btnEl = document.getElementById('fp-chromium-btn');
-    if (!statusEl) return;
-    try {
-        const result = await window.electronAPI.checkFingerprintChromium();
-        if (result.installed) {
-            statusEl.textContent = `Installed — v${result.version}`;
-            statusEl.style.color = 'var(--success, #22c55e)';
-            if (btnEl) { btnEl.textContent = 'Update'; btnEl.disabled = false; }
-        } else {
-            statusEl.textContent = 'Not installed';
-            statusEl.style.color = '';
-            if (btnEl) { btnEl.textContent = 'Download'; btnEl.disabled = false; }
-        }
-    } catch (e) {
-        if (statusEl) statusEl.textContent = 'Check failed';
-    }
-}
-
-let _fpProgressListenerAttached = false;
-async function downloadFpChromium() {
-    const btn = document.getElementById('fp-chromium-btn');
-    const wrap = document.getElementById('fp-chromium-progress-wrap');
-    const bar = document.getElementById('fp-chromium-bar');
-    const txt = document.getElementById('fp-chromium-progress-text');
-    const statusEl = document.getElementById('fp-chromium-status');
-
-    if (btn) btn.disabled = true;
-    if (wrap) wrap.style.display = 'block';
-    if (bar) bar.style.width = '0%';
-    if (txt) txt.textContent = 'Starting...';
-
-    if (!_fpProgressListenerAttached) {
-        _fpProgressListenerAttached = true;
-        window.electronAPI.onFpChromiumProgress((data) => {
-            if (bar) bar.style.width = Math.max(0, data.percent) + '%';
-            if (txt) txt.textContent = data.stage;
-            if (data.percent === 100) {
-                if (btn) { btn.textContent = 'Update'; btn.disabled = false; }
-                if (statusEl) { statusEl.textContent = 'Installed'; statusEl.style.color = 'var(--success, #22c55e)'; }
-                setTimeout(() => { if (wrap) wrap.style.display = 'none'; }, 3000);
-                loadChromePath();
-            } else if (data.percent < 0) {
-                if (btn) { btn.textContent = 'Retry'; btn.disabled = false; }
-            }
-        });
-    }
-
-    try {
-        await window.electronAPI.downloadFingerprintChromium();
-    } catch (err) {
-        if (txt) txt.textContent = 'Failed: ' + (err.message || err);
-        if (btn) { btn.textContent = 'Retry'; btn.disabled = false; }
-    }
-}
 
 async function selectChromeBinary() {
     const result = await window.electronAPI.selectChromeBinary();

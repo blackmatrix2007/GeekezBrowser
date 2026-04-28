@@ -794,7 +794,7 @@ async function handleApiRequest(method, pathname, body, params) {
         return {
             success: true,
             data: encrypted.toString('base64'),
-            filename: `GeekEZ_FullBackup_${Date.now()}.geekez`,
+            filename: `BNC_FullBackup_${Date.now()}.bnc`,
             profileCount: profiles.length
         };
     }
@@ -812,7 +812,7 @@ async function handleApiRequest(method, pathname, body, params) {
         return {
             success: true,
             data: yamlStr,
-            filename: `GeekEZ_Profiles_${Date.now()}.yaml`,
+            filename: `BNC_Profiles_${Date.now()}.yaml`,
             profileCount: profiles.length
         };
     }
@@ -1391,7 +1391,7 @@ async function generateExtension(profilePath, fingerprint, profileName, watermar
 
     const manifest = {
         manifest_version: 3,
-        name: "GeekEZ Guard",
+        name: "BNC Guard",
         version: "1.1.0",
         description: "Privacy & Password Protection",
         permissions: ["storage", "activeTab"],
@@ -2420,6 +2420,7 @@ ipcMain.handle('save-profile', async (event, data) => {
         name: data.name,
         proxyStr: data.proxyStr,
         tags: data.tags || [],
+        note: data.note || '',
         fingerprint: fingerprint,
         preProxyOverride: data.preProxyOverride || 'default',
         isSetup: false,
@@ -3062,7 +3063,7 @@ const PBKDF2_ITERATIONS = 100000;
 const SALT_LENGTH = 16;
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
-const MAGIC_HEADER = Buffer.from('GKEZ'); // GeekEZ magic bytes
+const MAGIC_HEADER = Buffer.from('GKEZ'); // BNC magic bytes
 
 function deriveKey(password, salt) {
     return crypto.pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, 32, 'sha256');
@@ -3177,7 +3178,7 @@ ipcMain.handle('export-selected-data', async (e, { type, profileIds }) => {
     const typeNames = { all: 'profiles', profiles: 'profiles', proxies: 'proxies' };
     const { filePath } = await dialog.showSaveDialog({
         title: 'Export Data',
-        defaultPath: `GeekEZ_Backup_${typeNames[type] || type}_${Date.now()}.yaml`,
+        defaultPath: `BNC_Backup_${typeNames[type] || type}_${Date.now()}.yaml`,
         filters: [{ name: 'YAML', extensions: ['yml', 'yaml'] }]
     });
 
@@ -3284,8 +3285,8 @@ ipcMain.handle('export-full-backup', async (e, { profileIds, password }) => {
 
         const { filePath } = await dialog.showSaveDialog({
             title: 'Export Full Backup',
-            defaultPath: `GeekEZ_FullBackup_${Date.now()}.geekez`,
-            filters: [{ name: 'GeekEZ Backup', extensions: ['geekez'] }]
+            defaultPath: `BNC_FullBackup_${Date.now()}.bnc`,
+            filters: [{ name: 'BNC Backup', extensions: ['bnc'] }]
         });
 
         if (filePath) {
@@ -3304,7 +3305,7 @@ ipcMain.handle('import-full-backup', async (e, { password }) => {
     try {
         const { filePaths } = await dialog.showOpenDialog({
             properties: ['openFile'],
-            filters: [{ name: 'GeekEZ Backup', extensions: ['geekez'] }]
+            filters: [{ name: 'BNC Backup', extensions: ['bnc'] }]
         });
 
         if (!filePaths || filePaths.length === 0) {
@@ -3519,7 +3520,7 @@ ipcMain.handle('export-data', async (e, type) => {
 
     const { filePath } = await dialog.showSaveDialog({
         title: 'Export Data',
-        defaultPath: `GeekEZ_Backup_${type}_${Date.now()}.yaml`,
+        defaultPath: `BNC_Backup_${type}_${Date.now()}.yaml`,
         filters: [{ name: 'YAML', extensions: ['yml', 'yaml'] }]
     });
     if (filePath) {
@@ -3700,15 +3701,15 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             }
         });
 
-        // 1. 生成 GeekEZ Guard 扩展（使用传递的水印样式）
-        const style = watermarkStyle || 'enhanced'; // 默认使用增强水印
+        // 1. Generate BNC Guard extension (using passed watermark style)
+        const style = watermarkStyle || 'enhanced'; // default: enhanced watermark
         const extPath = await generateExtension(profileDir, profile.fingerprint, profile.name, style, profileId, isFingerprintChromium(chromePath));
 
-        // 2. 获取用户自定义扩展
+        // 2. Get user custom extensions
         const userExts = settings.userExtensions || [];
 
-        // 3. 合并所有扩展路径
-        let extPaths = extPath; // GeekEZ Guard
+        // 3. Merge all extension paths
+        let extPaths = extPath; // BNC Guard
         if (userExts.length > 0) {
             extPaths += ',' + userExts.join(',');
         }
@@ -3722,8 +3723,11 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
         ].join(';');
 
         const launchArgs = [
+            // Direct mode: no proxy args — Chrome uses system proxy settings naturally.
+            // Do NOT pass --no-proxy-server: it bypasses system-level proxies (Surge/ClashX/VPN
+            // Network Extensions) and can cause traffic to route through Google tunnels (googlezip.net).
             ...(isDirect
-                ? ['--no-proxy-server']
+                ? []
                 : [
                     `--proxy-server=socks5://127.0.0.1:${localPort}`,
                     `--proxy-bypass-list=${GOOGLE_BYPASS}`
@@ -3922,7 +3926,7 @@ app.on('before-quit', () => {
     });
 });
 // Helpers (Same)
-function fetchJson(url) { return new Promise((resolve, reject) => { const req = https.get(url, { headers: { 'User-Agent': 'GeekEZ-Browser' } }, (res) => { let data = ''; res.on('data', c => data += c); res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } }); }); req.on('error', reject); }); }
+function fetchJson(url) { return new Promise((resolve, reject) => { const req = https.get(url, { headers: { 'User-Agent': 'BNC-Browser' } }, (res) => { let data = ''; res.on('data', c => data += c); res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } }); }); req.on('error', reject); }); }
 function getLocalXrayVersion() { return new Promise((resolve) => { if (!fs.existsSync(BIN_PATH)) return resolve('v0.0.0'); try { const proc = spawn(BIN_PATH, ['-version']); let output = ''; proc.stdout.on('data', d => output += d.toString()); proc.on('close', () => { const match = output.match(/Xray\s+v?(\d+\.\d+\.\d+)/i); resolve(match ? (match[1].startsWith('v') ? match[1] : 'v' + match[1]) : 'v0.0.0'); }); proc.on('error', () => resolve('v0.0.0')); } catch (e) { resolve('v0.0.0'); } }); }
 function compareVersions(v1, v2) { const p1 = v1.split('.').map(Number); const p2 = v2.split('.').map(Number); for (let i = 0; i < 3; i++) { if ((p1[i] || 0) > (p2[i] || 0)) return 1; if ((p1[i] || 0) < (p2[i] || 0)) return -1; } return 0; }
 function downloadFile(url, dest) { return new Promise((resolve, reject) => { const file = fs.createWriteStream(dest); https.get(url, (response) => { if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) { downloadFile(response.headers.location, dest).then(resolve).catch(reject); return; } response.pipe(file); file.on('finish', () => file.close(resolve)); }).on('error', (err) => { fs.unlink(dest, () => { }); reject(err); }); }); }

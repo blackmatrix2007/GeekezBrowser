@@ -27,7 +27,7 @@ const enTranslations = {
     qsOn: "Pre: ON",
     qsOff: "Pre: OFF",
     confirmDel: "Delete this profile?",
-    inputReq: "Name & Proxy Link required!",
+    inputReq: "Profile name is required!",
     runningStatus: "RUNNING",
     done: "Done",
     remark: "Remark",
@@ -76,7 +76,7 @@ const enTranslations = {
     opt72h: "Every 72 Hours",
     optCustom: "Custom (Hours)",
     groupManual: "Manual Added",
-    helpTitle: "GeekEZ Manual",
+    helpTitle: "BNC Manual",
     tabManual: "User Manual",
     tabAbout: "About & Safety",
     autoFingerprint: "* Fingerprints generated automatically",
@@ -186,7 +186,7 @@ const enTranslations = {
 
 // Global i18n Manager
 // Only support en/vi — reset cn to en
-window.curLang = (() => { const l = localStorage.getItem('geekez_lang'); return (l === 'en' || l === 'vi') ? l : 'vi'; })();
+window.curLang = (() => { const l = localStorage.getItem('bnc_lang'); return (l === 'en' || l === 'vi') ? l : 'vi'; })();
 
 window.t = function (key) {
     if (window.curLang === 'cn' && window.zhCN && window.zhCN[key]) return window.zhCN[key];
@@ -196,7 +196,7 @@ window.t = function (key) {
 
 window.toggleLanguage = function () {
     window.curLang = window.curLang === 'en' ? 'vi' : 'en';
-    localStorage.setItem('geekez_lang', window.curLang);
+    localStorage.setItem('bnc_lang', window.curLang);
     location.reload();
 };
 

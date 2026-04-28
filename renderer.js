@@ -1052,27 +1052,36 @@ async function saveNewProfile() {
     const tags = _addTags;
     const note = _addNote;
 
-    // 分割多行代理链接
+    // Split multi-line proxy links
     const proxyLines = proxyText.split('\n').map(l => l.trim()).filter(l => l);
 
+    // No proxy — require a name, create single profile with no proxy
     if (proxyLines.length === 0) {
-        return showAlert(t('inputReq'));
+        if (!nameBase) return showAlert(t('inputReq'));
+        try {
+            await window.electronAPI.saveProfile({ name: nameBase, proxyStr: '', tags, note, timezone, city, geolocation, language, screen, preProxyOverride });
+        } catch (e) {
+            console.error(`Failed to create profile ${nameBase}:`, e);
+        }
+        closeAddModal();
+        await loadProfiles();
+        return;
     }
 
-    // 批量创建环境
+    // Batch create with proxy lines
     let createdCount = 0;
     for (let i = 0; i < proxyLines.length; i++) {
         const proxyStr = proxyLines[i];
         let name;
 
         if (!nameBase) {
-            // 无名称输入，使用代理备注
+            // No name input — derive from proxy remark
             name = getProxyRemark(proxyStr) || `Profile-${String(i + 1).padStart(2, '0')}`;
         } else if (proxyLines.length === 1) {
-            // 单个代理，使用输入名称
+            // Single proxy — use input name as-is
             name = nameBase;
         } else {
-            // 多个代理，添加序号
+            // Multiple proxies — append index
             name = `${nameBase}-${String(i + 1).padStart(2, '0')}`;
         }
 
@@ -1088,7 +1097,7 @@ async function saveNewProfile() {
     await loadProfiles();
 
     if (proxyLines.length > 1) {
-        showAlert(`${t('msgBatchCreated') || '批量创建成功'}: ${createdCount} ${t('msgProfiles') || '个环境'}`);
+        showAlert(`${t('msgBatchCreated') || 'Batch created'}: ${createdCount} ${t('msgProfiles') || 'profiles'}`);
     }
 }
 
@@ -1483,7 +1492,7 @@ async function testCurrentGroup() {
         list.forEach(p => { if (p.latency > 0 && p.latency < min) { min = p.latency; best = p; } });
         if (best) {
             globalSettings.selectedId = best.id;
-            if (document.getElementById('notifySwitch').checked) new Notification('GeekEZ', { body: `Auto-Switched: ${best.remark}` });
+            if (document.getElementById('notifySwitch').checked) new Notification('BNC', { body: `Auto-Switched: ${best.remark}` });
         }
     }
     renderProxyNodes();

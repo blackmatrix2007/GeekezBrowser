@@ -27,7 +27,7 @@ window.viVN = {
     qsOn: "Proxy: Bật",
     qsOff: "Proxy: Tắt",
     confirmDel: "Xóa profile này?",
-    inputReq: "Cần điền tên và proxy!",
+    inputReq: "Cần điền tên profile!",
     runningStatus: "ĐANG CHẠY",
     done: "Xong",
     remark: "Ghi chú",

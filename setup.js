@@ -83,7 +83,7 @@ function getLatestXrayVersion(useProxy = false) {
     return new Promise((resolve, reject) => {
         const url = useProxy ? (GH_PROXY + XRAY_API_URL) : XRAY_API_URL;
         const options = {
-            headers: { 'User-Agent': 'GeekEZ-Browser-Setup' },
+            headers: { 'User-Agent': 'BNC-Browser-Setup' },
             timeout: 10000
         };
 
@@ -92,7 +92,7 @@ function getLatestXrayVersion(useProxy = false) {
             const reqOptions = {
                 hostname: urlObj.hostname,
                 path: urlObj.pathname + urlObj.search,
-                headers: { 'User-Agent': 'GeekEZ-Browser-Setup' },
+                headers: { 'User-Agent': 'BNC-Browser-Setup' },
                 timeout: 10000
             };
 

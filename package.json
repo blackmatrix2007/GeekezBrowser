@@ -16,7 +16,7 @@
   },
   "build": {
     "appId": "com.geekez.browser",
-    "productName": "GeekEZ Browser",
+    "productName": "BNC",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "dist"
@@ -96,7 +96,7 @@
           "x": 270,
           "y": 100,
           "type": "file",
-          "path": "resources/使用说明.txt"
+          "path": "resources/HOW_TO_INSTALL.txt"
         }
       ],
       "window": {

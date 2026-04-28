@@ -1,0 +1,15 @@
+IMPORTANT: What if "App is damaged" appears?
+==================================================
+
+MacOS Gatekeeper security mechanism may block unsigned apps (downloaded from GitHub).
+
+✅ Solution:
+
+1. First, drag the "BNC" app into the [Applications] folder on the right.
+
+2. Open Terminal (cmd+space, type "Terminal"), copy the following command and press Enter:
+   (Your password will not be shown when typing, just type it and press Enter)
+
+   sudo xattr -rd com.apple.quarantine /Applications/BNC.app
+
+3. Done! You can now launch the app from Launchpad.

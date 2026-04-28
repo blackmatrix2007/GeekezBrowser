@@ -3,7 +3,7 @@
 
 !macro preInit
   ; Kill process nếu đang chạy (bao gồm cả tray mode)
-  nsExec::Exec 'taskkill /F /IM "GeekEZ Browser.exe" /T'
+  nsExec::Exec 'taskkill /F /IM "BNC.exe" /T'
   Pop $0
   ; Đợi 1 giây để process dọn dẹp
   Sleep 1000
@@ -11,7 +11,7 @@
 
 !macro customUnInit
   ; Kill process trước khi uninstall
-  nsExec::Exec 'taskkill /F /IM "GeekEZ Browser.exe" /T'
+  nsExec::Exec 'taskkill /F /IM "BNC.exe" /T'
   Pop $0
   Sleep 500
 !macroend

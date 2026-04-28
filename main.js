@@ -3734,6 +3734,7 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             '--restore-last-session',
             '--no-sandbox',
             '--disable-setuid-sandbox',
+            '--disable-blink-features=AutomationControlled',
 
             '--disable-features=IsolateOrigins,ExtensionsMenuAccessControl',
             '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',

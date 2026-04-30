@@ -18,6 +18,19 @@ const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
 const initSqlJs = require('sql.js');
 
+// ─── Stable userData path: pinned to 'BNC' regardless of productName ──────────
+// MUST be called before any app.getPath('userData') — all constants below depend on it.
+// Pinning prevents data loss when app is renamed or electron-builder productName changes.
+{
+    const _newData = path.join(app.getPath('appData'), 'BNC');
+    app.setPath('userData', _newData);
+    // One-time migration: copy existing data from old 'GeekEZ Browser' folder (users upgrading)
+    const _oldData = path.join(app.getPath('appData'), 'GeekEZ Browser');
+    if (!fs.existsSync(_newData) && fs.existsSync(_oldData)) {
+        try { fs.copySync(_oldData, _newData); } catch (e) { /* non-fatal — app still starts clean */ }
+    }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Hardware acceleration enabled for better UI performance
 // Only disable if GPU compatibility issues occur

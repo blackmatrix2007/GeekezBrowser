@@ -2453,7 +2453,16 @@ ipcMain.handle('verify-profile', async (event, profileId) => {
         if (verifyBrowser) { try { await verifyBrowser.close(); } catch(e) {} }
     }
 });
-ipcMain.handle('get-profiles', async () => { if (!fs.existsSync(PROFILES_FILE)) return []; return fs.readJson(PROFILES_FILE); });
+ipcMain.handle('get-profiles', async () => {
+    if (!fs.existsSync(PROFILES_FILE)) return [];
+    const all = await fs.readJson(PROFILES_FILE);
+    const auth = getSavedBncAuth();
+    const selectedSubId = auth?.selectedSubscriptionId ?? null;
+    // Nếu chưa chọn sub nào → trả hết (backward compat)
+    // Nếu đã chọn → chỉ lấy profiles của sub đó + profiles chưa gán sub (legacy)
+    if (!selectedSubId) return all;
+    return all.filter(p => !p.subscriptionId || p.subscriptionId === selectedSubId);
+});
 ipcMain.handle('update-profile', async (event, updatedProfile) => {
     let profiles = await fs.readJson(PROFILES_FILE);
     const index = profiles.findIndex(p => p.id === updatedProfile.id);
@@ -2487,6 +2496,7 @@ ipcMain.handle('save-profile', async (event, data) => {
         fingerprint.window = data.screen;
     }
 
+    const auth = getSavedBncAuth();
     const newProfile = {
         id: uuidv4(),
         name: data.name,
@@ -2496,7 +2506,8 @@ ipcMain.handle('save-profile', async (event, data) => {
         fingerprint: fingerprint,
         preProxyOverride: data.preProxyOverride || 'default',
         isSetup: false,
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        subscriptionId: auth?.selectedSubscriptionId || null,
     };
     profiles.push(newProfile);
     await fs.writeJson(PROFILES_FILE, profiles);

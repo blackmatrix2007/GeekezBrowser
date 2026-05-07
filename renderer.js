@@ -267,6 +267,9 @@ async function selectBncSubscription(subscriptionId) {
             bncRenderUserInfo(_bncAuth);
         }
     }
+    // Reload profile list để hiện đúng profiles của sub vừa chọn
+    document.getElementById('bncUserDropdown').style.display = 'none';
+    if (typeof loadProfiles === 'function') await loadProfiles();
 }
 
 function showBncSubWarning(daysRemaining) {
@@ -371,7 +374,81 @@ async function openPaymentModal(planId, price, planName) {
 
 function closePaymentModal(backToPlans) {
     document.getElementById('bncPaymentModal').style.display = 'none';
-    if (backToPlans) openPlansModal();
+    if (backToPlans) {
+        openPlansModal();
+    } else {
+        // User đóng modal (không quay lại) → poll server chờ sub mới
+        startPaymentPoll();
+    }
+}
+
+// Poll server sau khi thanh toán — tối đa 3 phút, mỗi 5 giây
+let _paymentPollTimer = null;
+function startPaymentPoll() {
+    const knownIds = new Set((_bncAuth?.subscriptions || []).map(s => s.id));
+    let attempts = 0;
+    const MAX = 36; // 36 × 5s = 3 phút
+
+    // Hiện toast báo đang chờ
+    showBncToast('⏳ Đang chờ xác nhận thanh toán...', 0);
+
+    _paymentPollTimer && clearInterval(_paymentPollTimer);
+    _paymentPollTimer = setInterval(async () => {
+        attempts++;
+        try {
+            const subs = await window.electronAPI.bncGetSubscriptions();
+            const newSub = subs.find(s => !knownIds.has(s.id));
+            if (newSub) {
+                clearInterval(_paymentPollTimer);
+                _paymentPollTimer = null;
+
+                // Cập nhật auth local
+                if (_bncAuth) {
+                    _bncAuth.subscriptions = subs;
+                    if (!_bncAuth.selectedSubscriptionId) {
+                        _bncAuth.selectedSubscriptionId = newSub.id;
+                        _bncAuth.subscription = newSub;
+                        await window.electronAPI.bncSelectSubscription(newSub.id);
+                    }
+                    bncRenderUserInfo(_bncAuth);
+                    renderBncSubscriptions(subs, _bncAuth.selectedSubscriptionId);
+                }
+
+                hideBncExpiredOverlay();
+                showBncToast(`✅ Đã kích hoạt gói ${(newSub.planType||'').toUpperCase()}! Còn ${newSub.daysRemaining} ngày.`, 5000);
+                if (typeof loadProfiles === 'function') await loadProfiles();
+                return;
+            }
+        } catch (_) {}
+
+        if (attempts >= MAX) {
+            clearInterval(_paymentPollTimer);
+            _paymentPollTimer = null;
+            showBncToast('⚠ Không nhận được xác nhận. Kiểm tra lại sau vài phút.', 6000);
+        }
+    }, 5000);
+}
+
+// Toast notification nhỏ góc dưới phải
+function showBncToast(msg, duration = 4000) {
+    let toast = document.getElementById('bncToast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'bncToast';
+        toast.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:99999;background:#1e2535;border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:12px 18px;font-size:13px;color:#e0e0e0;box-shadow:0 4px 20px rgba(0,0,0,0.5);max-width:320px;line-height:1.5;transition:opacity .3s;';
+        document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    toast.style.opacity = '1';
+    toast.style.display = 'block';
+
+    if (toast._hideTimer) clearTimeout(toast._hideTimer);
+    if (duration > 0) {
+        toast._hideTimer = setTimeout(() => {
+            toast.style.opacity = '0';
+            setTimeout(() => { toast.style.display = 'none'; }, 300);
+        }, duration);
+    }
 }
 
 function openBncPaymentHistory() {

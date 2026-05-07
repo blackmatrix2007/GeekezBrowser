@@ -2499,13 +2499,7 @@ ipcMain.handle('verify-profile', async (event, profileId) => {
 });
 ipcMain.handle('get-profiles', async () => {
     if (!fs.existsSync(PROFILES_FILE)) return [];
-    const all = await fs.readJson(PROFILES_FILE);
-    const auth = getSavedBncAuth();
-    const selectedSubId = auth?.selectedSubscriptionId ?? null;
-    // Nếu chưa chọn sub nào → trả hết (backward compat)
-    // Nếu đã chọn → chỉ lấy profiles của sub đó + profiles chưa gán sub (legacy)
-    if (!selectedSubId) return all;
-    return all.filter(p => !p.subscriptionId || p.subscriptionId === selectedSubId);
+    return fs.readJson(PROFILES_FILE);
 });
 ipcMain.handle('update-profile', async (event, updatedProfile) => {
     let profiles = await fs.readJson(PROFILES_FILE);

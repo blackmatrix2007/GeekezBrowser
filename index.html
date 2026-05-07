@@ -61,12 +61,6 @@
             -webkit-app-region: drag;
         }
 
-        /* ===== Windows titlebar fix ===== */
-        body.platform-win32 .bnc-user-area {
-            top: 6px;
-            right: 150px;
-        }
-
         /* ===== SIDEBAR ===== */
         .sidebar {
             width: 220px;
@@ -1359,13 +1353,13 @@
             <span id="currentProxyDisplay" class="status-badge">OFF</span>
             <button class="outline" onclick="openProxyManager()" data-i18n="manageChain">⚙️ Proxy Chain</button>
         </div>
-        <div style="display:flex; gap:10px; align-items:center;">
+        <div style="display:flex; gap:10px; align-items:center; flex:1;">
             <button class="outline" onclick="openExportModal()" data-i18n="btnExport">📤 Export</button>
             <div style="position: relative;">
                 <button class="outline" onclick="toggleImportMenu()" id="importBtn" data-i18n="importYaml">📥 Import
                     ▾</button>
                 <div id="importMenu"
-                    style="display: none; position: absolute; top: 35px; right: 0; background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px; min-width: 200px; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+                    style="display: none; position: absolute; top: 35px; left: 0; background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px; min-width: 200px; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
                     <div onclick="importFullBackup(); closeImportMenu();"
                         style="padding: 10px 15px; cursor: pointer; font-size: 13px;"
                         onmouseover="this.style.background='rgba(128,128,128,0.1)'"
@@ -1380,9 +1374,47 @@
                     </div>
                 </div>
             </div>
-
-
         </div>
+
+        <!-- ── BNC User Avatar ── -->
+        <div id="bncUserArea" style="display:flex;align-items:center;gap:8px;flex-shrink:0;position:relative;">
+            <!-- Subscription warning badge -->
+            <div id="bncSubBadge" style="display:none;font-size:11px;padding:3px 8px;border-radius:20px;background:rgba(255,152,0,0.15);color:#ff9800;border:1px solid rgba(255,152,0,0.3);cursor:pointer;white-space:nowrap;" onclick="openPlansModal()">
+                ⚠ <span id="bncSubBadgeText">7 ngày</span>
+            </div>
+            <!-- Avatar button -->
+            <div id="bncAvatarBtn" onclick="toggleBncUserMenu()" style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#00e0ff,#0055ff);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;cursor:pointer;user-select:none;flex-shrink:0;" title="Tài khoản">
+                <span id="bncAvatarInitial">?</span>
+            </div>
+            <!-- Dropdown -->
+            <div id="bncUserDropdown" style="display:none;position:absolute;top:38px;right:0;min-width:240px;background:#1e2535;border:1px solid rgba(255,255,255,0.1);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,0.6);z-index:9200;overflow:hidden;">
+                <!-- User info -->
+                <div style="padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.07);display:flex;align-items:center;gap:10px;">
+                    <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#00e0ff,#0055ff);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;flex-shrink:0;" id="bncDropAvatar">?</div>
+                    <div style="min-width:0;">
+                        <div id="bncDropEmail" style="font-size:13px;font-weight:600;color:#e0e0e0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+                        <div id="bncDropPlan" style="font-size:11px;color:#00e0ff;margin-top:2px;"></div>
+                    </div>
+                </div>
+                <!-- Active subscriptions list -->
+                <div id="bncSubList" style="display:none;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.07);"></div>
+                <!-- Menu items -->
+                <div onclick="openPlansModal()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
+                    <span>💎</span> Mua Gói / Gia hạn
+                </div>
+                <div onclick="syncBncProfiles()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
+                    <span>🔄</span> Đồng bộ Profile
+                </div>
+                <div onclick="openBncPaymentHistory()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
+                    <span>📋</span> Lịch sử giao dịch
+                </div>
+                <div style="border-top:1px solid rgba(255,255,255,0.07);margin:2px 0;"></div>
+                <div onclick="doBncLogout()" style="padding:11px 16px;font-size:13px;color:#f64e60;cursor:pointer;display:flex;align-items:center;gap:9px;font-weight:600;" onmouseover="this.style.background='rgba(246,78,96,0.07)'" onmouseout="this.style.background='transparent'">
+                    <span>↪</span> Đăng xuất
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <div class="sub-toolbar">
@@ -2210,45 +2242,6 @@
         </div>
     </div>
 
-    <!-- ── BNC User Avatar — fixed top-right corner ─────────────────────── -->
-    <div id="bncUserArea" style="position:fixed;top:8px;right:14px;z-index:9100;display:flex;align-items:center;gap:8px;-webkit-app-region:no-drag;" class="bnc-user-area">
-        <!-- Subscription warning badge -->
-        <div id="bncSubBadge" style="display:none;font-size:11px;padding:3px 8px;border-radius:20px;background:rgba(255,152,0,0.15);color:#ff9800;border:1px solid rgba(255,152,0,0.3);cursor:pointer;white-space:nowrap;" onclick="openPlansModal()">
-            ⚠ <span id="bncSubBadgeText">7 ngày</span>
-        </div>
-        <!-- Avatar button -->
-        <div id="bncAvatarBtn" onclick="toggleBncUserMenu()" style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#00e0ff,#0055ff);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;cursor:pointer;user-select:none;flex-shrink:0;-webkit-app-region:no-drag;" title="Tài khoản">
-            <span id="bncAvatarInitial">?</span>
-        </div>
-        <!-- Dropdown -->
-        <div id="bncUserDropdown" style="display:none;position:absolute;top:40px;right:0;min-width:240px;background:#1e2535;border:1px solid rgba(255,255,255,0.1);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,0.6);z-index:9200;overflow:hidden;-webkit-app-region:no-drag;">
-            <!-- User info -->
-            <div style="padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.07);display:flex;align-items:center;gap:10px;">
-                <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#00e0ff,#0055ff);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;flex-shrink:0;" id="bncDropAvatar">?</div>
-                <div style="min-width:0;">
-                    <div id="bncDropEmail" style="font-size:13px;font-weight:600;color:#e0e0e0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
-                    <div id="bncDropPlan" style="font-size:11px;color:#00e0ff;margin-top:2px;"></div>
-                </div>
-            </div>
-            <!-- Active subscriptions list -->
-            <div id="bncSubList" style="display:none;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.07);"></div>
-            <!-- Menu items -->
-            <div onclick="openPlansModal()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
-                <span>💎</span> Mua Gói / Gia hạn
-            </div>
-            <div onclick="syncBncProfiles()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
-                <span>🔄</span> Đồng bộ Profile
-            </div>
-            <div onclick="openBncPaymentHistory()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
-                <span>📋</span> Lịch sử giao dịch
-            </div>
-            <div style="border-top:1px solid rgba(255,255,255,0.07);margin:2px 0;"></div>
-            <div onclick="doBncLogout()" style="padding:11px 16px;font-size:13px;color:#f64e60;cursor:pointer;display:flex;align-items:center;gap:9px;font-weight:600;" onmouseover="this.style.background='rgba(246,78,96,0.07)'" onmouseout="this.style.background='transparent'">
-                <span>↪</span> Đăng xuất
-            </div>
-        </div>
-    </div>
-    <!-- ─────────────────────────────────────────────────────────────────── -->
 
 </body>
 

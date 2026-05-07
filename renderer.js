@@ -479,10 +479,10 @@ function openBncPaymentHistory() {
     window.electronAPI.invoke('open-url', 'https://yttool.vn/tai-khoan/giao-dich');
 }
 
-// Platform class cho body (Windows titlebar fix)
+// Platform class cho body (Windows titlebar fix) — dùng navigator.platform, không cần IPC
 try {
-    const platform = window.electronAPI.getPlatform();
-    if (platform) document.body.classList.add('platform-' + platform);
+    const ua = (navigator.userAgentData?.platform || navigator.platform || '').toLowerCase();
+    if (ua.includes('win')) document.body.classList.add('platform-win32');
 } catch (_) {}
 
 // Khởi động BNC UI

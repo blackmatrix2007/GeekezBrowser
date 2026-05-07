@@ -188,8 +188,17 @@ async function doBncLogout() {
 }
 
 function toggleBncUserMenu() {
-    const dd = document.getElementById('bncUserDropdown');
-    if (dd) dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+    const dd  = document.getElementById('bncUserDropdown');
+    const btn = document.getElementById('bncAvatarBtn');
+    if (!dd) return;
+    if (dd.style.display !== 'none') { dd.style.display = 'none'; return; }
+
+    // Tính vị trí fixed dựa trên avatar button
+    const rect = btn.getBoundingClientRect();
+    dd.style.top  = (rect.bottom + 6) + 'px';
+    dd.style.right = (window.innerWidth - rect.right) + 'px';
+    dd.style.left = 'auto';
+    dd.style.display = 'block';
 }
 
 function bncRenderUserInfo(auth) {

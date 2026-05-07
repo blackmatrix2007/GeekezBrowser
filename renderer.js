@@ -1,5 +1,244 @@
 ﻿// i18n structure moved to i18n.js and locales/
 
+// ════════════════════════════════════════════════════════════════════════════
+// BNC AUTH UI
+// ════════════════════════════════════════════════════════════════════════════
+let _bncAuth = null; // { email, customerId, subscription }
+
+async function bncInit() {
+    // Nhận trạng thái từ main process (gửi sau access check)
+    window.electronAPI.onBncAuthState(async (state) => {
+        if (!state.isLoggedIn) {
+            showBncLoginOverlay();
+        } else {
+            hideBncLoginOverlay();
+            await bncLoadUserInfo();
+            if (state.isWarning) showBncSubWarning(state.daysRemaining);
+        }
+    });
+
+    // Fallback: tự check nếu không nhận được event (reload / cache)
+    try {
+        const auth = await window.electronAPI.bncGetAuth();
+        _bncAuth = auth;
+        if (!auth || !auth.isLoggedIn) {
+            showBncLoginOverlay();
+        } else {
+            hideBncLoginOverlay();
+            bncRenderUserInfo(auth);
+        }
+    } catch (_) {}
+
+    // Register link → open browser
+    document.getElementById('bncRegisterLink')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.electronAPI.invoke('open-url', 'https://bagi.vn/dang-ky');
+    });
+    document.getElementById('bncForgotLink')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.electronAPI.invoke('open-url', 'https://bagi.vn/quen-mat-khau');
+    });
+
+    // Đóng dropdown khi click ngoài
+    document.addEventListener('click', (e) => {
+        const dd = document.getElementById('bncUserDropdown');
+        const btn = document.getElementById('bncAvatarBtn');
+        if (dd && !dd.contains(e.target) && !btn?.contains(e.target)) {
+            dd.style.display = 'none';
+        }
+    });
+}
+
+function showBncLoginOverlay() {
+    const overlay = document.getElementById('bncLoginOverlay');
+    if (overlay) {
+        overlay.style.display = 'flex';
+        setTimeout(() => document.getElementById('bncEmailInput')?.focus(), 300);
+    }
+}
+
+function hideBncLoginOverlay() {
+    const overlay = document.getElementById('bncLoginOverlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+function toggleBncPassword() {
+    const inp = document.getElementById('bncPasswordInput');
+    if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+async function doBncLogin() {
+    const email    = document.getElementById('bncEmailInput')?.value?.trim();
+    const password = document.getElementById('bncPasswordInput')?.value;
+    const errEl    = document.getElementById('bncLoginError');
+    const btn      = document.getElementById('bncLoginBtn');
+
+    if (!email || !password) {
+        errEl.textContent = 'Vui lòng nhập đầy đủ email và mật khẩu';
+        errEl.style.display = 'block'; return;
+    }
+    errEl.style.display = 'none';
+    btn.disabled = true; btn.textContent = 'Đang đăng nhập...';
+
+    try {
+        const result = await window.electronAPI.bncLogin(email, password);
+        if (result.success) {
+            _bncAuth = { isLoggedIn: true, email, customerId: result.customer?.id, subscription: result.subscription };
+            hideBncLoginOverlay();
+            bncRenderUserInfo(_bncAuth);
+            if (result.subscription?.isWarning) showBncSubWarning(result.subscription.daysRemaining);
+        } else {
+            errEl.textContent = result.message || 'Đăng nhập thất bại';
+            errEl.style.display = 'block';
+            btn.disabled = false; btn.textContent = 'Đăng nhập';
+        }
+    } catch (e) {
+        errEl.textContent = 'Lỗi kết nối. Kiểm tra lại mạng.';
+        errEl.style.display = 'block';
+        btn.disabled = false; btn.textContent = 'Đăng nhập';
+    }
+}
+
+async function doBncLogout() {
+    document.getElementById('bncUserDropdown').style.display = 'none';
+    await window.electronAPI.bncLogout();
+    _bncAuth = null;
+    // Reset UI
+    document.getElementById('bncAvatarInitial').textContent = '?';
+    document.getElementById('bncDropEmail').textContent = '';
+    document.getElementById('bncDropPlan').textContent = '';
+    document.getElementById('bncSubBadge').style.display = 'none';
+    showBncLoginOverlay();
+}
+
+function toggleBncUserMenu() {
+    const dd = document.getElementById('bncUserDropdown');
+    if (dd) dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+}
+
+function bncRenderUserInfo(auth) {
+    if (!auth?.email) return;
+    const initial = (auth.email[0] || '?').toUpperCase();
+    const avatarInitialEl = document.getElementById('bncAvatarInitial');
+    const dropAvatarEl = document.getElementById('bncDropAvatar');
+    if (avatarInitialEl) avatarInitialEl.textContent = initial;
+    if (dropAvatarEl) dropAvatarEl.textContent = initial;
+    const emailEl = document.getElementById('bncDropEmail');
+    if (emailEl) emailEl.textContent = auth.email;
+
+    const sub = auth.subscription;
+    let planText = 'Chưa có gói';
+    if (sub && !sub.isExpired) {
+        planText = `${(sub.planType||'').toUpperCase()} — còn ${sub.daysRemaining} ngày`;
+    } else if (sub && sub.isExpired) {
+        planText = 'Gói đã hết hạn';
+    }
+    const planEl = document.getElementById('bncDropPlan');
+    if (planEl) planEl.textContent = planText;
+}
+
+async function bncLoadUserInfo() {
+    try {
+        const auth = await window.electronAPI.bncGetAuth();
+        if (auth) { _bncAuth = auth; bncRenderUserInfo(auth); }
+    } catch (_) {}
+}
+
+function showBncSubWarning(daysRemaining) {
+    const badge = document.getElementById('bncSubBadge');
+    const text  = document.getElementById('bncSubBadgeText');
+    if (badge && text) {
+        text.textContent = `${daysRemaining} ngày`;
+        badge.style.display = 'flex';
+    }
+}
+
+// ── Plans Modal ──────────────────────────────────────────────────────────────
+async function openPlansModal() {
+    document.getElementById('bncUserDropdown').style.display = 'none';
+    document.getElementById('bncPlansModal').style.display = 'flex';
+
+    const plans = await window.electronAPI.bncGetPlans();
+    const currentPlan = _bncAuth?.subscription?.planType;
+    const grid = document.getElementById('bncPlansGrid');
+
+    const fmt = (n) => new Intl.NumberFormat('vi-VN').format(n) + 'đ';
+
+    grid.innerHTML = plans.map(p => {
+        const isActive = p.id === currentPlan;
+        const features = {
+            starter: ['30 profiles', 'Tất cả tính năng', 'Hỗ trợ cơ bản'],
+            pro:     ['100 profiles', 'Tất cả tính năng', 'Hỗ trợ ưu tiên'],
+            team:    ['300 profiles', 'Tất cả tính năng', 'Hỗ trợ ưu tiên', 'Multi-user'],
+            scale:   ['1000 profiles', 'Tất cả tính năng', 'Hỗ trợ 24/7', 'Multi-user', 'API Access'],
+        }[p.id] || [];
+
+        return `
+        <div style="background:${isActive ? 'rgba(0,224,255,0.06)' : 'rgba(0,0,0,0.2)'};border:1.5px solid ${isActive ? '#00e0ff' : 'rgba(255,255,255,0.08)'};border-radius:12px;padding:20px 16px;display:flex;flex-direction:column;gap:10px;position:relative;">
+            ${isActive ? '<div style="position:absolute;top:-1px;left:50%;transform:translateX(-50%);background:#00e0ff;color:#000;font-size:10px;font-weight:700;padding:2px 10px;border-radius:0 0 6px 6px;white-space:nowrap;">Đang dùng</div>' : ''}
+            <div style="font-size:15px;font-weight:800;color:#fff;margin-top:${isActive?'8px':'0'};">${p.name}</div>
+            <div>
+                <span style="font-size:20px;font-weight:800;color:${isActive?'#00e0ff':'#fff'};">${fmt(p.price)}</span>
+                <span style="font-size:11px;color:#667;">/tháng</span>
+            </div>
+            <div style="font-size:11px;color:#888;">
+                ${features.map(f => `<div style="margin-bottom:4px;">✓ ${f}</div>`).join('')}
+            </div>
+            <button onclick="openPaymentModal('${p.id}',${p.price},'${p.name}')"
+                style="margin-top:auto;padding:9px 0;border-radius:8px;border:none;background:${isActive?'rgba(0,224,255,0.15)':'linear-gradient(135deg,#00e0ff,#0055ff)'};color:${isActive?'#00e0ff':'#fff'};font-size:13px;font-weight:700;cursor:pointer;width:100%;">
+                ${isActive ? 'Gia hạn' : 'Chọn gói'}
+            </button>
+        </div>`;
+    }).join('');
+}
+
+function closePlansModal() {
+    document.getElementById('bncPlansModal').style.display = 'none';
+}
+
+// ── Payment Modal ─────────────────────────────────────────────────────────────
+async function openPaymentModal(planId, price, planName) {
+    document.getElementById('bncPlansModal').style.display = 'none';
+    document.getElementById('bncPaymentModal').style.display = 'flex';
+
+    const info = await window.electronAPI.bncGetPaymentInfo();
+    const content = document.getElementById('bncPaymentContent');
+    const fmt = (n) => new Intl.NumberFormat('vi-VN').format(n);
+
+    // VietQR URL
+    const qrUrl = `https://img.vietqr.io/image/${info.bankAcqId}-${info.bankAccountNo}-compact2.png?amount=${price}&addInfo=${encodeURIComponent(info.transferContent)}&accountName=${encodeURIComponent(info.bankAccountName)}`;
+
+    content.innerHTML = `
+        <div style="margin-bottom:14px;">
+            <div style="font-size:13px;color:#aaa;margin-bottom:4px;">Gói đã chọn</div>
+            <div style="font-size:18px;font-weight:700;color:#00e0ff;">${planName} — ${fmt(price)}đ/tháng</div>
+        </div>
+        <img src="${qrUrl}" alt="QR" style="width:200px;height:200px;border-radius:10px;margin-bottom:14px;background:#fff;" onerror="this.style.display='none'">
+        <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:14px;text-align:left;font-size:13px;line-height:1.8;color:#ccc;margin-bottom:4px;">
+            <div><span style="color:#888;">Ngân hàng:</span> <strong style="color:#fff;">Vietinbank</strong></div>
+            <div><span style="color:#888;">Số TK:</span> <strong style="color:#00e0ff;">${info.bankAccountNo}</strong></div>
+            <div><span style="color:#888;">Chủ TK:</span> <strong style="color:#fff;">${info.bankAccountName}</strong></div>
+            <div><span style="color:#888;">Số tiền:</span> <strong style="color:#fff;">${fmt(price)}đ</strong></div>
+            <div><span style="color:#888;">Nội dung:</span> <strong style="color:#ff9800;font-family:monospace;font-size:14px;">${info.transferContent}</strong></div>
+        </div>
+        <div style="font-size:11px;color:#666;margin-top:10px;">Hệ thống tự động gia hạn sau khi nhận được chuyển khoản (thường trong vài phút)</div>
+    `;
+}
+
+function closePaymentModal() {
+    document.getElementById('bncPaymentModal').style.display = 'none';
+}
+
+function openBncPaymentHistory() {
+    document.getElementById('bncUserDropdown').style.display = 'none';
+    window.electronAPI.invoke('open-url', 'https://bagi.vn/tai-khoan/giao-dich');
+}
+
+// Khởi động BNC UI
+bncInit();
+
+// ════════════════════════════════════════════════════════════════════════════
+
 // Ẩn tabs dev-only khi chạy bản release (app.isPackaged = true)
 async function initSettingsTabs() {
     try {

@@ -1184,6 +1184,79 @@
         </div>
     </div>
 
+    <!-- ═══ BNC LOGIN OVERLAY ═══════════════════════════════════════════════ -->
+    <div id="bncLoginOverlay" style="display:none;position:fixed;inset:0;z-index:9990;background:#0d0d1a;display:flex;align-items:center;justify-content:center;-webkit-app-region:drag;">
+        <div style="-webkit-app-region:no-drag;width:380px;background:#151b2d;border-radius:16px;padding:36px 32px;box-shadow:0 24px 80px rgba(0,0,0,0.7);border:1px solid rgba(0,224,255,0.08);">
+            <!-- Logo -->
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+                <svg viewBox="0 0 48 48" width="32" height="32" xmlns="http://www.w3.org/2000/svg">
+                    <defs><linearGradient id="lg2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#00e0ff;stop-opacity:1"/><stop offset="100%" style="stop-color:#0055ff;stop-opacity:1"/></linearGradient></defs>
+                    <rect x="2" y="2" width="44" height="44" rx="10" fill="url(#lg2)" opacity="0.15" stroke="url(#lg2)" stroke-width="2"/>
+                    <circle cx="24" cy="24" r="10" fill="none" stroke="url(#lg2)" stroke-width="3"/>
+                    <circle cx="24" cy="24" r="4" fill="url(#lg2)"/>
+                    <line x1="24" y1="6" x2="24" y2="14" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
+                    <line x1="24" y1="34" x2="24" y2="42" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
+                    <line x1="6" y1="24" x2="14" y2="24" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
+                    <line x1="34" y1="24" x2="42" y2="24" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
+                </svg>
+                <span style="font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.5px;font-family:'Courier New',monospace;">BNC <span style="color:#00e0ff;">Browser</span></span>
+            </div>
+            <h2 style="margin:0 0 4px 0;font-size:18px;font-weight:700;color:#fff;">Đăng nhập</h2>
+            <p style="margin:0 0 24px 0;font-size:13px;color:#667;">Người dùng mới? <a id="bncRegisterLink" href="#" style="color:#00e0ff;text-decoration:none;font-weight:600;">Tạo tài khoản</a></p>
+
+            <div style="display:flex;flex-direction:column;gap:12px;">
+                <input id="bncEmailInput" type="email" placeholder="Email" autocomplete="username"
+                    style="width:100%;box-sizing:border-box;padding:11px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.3);color:#fff;font-size:14px;outline:none;transition:border .2s;"
+                    onfocus="this.style.borderColor='#00e0ff'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'"
+                    onkeydown="if(event.key==='Enter')document.getElementById('bncPasswordInput').focus()">
+                <div style="position:relative;">
+                    <input id="bncPasswordInput" type="password" placeholder="Mật khẩu" autocomplete="current-password"
+                        style="width:100%;box-sizing:border-box;padding:11px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.3);color:#fff;font-size:14px;outline:none;transition:border .2s;padding-right:44px;"
+                        onfocus="this.style.borderColor='#00e0ff'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'"
+                        onkeydown="if(event.key==='Enter')doBncLogin()">
+                    <span onclick="toggleBncPassword()" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;color:#667;font-size:16px;user-select:none;" title="Hiện/ẩn mật khẩu">👁</span>
+                </div>
+                <div style="text-align:right;">
+                    <a id="bncForgotLink" href="#" style="color:#667;font-size:12px;text-decoration:none;">Quên mật khẩu?</a>
+                </div>
+            </div>
+
+            <div id="bncLoginError" style="display:none;margin-top:12px;padding:10px 14px;background:rgba(246,78,96,0.12);border:1px solid rgba(246,78,96,0.3);border-radius:8px;font-size:13px;color:#f64e60;"></div>
+
+            <button id="bncLoginBtn" onclick="doBncLogin()"
+                style="margin-top:20px;width:100%;padding:12px;border-radius:8px;border:none;background:linear-gradient(135deg,#00e0ff,#0055ff);color:#fff;font-size:14px;font-weight:700;cursor:pointer;transition:opacity .2s;letter-spacing:.3px;">
+                Đăng nhập
+            </button>
+
+            <p style="margin:16px 0 0 0;text-align:center;font-size:11px;color:#444;">
+                Bằng cách đăng nhập, bạn đồng ý với <a href="#" style="color:#00e0ff;text-decoration:none;">Điều khoản sử dụng</a>
+            </p>
+        </div>
+    </div>
+    <!-- ════════════════════════════════════════════════════════════════════ -->
+
+    <!-- ═══ BNC PLANS MODAL ══════════════════════════════════════════════ -->
+    <div id="bncPlansModal" class="modal-overlay" style="display:none;">
+        <div class="modal-content" style="width:780px;max-height:85vh;overflow-y:auto;">
+            <div class="modal-header">
+                <span>💎 Chọn gói của bạn</span>
+                <span style="cursor:pointer;font-size:18px;" onclick="closePlansModal()">✕</span>
+            </div>
+            <div id="bncPlansGrid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding:4px 0 16px 0;"></div>
+        </div>
+    </div>
+
+    <!-- ═══ BNC PAYMENT MODAL ════════════════════════════════════════════ -->
+    <div id="bncPaymentModal" class="modal-overlay" style="display:none;">
+        <div class="modal-content" style="width:400px;text-align:center;">
+            <div class="modal-header">
+                <span>💳 Thanh toán</span>
+                <span style="cursor:pointer;font-size:18px;" onclick="closePaymentModal()">✕</span>
+            </div>
+            <div id="bncPaymentContent" style="padding:8px 0 16px;"></div>
+        </div>
+    </div>
+
     <!-- SIDEBAR -->
     <div class="sidebar">
         <div class="sidebar-logo">
@@ -1217,6 +1290,11 @@
         <div class="sidebar-item" onclick="document.querySelectorAll('.sidebar-item').forEach(i=>i.classList.remove('active'));this.classList.add('active');openProxyManager();">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
             <span data-i18n="navProxyChain">Proxy Chain</span>
+        </div>
+
+        <div class="sidebar-item" onclick="openPlansModal();">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <span>Mua Gói</span>
         </div>
 
         <div class="sidebar-spacer"></div>
@@ -1257,7 +1335,7 @@
             <span id="currentProxyDisplay" class="status-badge">OFF</span>
             <button class="outline" onclick="openProxyManager()" data-i18n="manageChain">⚙️ Proxy Chain</button>
         </div>
-        <div style="display:flex; gap:10px;">
+        <div style="display:flex; gap:10px; align-items:center;">
             <button class="outline" onclick="openExportModal()" data-i18n="btnExport">📤 Export</button>
             <div style="position: relative;">
                 <button class="outline" onclick="toggleImportMenu()" id="importBtn" data-i18n="importYaml">📥 Import
@@ -1278,6 +1356,8 @@
                     </div>
                 </div>
             </div>
+
+
         </div>
     </div>
 
@@ -2122,6 +2202,42 @@
             </div>
         </div>
     </div>
+
+    <!-- ── BNC User Avatar — fixed top-right corner ─────────────────────── -->
+    <div id="bncUserArea" style="position:fixed;top:8px;right:14px;z-index:9100;display:flex;align-items:center;gap:8px;-webkit-app-region:no-drag;">
+        <!-- Subscription warning badge -->
+        <div id="bncSubBadge" style="display:none;font-size:11px;padding:3px 8px;border-radius:20px;background:rgba(255,152,0,0.15);color:#ff9800;border:1px solid rgba(255,152,0,0.3);cursor:pointer;white-space:nowrap;" onclick="openPlansModal()">
+            ⚠ <span id="bncSubBadgeText">7 ngày</span>
+        </div>
+        <!-- Avatar button -->
+        <div id="bncAvatarBtn" onclick="toggleBncUserMenu()" style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#00e0ff,#0055ff);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;cursor:pointer;user-select:none;flex-shrink:0;-webkit-app-region:no-drag;" title="Tài khoản">
+            <span id="bncAvatarInitial">?</span>
+        </div>
+        <!-- Dropdown -->
+        <div id="bncUserDropdown" style="display:none;position:absolute;top:40px;right:0;min-width:240px;background:#1e2535;border:1px solid rgba(255,255,255,0.1);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,0.6);z-index:9200;overflow:hidden;-webkit-app-region:no-drag;">
+            <!-- User info -->
+            <div style="padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.07);display:flex;align-items:center;gap:10px;">
+                <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#00e0ff,#0055ff);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;flex-shrink:0;" id="bncDropAvatar">?</div>
+                <div style="min-width:0;">
+                    <div id="bncDropEmail" style="font-size:13px;font-weight:600;color:#e0e0e0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+                    <div id="bncDropPlan" style="font-size:11px;color:#00e0ff;margin-top:2px;"></div>
+                </div>
+            </div>
+            <!-- Menu items -->
+            <div onclick="openPlansModal()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
+                <span>💎</span> Mua Gói / Gia hạn
+            </div>
+            <div onclick="openBncPaymentHistory()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
+                <span>📋</span> Lịch sử giao dịch
+            </div>
+            <div style="border-top:1px solid rgba(255,255,255,0.07);margin:2px 0;"></div>
+            <div onclick="doBncLogout()" style="padding:11px 16px;font-size:13px;color:#f64e60;cursor:pointer;display:flex;align-items:center;gap:9px;font-weight:600;" onmouseover="this.style.background='rgba(246,78,96,0.07)'" onmouseout="this.style.background='transparent'">
+                <span>↪</span> Đăng xuất
+            </div>
+        </div>
+    </div>
+    <!-- ─────────────────────────────────────────────────────────────────── -->
+
 </body>
 
 </html>

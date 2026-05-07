@@ -90,6 +90,151 @@ const DATA_PATH_CONFIRMED   = path.join(app.getPath('userData'), '.data_path_con
 const SKIPPED_UPDATE_FILE   = path.join(app.getPath('userData'), '.skipped_update_version');
 const GRACE_HOURS           = 48; // Offline grace period: cho dùng tiếp 48h nếu mất mạng
 
+// ─── BNC Subscription Auth ───────────────────────────────────────────────────
+const BNC_API       = 'https://yttool.vn/api/bnc';
+const BNC_AUTH_FILE = path.join(app.getPath('userData'), 'bnc_auth.json');
+const BNC_SUB_CACHE = path.join(app.getPath('userData'), '.bnc_sub_cache.json');
+const BNC_GRACE_HOURS = 24; // offline grace: cho dùng tiếp 24h nếu mất mạng
+
+function saveBncAuth(data) {
+    try { fs.writeJsonSync(BNC_AUTH_FILE, data); } catch (_) {}
+}
+
+function getSavedBncAuth() {
+    try {
+        if (fs.existsSync(BNC_AUTH_FILE)) return fs.readJsonSync(BNC_AUTH_FILE);
+    } catch (_) {}
+    return null;
+}
+
+function saveBncSubCache(sub) {
+    try { fs.writeJsonSync(BNC_SUB_CACHE, { ...sub, cachedAt: new Date().toISOString() }); } catch (_) {}
+}
+
+function readBncSubCache() {
+    try {
+        if (!fs.existsSync(BNC_SUB_CACHE)) return null;
+        const cache = fs.readJsonSync(BNC_SUB_CACHE);
+        const hours = (Date.now() - new Date(cache.cachedAt).getTime()) / 3600000;
+        if (hours > BNC_GRACE_HOURS) return null;
+        return cache;
+    } catch (_) { return null; }
+}
+
+// Gọi muachungtool /api/bnc/login — trả về { accessToken, customer, subscription } hoặc null
+async function bncLogin(email, password) {
+    try {
+        const body = JSON.stringify({ email, password });
+        const loginUrl = BNC_API + '/login';
+        console.log('[DEBUG:BNC_LOGIN] Calling', loginUrl, 'email:', email);
+        return await new Promise((resolve) => {
+            const url = new URL(loginUrl);
+            const req = https.request({
+                hostname: url.hostname,
+                path: url.pathname,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+            }, (res) => {
+                let data = '';
+                res.on('data', c => data += c);
+                res.on('end', () => {
+                    console.log('[DEBUG:BNC_LOGIN] HTTP', res.statusCode, 'raw:', data.slice(0, 300));
+                    try {
+                        const parsed = JSON.parse(data);
+                        resolve({ ...parsed, _statusCode: res.statusCode });
+                    } catch (e) {
+                        console.log('[DEBUG:BNC_LOGIN] JSON parse error:', e.message);
+                        resolve(null);
+                    }
+                });
+            });
+            req.on('error', (e) => {
+                console.log('[DEBUG:BNC_LOGIN] Request error:', e.message);
+                resolve(null);
+            });
+            req.setTimeout(8000, () => {
+                console.log('[DEBUG:BNC_LOGIN] Timeout!');
+                req.destroy(); resolve(null);
+            });
+            req.write(body);
+            req.end();
+        });
+    } catch (e) {
+        console.log('[DEBUG:BNC_LOGIN] Exception:', e.message);
+        return null;
+    }
+}
+
+// Kiểm tra subscription với token đã lưu — trả về { subscription, isExpired, daysRemaining } hoặc null
+async function bncCheckSubscription() {
+    const auth = getSavedBncAuth();
+    if (!auth || !auth.accessToken) return null;
+    try {
+        return await new Promise((resolve) => {
+            const url = new URL(BNC_API + '/subscription');
+            const req = https.request({
+                hostname: url.hostname,
+                path: url.pathname,
+                method: 'GET',
+                headers: { 'Authorization': 'Bearer ' + auth.accessToken },
+            }, (res) => {
+                let data = '';
+                res.on('data', c => data += c);
+                res.on('end', () => {
+                    try { resolve({ ...JSON.parse(data), _statusCode: res.statusCode }); } catch (_) { resolve(null); }
+                });
+            });
+            req.on('error', () => resolve(null));
+            req.setTimeout(8000, () => { req.destroy(); resolve(null); });
+            req.end();
+        });
+    } catch (_) { return null; }
+}
+
+// Kiểm tra quyền truy cập BNC — { allowed, daysRemaining, isWarning, isExpired, offlineMode }
+async function bncCheckAccess() {
+    const result = await bncCheckSubscription();
+
+    if (result && result._statusCode === 401) {
+        // Token expired/invalid → force re-login
+        return { allowed: false, reason: 'token_invalid', message: 'Phiên đăng nhập hết hạn, vui lòng đăng nhập lại.' };
+    }
+
+    if (result && result.subscription) {
+        const sub = result.subscription;
+        saveBncSubCache(sub);
+        return {
+            allowed: !sub.isExpired,
+            daysRemaining: sub.daysRemaining,
+            isWarning: sub.isWarning,
+            isExpired: sub.isExpired,
+            planType: sub.planType,
+            maxProfiles: sub.maxProfiles,
+            endDate: sub.endDate,
+        };
+    }
+
+    if (result && result.isExpired) {
+        return { allowed: false, reason: 'expired', message: 'Gói BNC đã hết hạn. Vui lòng gia hạn để tiếp tục sử dụng.' };
+    }
+
+    // Offline — dùng cache
+    const cache = readBncSubCache();
+    if (cache) {
+        const daysLeft = cache.daysRemaining ?? 0;
+        return {
+            allowed: daysLeft > 0,
+            daysRemaining: daysLeft,
+            isWarning: cache.isWarning,
+            offlineMode: true,
+        };
+    }
+
+    // Không có auth → cần login
+    return { allowed: false, reason: 'not_logged_in', message: 'Vui lòng đăng nhập để tiếp tục sử dụng BNC.' };
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Tạo device ID ổn định từ hardware UUID (không thay đổi dù reinstall app)
 function getDeviceId() {
     try {
@@ -242,75 +387,91 @@ function getSavedLicense() {
 
 // ─── License Blocked Dialog (custom window với ô nhập key) ───────────────────
 // Trả về true nếu user kích hoạt thành công, false nếu đóng app
-function showLicenseBlockedDialog(access) {
+// ─── BNC Login Dialog — email + password (thay thế license key dialog) ───────
+// Trả về true nếu đăng nhập thành công, false nếu user đóng app
+function showBncLoginDialog(access) {
     return new Promise((resolve) => {
+        const msg = access.message || 'Đăng nhập tài khoản BNC để tiếp tục sử dụng.';
+        const isExpired = access.reason === 'expired';
+
         const win = new BrowserWindow({
             width: 420,
-            height: 340,
+            height: isExpired ? 300 : 380,
             resizable: false,
             minimizable: false,
             maximizable: false,
             fullscreenable: false,
             alwaysOnTop: true,
             center: true,
-            title: 'BNC — Truy cập bị từ chối',
+            title: 'BNC — Đăng nhập',
             show: false,
             webPreferences: { nodeIntegration: false, contextIsolation: true },
         });
 
-        const msg = access.message || 'Thiết bị của bạn chưa được kích hoạt.';
-        const deviceId = getDeviceId();
+        const BNC_LOGIN_URL = BNC_API + '/login';
 
         const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
   body { background:#1a1a2e; color:#e0e0e0; padding:24px; display:flex; flex-direction:column; gap:14px; height:100vh; }
-  .title { color:#ff4444; font-size:15px; font-weight:700; display:flex; align-items:center; gap:8px; }
-  .msg { font-size:13px; color:#bbb; line-height:1.5; }
-  .device { font-size:10px; color:#666; font-family:monospace; background:#111; padding:5px 8px; border-radius:4px; word-break:break-all; }
-  input { width:100%; padding:10px 12px; border-radius:8px; border:1px solid #444; background:#111; color:#e0e0e0; font-size:13px; font-family:monospace; letter-spacing:1px; outline:none; }
+  .logo { font-size:20px; font-weight:800; color:#4a9eff; letter-spacing:2px; }
+  .msg { font-size:13px; color:${isExpired ? '#ff9966' : '#aaa'}; line-height:1.5; }
+  label { font-size:11px; color:#888; text-transform:uppercase; letter-spacing:.5px; }
+  input { width:100%; padding:10px 12px; border-radius:8px; border:1px solid #333; background:#111; color:#e0e0e0; font-size:13px; outline:none; }
   input:focus { border-color:#4a9eff; }
   .row { display:flex; gap:10px; }
   .btn { flex:1; padding:10px; border-radius:8px; border:none; cursor:pointer; font-size:13px; font-weight:600; }
-  .btn-activate { background:#4a9eff; color:#fff; }
-  .btn-activate:disabled { background:#2a4a6e; color:#666; cursor:default; }
-  .btn-close { background:#333; color:#aaa; }
+  .btn-login { background:#4a9eff; color:#fff; }
+  .btn-login:disabled { background:#1a3a5e; color:#555; cursor:default; }
+  .btn-close { background:#2a2a2a; color:#aaa; }
   .err { font-size:12px; color:#ff6666; min-height:16px; }
   .ok  { font-size:12px; color:#4CAF50; min-height:16px; }
+  .field { display:flex; flex-direction:column; gap:4px; }
 </style></head><body>
-  <div class="title">&#9888; BNC — Truy cập bị từ chối</div>
+  <div class="logo">BNC Browser</div>
   <div class="msg">${msg.replace(/</g,'&lt;')}</div>
-  <div class="device">Device ID: ${deviceId}</div>
-  <input id="k" type="text" placeholder="Nhập license key (XXXX-XXXX-XXXX-XXXX)" autofocus>
+  ${isExpired ? '' : `
+  <div class="field"><label>Email</label><input id="email" type="email" placeholder="email@example.com" autofocus></div>
+  <div class="field"><label>Mật khẩu</label><input id="pass" type="password" placeholder="Mật khẩu"></div>
+  `}
   <div id="status" class="err"></div>
   <div class="row">
-    <button class="btn btn-close" onclick="window.close()">Đóng</button>
-    <button class="btn btn-activate" id="ab" onclick="activate()">Kích hoạt</button>
+    <button class="btn btn-close" onclick="window.close()">Thoát</button>
+    ${isExpired
+        ? '<button class="btn btn-login" onclick="window.location.href=\'activate://renew\'">Liên hệ gia hạn</button>'
+        : '<button class="btn btn-login" id="lb" onclick="doLogin()">Đăng nhập</button>'
+    }
   </div>
 <script>
-  document.getElementById('k').addEventListener('keydown', e => { if(e.key==='Enter') activate(); });
-  async function activate() {
-    const key = document.getElementById('k').value.trim();
-    if (!key) { setStatus('Vui lòng nhập license key', false); return; }
-    const ab = document.getElementById('ab');
-    ab.disabled = true; ab.textContent = 'Đang kích hoạt...';
+  const BNC_LOGIN_URL = '${BNC_LOGIN_URL}';
+  document.addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
+  async function doLogin() {
+    const email = (document.getElementById('email')||{}).value?.trim();
+    const pass  = (document.getElementById('pass')||{}).value;
+    if (!email || !pass) { setStatus('Vui lòng nhập đầy đủ email và mật khẩu'); return; }
+    const lb = document.getElementById('lb');
+    lb.disabled = true; lb.textContent = 'Đang đăng nhập...';
     setStatus('');
     try {
-      const r = await fetch('http://localhost:__INTERNAL_PORT__/api/activate-license', {
+      const r = await fetch(BNC_LOGIN_URL, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ licenseKey: key })
+        body: JSON.stringify({ email, password: pass })
       });
       const data = await r.json();
-      if (data.success) {
-        setStatus('✅ Kích hoạt thành công! Đang khởi động...', true);
-        setTimeout(() => window.location.href = 'activate://ok', 1000);
+      if (r.ok && data.accessToken) {
+        setStatus('✅ Đăng nhập thành công! Đang khởi động...', true);
+        // Pass token + customer info back to main via navigate
+        const cid = (data.customer && data.customer.id) ? data.customer.id : '';
+        setTimeout(() => {
+          window.location.href = 'bnc-auth://ok?token=' + encodeURIComponent(data.accessToken) + '&email=' + encodeURIComponent(email) + '&cid=' + cid;
+        }, 800);
       } else {
-        setStatus('❌ ' + (data.message || 'Kích hoạt thất bại'), false);
-        ab.disabled = false; ab.textContent = 'Kích hoạt';
+        setStatus('❌ ' + (data.message || 'Đăng nhập thất bại'));
+        lb.disabled = false; lb.textContent = 'Đăng nhập';
       }
     } catch(e) {
-      setStatus('❌ Không kết nối được server', false);
-      ab.disabled = false; ab.textContent = 'Kích hoạt';
+      setStatus('❌ Không kết nối được server. Kiểm tra lại mạng.');
+      lb.disabled = false; lb.textContent = 'Đăng nhập';
     }
   }
   function setStatus(t, ok) {
@@ -318,23 +479,31 @@ function showLicenseBlockedDialog(access) {
     el.textContent = t;
     el.className = ok ? 'ok' : 'err';
   }
-</script></body></html>`.replace('__INTERNAL_PORT__', INTERNAL_API_PORT);
+</script></body></html>`;
 
         win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
 
         let resolved = false;
 
-        // Xử lý navigate đến activate://ok — kích hoạt thành công
-        win.webContents.on('will-navigate', (e, url) => {
-            if (url.startsWith('activate://ok')) {
+        win.webContents.on('will-navigate', (e, navUrl) => {
+            if (navUrl.startsWith('bnc-auth://ok')) {
                 e.preventDefault();
+                try {
+                    const params = new URL(navUrl.replace('bnc-auth://ok', 'http://x'));
+                    const token = params.searchParams.get('token');
+                    const email = params.searchParams.get('email');
+                    const customerId = params.searchParams.get('cid') || null;
+                    if (token) saveBncAuth({ accessToken: token, email, customerId, savedAt: new Date().toISOString() });
+                } catch (_) {}
                 resolved = true;
                 win.close();
                 resolve(true);
+            } else if (navUrl.startsWith('activate://renew')) {
+                e.preventDefault();
+                shell.openExternal('https://muachung.bagi.vn');
             }
         });
 
-        // User đóng cửa sổ → thoát app
         win.on('closed', () => {
             if (!resolved) resolve(false);
         });
@@ -1978,95 +2147,91 @@ app.whenReady().then(async () => {
         console.error('Failed to auto-start Internal Guard Server:', e);
     }
 
-    // Kiểm tra quyền truy cập + gửi heartbeat (song song với fetch announcement)
-    const [access, announcement] = await Promise.all([checkAccess(), fetchAnnouncement()]);
+    // ── BNC Subscription Check (thay license GKZ) ──────────────────────────────
+    // Song song: kiểm tra subscription + fetch announcement + heartbeat toolphuc (update check)
+    const [bncAccess, announcement, heartbeatResult] = await Promise.all([
+        bncCheckAccess(),
+        fetchAnnouncement(),
+        sendHeartbeat(),
+    ]);
     if (announcement) cachedAnnouncement = announcement;
-    const sendAskDataPath = () => {
+    if (heartbeatResult) saveAccessCache(heartbeatResult);
+
+    debugLog('BNC_STARTUP', { allowed: bncAccess.allowed, reason: bncAccess.reason, daysRemaining: bncAccess.daysRemaining, offlineMode: bncAccess.offlineMode || false });
+
+    // Renderer sẽ tự kiểm tra và hiện login overlay qua bncGetAuth IPC
+    // Gửi trạng thái BNC cho renderer sau khi window load để hiện login overlay nếu cần
+    const sendBncState = () => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
+        const send = () => mainWindow.webContents.send('bnc-auth-state', {
+            isLoggedIn: bncAccess.allowed,
+            reason: bncAccess.reason,
+            daysRemaining: bncAccess.daysRemaining,
+            isWarning: bncAccess.isWarning,
+            offlineMode: bncAccess.offlineMode,
+        });
         if (mainWindow.webContents.isLoading()) {
-            mainWindow.webContents.once('did-finish-load', () => {
-                mainWindow.webContents.send('license-activated-ask-data-path');
-            });
+            mainWindow.webContents.once('did-finish-load', () => setTimeout(send, 200));
         } else {
-            mainWindow.webContents.send('license-activated-ask-data-path');
+            setTimeout(send, 200);
         }
     };
+    sendBncState();
 
-    let justActivated = false;
-    debugLog('STARTUP_ACCESS', { allowed: access.allowed, requireLicense: access.requireLicense, licenseFileExists: fs.existsSync(LICENSE_FILE), offlineMode: access.offlineMode || false });
-
-    if (!access.allowed) {
-        debugLog('STARTUP_FLOW', 'blocked → showing license dialog');
-        const activated = await showLicenseBlockedDialog(access);
-        if (!activated) { app.quit(); return; }
-        debugLog('STARTUP_FLOW', 'license activated via dialog');
-        justActivated = true;
-    } else if (access.requireLicense && !fs.existsSync(LICENSE_FILE) && !access.trialMode) {
-        debugLog('STARTUP_FLOW', 'allowed but no local license file → showing license dialog');
-        const activated = await showLicenseBlockedDialog({
-            ...access,
-            message: 'Vui lòng nhập license key để tiếp tục sử dụng.',
-            reason: 'no_local_license'
-        });
-        if (!activated) { app.quit(); return; }
-        debugLog('STARTUP_FLOW', 'license re-entered successfully');
-        justActivated = true;
-    } else {
-        debugLog('STARTUP_FLOW', 'license OK, skipping dialog');
-    }
-
-    // Hỏi chọn thư mục lưu dữ liệu nếu: vừa kích hoạt LẦN ĐẦU, hoặc chưa từng xác nhận
+    // Data path prompt: hiện khi chưa từng xác nhận (renderer tự gọi sau login thành công qua IPC)
     const dataPathAlreadyConfirmed = fs.existsSync(DATA_PATH_CONFIRMED);
-    debugLog('STARTUP_DATA_PATH', { justActivated, dataPathAlreadyConfirmed, DATA_PATH_CONFIRMED });
-    if (justActivated || (access.requireLicense && !dataPathAlreadyConfirmed)) {
-        debugLog('STARTUP_FLOW', 'sending ask-data-path event to renderer');
-        sendAskDataPath();
-    } else {
-        debugLog('STARTUP_FLOW', 'data path already confirmed, skipping');
-    }
 
-    // Thông báo dùng thử miễn phí nếu chưa có license
-    if (access.trialMode && access.trialHoursLeft) {
-        const hoursLeft = Math.ceil(access.trialHoursLeft); // làm tròn lên cho đẹp
-        debugLog('TRIAL_MODE', { hoursLeft, trialHoursLeft: access.trialHoursLeft });
-        const showTrialNotice = () => {
+    // Warning ≤7 ngày còn lại
+    if (bncAccess.isWarning && bncAccess.daysRemaining > 0) {
+        const showWarning = () => {
             dialog.showMessageBox(mainWindow, {
-                type: 'info',
-                title: 'Đang dùng thử miễn phí',
-                message: `Còn ${hoursLeft} giờ dùng thử miễn phí`,
-                detail: 'Sau khi hết thời gian dùng thử, bạn cần license key để tiếp tục sử dụng.\nLiên hệ đội hỗ trợ để được cấp key.',
+                type: 'warning',
+                title: 'BNC — Sắp hết hạn',
+                message: `Gói BNC của bạn còn ${bncAccess.daysRemaining} ngày`,
+                detail: `Chuyển khoản với nội dung "BNC${(getSavedBncAuth() || {}).customerId || ''}" để gia hạn thêm 30 ngày.\nLiên hệ hỗ trợ nếu cần giúp đỡ.`,
                 buttons: ['OK'],
             }).catch(() => {});
         };
         if (mainWindow && !mainWindow.isDestroyed()) {
             if (mainWindow.webContents.isLoading()) {
-                mainWindow.webContents.once('did-finish-load', () => setTimeout(showTrialNotice, 1500));
+                mainWindow.webContents.once('did-finish-load', () => setTimeout(showWarning, 2000));
             } else {
-                setTimeout(showTrialNotice, 1500);
+                setTimeout(showWarning, 2000);
             }
         }
     }
 
-    // Kiểm tra version ngay khi khởi động
-    await checkAndNotifyUpdate(access);
+    // Kiểm tra version ngay khi khởi động (dùng kết quả toolphuc heartbeat)
+    await checkAndNotifyUpdate(heartbeatResult);
 
-    // Heartbeat định kỳ mỗi 5 phút (cập nhật trạng thái online + check version)
+    // BNC subscription check định kỳ mỗi 30 phút
     setInterval(async () => {
-        const r = await sendHeartbeat();
-        if (r) saveAccessCache(r);
-        // Nếu bị chặn trong lúc đang dùng → thông báo và thoát
-        if (r && !r.allowed) {
+        const sub = await bncCheckSubscription();
+        if (!sub) return; // offline — không làm gì
+        if (sub._statusCode === 401) {
+            // Token hết hạn → xóa auth, thông báo và thoát
+            try { fs.removeSync(BNC_AUTH_FILE); } catch (_) {}
             dialog.showMessageBox({
                 type: 'warning',
-                title: 'BNC — Phiên bị thu hồi',
-                message: r.message || 'Quyền truy cập của bạn đã bị thu hồi.',
+                title: 'BNC — Phiên hết hạn',
+                message: 'Phiên đăng nhập đã hết hạn. Vui lòng khởi động lại và đăng nhập lại.',
                 buttons: ['Đóng'],
             }).then(() => app.quit());
             return;
         }
-        // Check update định kỳ (hàm tự guard không spam)
-        if (r) checkAndNotifyUpdate(r);
-    }, 5 * 60 * 1000);
+        if (sub.isExpired || (sub.subscription && sub.subscription.isExpired)) {
+            dialog.showMessageBox({
+                type: 'warning',
+                title: 'BNC — Hết hạn',
+                message: 'Gói BNC của bạn đã hết hạn.',
+                detail: 'Gia hạn bằng cách chuyển khoản với nội dung BNC{customer_id}. App sẽ thoát.',
+                buttons: ['OK'],
+            }).then(() => app.quit());
+        }
+        // Toolphuc heartbeat để check update
+        const r = await sendHeartbeat();
+        if (r) { saveAccessCache(r); checkAndNotifyUpdate(r); }
+    }, 30 * 60 * 1000);
 
     // Auto-start public API server if enabled
     try {
@@ -2122,6 +2287,73 @@ ipcMain.handle('set-title-bar-color', (e, colors) => { const win = BrowserWindow
 
 // ─── License IPC ──────────────────────────────────────────────────────────────
 ipcMain.handle('is-packaged', () => app.isPackaged);
+
+// ─── BNC Auth IPC handlers ────────────────────────────────────────────────────
+
+// Đăng nhập: gọi muachungtool /api/bnc/login, lưu token
+ipcMain.handle('bnc-login', async (_, { email, password }) => {
+    console.log('[DEBUG:BNC_IPC_LOGIN] called with email:', email);
+    const result = await bncLogin(email, password);
+    console.log('[DEBUG:BNC_IPC_LOGIN] result:', JSON.stringify(result)?.slice(0, 300));
+    if (!result) return { success: false, message: 'Không kết nối được server. Kiểm tra lại mạng.' };
+    if (result._statusCode === 401 || !result.accessToken) {
+        return { success: false, message: result.message || 'Email hoặc mật khẩu không đúng' };
+    }
+    const customerId = result.customer?.id || null;
+    saveBncAuth({ accessToken: result.accessToken, email, customerId, savedAt: new Date().toISOString() });
+    saveBncSubCache(result.subscription);
+    console.log('[DEBUG:BNC_IPC_LOGIN] success, customerId:', customerId);
+    return { success: true, customer: result.customer, subscription: result.subscription };
+});
+
+// Đăng xuất: xóa token local
+ipcMain.handle('bnc-logout', async () => {
+    try { fs.removeSync(BNC_AUTH_FILE); fs.removeSync(BNC_SUB_CACHE); } catch (_) {}
+    return { success: true };
+});
+
+// Lấy trạng thái auth hiện tại (từ file + cache)
+ipcMain.handle('bnc-get-auth', async () => {
+    const auth = getSavedBncAuth();
+    if (!auth) return { isLoggedIn: false };
+    const cache = readBncSubCache();
+    return {
+        isLoggedIn: true,
+        email: auth.email,
+        customerId: auth.customerId,
+        subscription: cache || null,
+    };
+});
+
+// Kiểm tra subscription từ server (live)
+ipcMain.handle('bnc-get-subscription', async () => {
+    const result = await bncCheckSubscription();
+    if (!result) return readBncSubCache(); // fallback cache
+    if (result.subscription) saveBncSubCache(result.subscription);
+    return result.subscription || null;
+});
+
+// Danh sách plans
+ipcMain.handle('bnc-get-plans', async () => {
+    return [
+        { id: 'starter', name: 'Starter', maxProfiles: 30,   price: 199000 },
+        { id: 'pro',     name: 'Pro',     maxProfiles: 100,  price: 399000 },
+        { id: 'team',    name: 'Team',    maxProfiles: 300,  price: 699000 },
+        { id: 'scale',   name: 'Scale',   maxProfiles: 1000, price: 1299000 },
+    ];
+});
+
+// Thông tin thanh toán (bank)
+ipcMain.handle('bnc-get-payment-info', async () => {
+    const auth = getSavedBncAuth();
+    return {
+        bankAcqId: '970415',
+        bankAccountNo: '102876221138',
+        bankAccountName: 'NGO VAN PHUC',
+        transferContent: auth?.customerId ? `BNC${auth.customerId}` : 'BNC',
+    };
+});
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Lấy trạng thái license + deviceId hiện tại
 ipcMain.handle('license-get-status', async () => {

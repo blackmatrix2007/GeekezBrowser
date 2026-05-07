@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     debugLog: (tag, data) => ipcRenderer.invoke('renderer-debug-log', tag, data),
     // Build info
     isPackaged: () => ipcRenderer.invoke('is-packaged'),
+    getPlatform: () => process.platform,
     // ─── BNC Auth ───────────────────────────────────────────────────────────
     bncLogin: (email, password) => ipcRenderer.invoke('bnc-login', { email, password }),
     bncLogout: () => ipcRenderer.invoke('bnc-logout'),
@@ -57,5 +58,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     bncGetPaymentInfo: () => ipcRenderer.invoke('bnc-get-payment-info'),
     bncSelectSubscription: (subscriptionId) => ipcRenderer.invoke('bnc-select-subscription', subscriptionId),
     bncGetSubscriptions: () => ipcRenderer.invoke('bnc-get-subscriptions'),
+    bncSyncProfiles: () => ipcRenderer.invoke('bnc-sync-profiles'),
     onBncAuthState: (cb) => ipcRenderer.on('bnc-auth-state', (_, data) => cb(data)),
 });

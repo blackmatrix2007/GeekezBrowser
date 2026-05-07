@@ -2270,6 +2270,50 @@ ipcMain.handle('bnc-get-payment-info', async () => {
         transferContent: auth?.customerId ? `BNC${auth.customerId}` : 'BNC',
     };
 });
+// ─── BNC Sync Profiles (manual / debug) ──────────────────────────────────────
+ipcMain.handle('bnc-sync-profiles', async () => {
+    const auth = getSavedBncAuth();
+    if (!auth?.accessToken) return { success: false, error: 'Chưa đăng nhập' };
+
+    try {
+        // 1. Fetch tất cả profiles từ server (không filter sub — lấy hết)
+        const res = await bncApiCall('GET', '/profiles');
+        if (!res) return { success: false, error: 'Không kết nối được server' };
+        if (res._statusCode === 401) return { success: false, error: 'Token hết hạn, vui lòng đăng nhập lại' };
+
+        const serverProfiles = res.profiles || [];
+        console.log('[BNC_SYNC] Server trả về', serverProfiles.length, 'profiles');
+        serverProfiles.forEach(p => {
+            console.log(`  - ${p.name} | subscriptionId=${p.subscriptionId} | id=${p.id}`);
+        });
+
+        if (serverProfiles.length === 0) {
+            // Server không có → upload local lên
+            const localProfiles = fs.existsSync(PROFILES_FILE) ? await fs.readJson(PROFILES_FILE) : [];
+            if (localProfiles.length > 0) {
+                const uploadRes = await bncApiCall('POST', '/profiles/bulk', { profiles: localProfiles });
+                console.log('[BNC_SYNC] Upload local → server:', JSON.stringify(uploadRes));
+                return { success: true, direction: 'upload', count: localProfiles.length, serverResponse: uploadRes };
+            }
+            return { success: true, direction: 'nothing', count: 0, message: 'Cả server lẫn local đều không có profile' };
+        }
+
+        // 2. Server có profiles → ghi đè local
+        await fs.writeJson(PROFILES_FILE, serverProfiles);
+        console.log('[BNC_SYNC] Ghi', serverProfiles.length, 'profiles xuống local');
+
+        return {
+            success: true,
+            direction: 'download',
+            count: serverProfiles.length,
+            profiles: serverProfiles.map(p => ({ id: p.id, name: p.name, subscriptionId: p.subscriptionId })),
+        };
+    } catch (e) {
+        console.error('[BNC_SYNC] Lỗi:', e.message);
+        return { success: false, error: e.message };
+    }
+});
+
 // ─── BNC Device Sessions ─────────────────────────────────────────────────────
 ipcMain.handle('bnc-get-sessions', async () => {
     const auth = getSavedBncAuth();

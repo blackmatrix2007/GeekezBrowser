@@ -451,10 +451,39 @@ function showBncToast(msg, duration = 4000) {
     }
 }
 
+async function syncBncProfiles() {
+    document.getElementById('bncUserDropdown').style.display = 'none';
+    showBncToast('🔄 Đang đồng bộ profile...', 0);
+    try {
+        const result = await window.electronAPI.bncSyncProfiles();
+        console.log('[SYNC_RESULT]', JSON.stringify(result, null, 2));
+        if (!result.success) {
+            showBncToast(`❌ Lỗi đồng bộ: ${result.error}`, 6000);
+            return;
+        }
+        if (result.direction === 'download') {
+            showBncToast(`✅ Tải về ${result.count} profiles từ server`, 4000);
+        } else if (result.direction === 'upload') {
+            showBncToast(`✅ Đã upload ${result.count} profiles lên server`, 4000);
+        } else {
+            showBncToast('⚠ Không có profile nào (cả local lẫn server)', 4000);
+        }
+        if (typeof loadProfiles === 'function') await loadProfiles();
+    } catch (e) {
+        showBncToast(`❌ ${e.message}`, 5000);
+    }
+}
+
 function openBncPaymentHistory() {
     document.getElementById('bncUserDropdown').style.display = 'none';
     window.electronAPI.invoke('open-url', 'https://yttool.vn/tai-khoan/giao-dich');
 }
+
+// Platform class cho body (Windows titlebar fix)
+try {
+    const platform = window.electronAPI.getPlatform();
+    if (platform) document.body.classList.add('platform-' + platform);
+} catch (_) {}
 
 // Khởi động BNC UI
 bncInit();

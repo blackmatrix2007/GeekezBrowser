@@ -61,6 +61,12 @@
             -webkit-app-region: drag;
         }
 
+        /* ===== Windows titlebar fix ===== */
+        body.platform-win32 .bnc-user-area {
+            top: 40px;
+            right: 14px;
+        }
+
         /* ===== SIDEBAR ===== */
         .sidebar {
             width: 220px;
@@ -2205,7 +2211,7 @@
     </div>
 
     <!-- ── BNC User Avatar — fixed top-right corner ─────────────────────── -->
-    <div id="bncUserArea" style="position:fixed;top:8px;right:14px;z-index:9100;display:flex;align-items:center;gap:8px;-webkit-app-region:no-drag;">
+    <div id="bncUserArea" style="position:fixed;top:8px;right:14px;z-index:9100;display:flex;align-items:center;gap:8px;-webkit-app-region:no-drag;" class="bnc-user-area">
         <!-- Subscription warning badge -->
         <div id="bncSubBadge" style="display:none;font-size:11px;padding:3px 8px;border-radius:20px;background:rgba(255,152,0,0.15);color:#ff9800;border:1px solid rgba(255,152,0,0.3);cursor:pointer;white-space:nowrap;" onclick="openPlansModal()">
             ⚠ <span id="bncSubBadgeText">7 ngày</span>
@@ -2229,6 +2235,9 @@
             <!-- Menu items -->
             <div onclick="openPlansModal()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
                 <span>💎</span> Mua Gói / Gia hạn
+            </div>
+            <div onclick="syncBncProfiles()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
+                <span>🔄</span> Đồng bộ Profile
             </div>
             <div onclick="openBncPaymentHistory()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
                 <span>📋</span> Lịch sử giao dịch

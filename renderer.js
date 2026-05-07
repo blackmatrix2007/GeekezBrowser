@@ -3,7 +3,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 // BNC AUTH UI
 // ════════════════════════════════════════════════════════════════════════════
-let _bncAuth = null; // { email, customerId, subscription }
+let _bncAuth = null; // { email, customerId, subscription, subscriptions[], selectedSubscriptionId }
 
 async function bncInit() {
     // Nhận trạng thái từ main process (gửi sau access check)
@@ -32,6 +32,7 @@ async function bncInit() {
         } else {
             hideBncLoginOverlay();
             bncRenderUserInfo(auth);
+            renderBncSubscriptions(auth.subscriptions || [], auth.selectedSubscriptionId);
             // Check expired from cache
             if (auth.subscription?.isExpired) showBncExpiredOverlay();
         }
@@ -152,9 +153,15 @@ async function doBncLogin() {
     try {
         const result = await window.electronAPI.bncLogin(email, password);
         if (result.success) {
-            _bncAuth = { isLoggedIn: true, email, customerId: result.customer?.id, subscription: result.subscription };
+            _bncAuth = {
+                isLoggedIn: true, email, customerId: result.customer?.id,
+                subscription: result.subscription,
+                subscriptions: result.subscriptions || [],
+                selectedSubscriptionId: result.selectedSubscriptionId || null,
+            };
             hideBncLoginOverlay();
             bncRenderUserInfo(_bncAuth);
+            renderBncSubscriptions(_bncAuth.subscriptions, _bncAuth.selectedSubscriptionId);
             if (result.subscription?.isWarning) showBncSubWarning(result.subscription.daysRemaining);
         } else {
             errEl.textContent = result.message || 'Đăng nhập thất bại';
@@ -209,8 +216,57 @@ function bncRenderUserInfo(auth) {
 async function bncLoadUserInfo() {
     try {
         const auth = await window.electronAPI.bncGetAuth();
-        if (auth) { _bncAuth = auth; bncRenderUserInfo(auth); }
+        if (auth) {
+            _bncAuth = auth;
+            bncRenderUserInfo(auth);
+            renderBncSubscriptions(auth.subscriptions || [], auth.selectedSubscriptionId);
+        }
     } catch (_) {}
+}
+
+// Render danh sách subscriptions trong dropdown — chỉ hiện khi có > 0
+function renderBncSubscriptions(subscriptions, selectedId) {
+    const container = document.getElementById('bncSubList');
+    if (!container) return;
+    if (!subscriptions || subscriptions.length === 0) {
+        container.style.display = 'none';
+        return;
+    }
+    container.style.display = 'block';
+    const fmt = (d) => new Date(d).toLocaleDateString('vi-VN');
+    container.innerHTML = `
+        <div style="font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Gói của bạn</div>
+        ${subscriptions.map(sub => {
+            const isSelected = sub.id === selectedId;
+            const label = `${(sub.planType||'').toUpperCase()} — còn ${sub.daysRemaining}d (hết ${fmt(sub.endDate)})`;
+            return `<div data-sub-id="${sub.id}" onclick="selectBncSubscription(${sub.id})"
+                style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;margin-bottom:4px;
+                border-radius:6px;cursor:pointer;font-size:12px;
+                background:${isSelected ? 'rgba(0,224,255,0.1)' : 'rgba(255,255,255,0.03)'};
+                border:1px solid ${isSelected ? 'rgba(0,224,255,0.4)' : 'rgba(255,255,255,0.07)'};
+                color:${isSelected ? '#00e0ff' : '#bbb'};">
+                <span>${label}</span>
+                ${isSelected
+                    ? '<span style="font-size:10px;background:#00e0ff;color:#000;padding:1px 6px;border-radius:4px;font-weight:700;">Đang dùng</span>'
+                    : '<button onclick="event.stopPropagation();selectBncSubscription(' + sub.id + ')" style="font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid #444;background:transparent;color:#aaa;cursor:pointer;">Dùng gói này</button>'
+                }
+            </div>`;
+        }).join('')}
+    `;
+}
+
+async function selectBncSubscription(subscriptionId) {
+    await window.electronAPI.bncSelectSubscription(subscriptionId);
+    if (_bncAuth) {
+        _bncAuth.selectedSubscriptionId = subscriptionId;
+        renderBncSubscriptions(_bncAuth.subscriptions || [], subscriptionId);
+        // Update displayed plan info
+        const selected = (_bncAuth.subscriptions || []).find(s => s.id === subscriptionId);
+        if (selected) {
+            _bncAuth.subscription = selected;
+            bncRenderUserInfo(_bncAuth);
+        }
+    }
 }
 
 function showBncSubWarning(daysRemaining) {

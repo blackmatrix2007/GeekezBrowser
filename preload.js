@@ -55,5 +55,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     bncGetSubscription: () => ipcRenderer.invoke('bnc-get-subscription'),
     bncGetPlans: () => ipcRenderer.invoke('bnc-get-plans'),
     bncGetPaymentInfo: () => ipcRenderer.invoke('bnc-get-payment-info'),
+    bncSelectSubscription: (subscriptionId) => ipcRenderer.invoke('bnc-select-subscription', subscriptionId),
+    bncGetSubscriptions: () => ipcRenderer.invoke('bnc-get-subscriptions'),
     onBncAuthState: (cb) => ipcRenderer.on('bnc-auth-state', (_, data) => cb(data)),
 });

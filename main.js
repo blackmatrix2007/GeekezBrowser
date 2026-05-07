@@ -2150,7 +2150,10 @@ ipcMain.handle('bnc-login', async (_, { email, password }) => {
         return { success: false, message: result.message || 'Email hoặc mật khẩu không đúng' };
     }
     const customerId = result.customer?.id || null;
-    saveBncAuth({ accessToken: result.accessToken, email, customerId, savedAt: new Date().toISOString() });
+    const subscriptions = result.subscriptions || (result.subscription ? [result.subscription] : []);
+    // Auto-select first active subscription
+    const selectedSubscriptionId = subscriptions[0]?.id || null;
+    saveBncAuth({ accessToken: result.accessToken, email, customerId, subscriptions, selectedSubscriptionId, savedAt: new Date().toISOString() });
     saveBncSubCache(result.subscription);
     console.log('[DEBUG:BNC_IPC_LOGIN] success, customerId:', customerId);
 
@@ -2184,7 +2187,7 @@ ipcMain.handle('bnc-login', async (_, { email, password }) => {
         }
     }
 
-    return { success: true, customer: result.customer, subscription: result.subscription };
+    return { success: true, customer: result.customer, subscription: result.subscription, subscriptions, selectedSubscriptionId };
 });
 
 // Đăng xuất: xóa token local
@@ -2203,6 +2206,8 @@ ipcMain.handle('bnc-get-auth', async () => {
         email: auth.email,
         customerId: auth.customerId,
         subscription: cache || null,
+        subscriptions: auth.subscriptions || [],
+        selectedSubscriptionId: auth.selectedSubscriptionId || null,
     };
 });
 
@@ -2212,6 +2217,28 @@ ipcMain.handle('bnc-get-subscription', async () => {
     if (!result) return readBncSubCache(); // fallback cache
     if (result.subscription) saveBncSubCache(result.subscription);
     return result.subscription || null;
+});
+
+// Chọn subscription muốn dùng (lưu vào auth file)
+ipcMain.handle('bnc-select-subscription', (_, subscriptionId) => {
+    const auth = getSavedBncAuth();
+    if (!auth) return { success: false };
+    saveBncAuth({ ...auth, selectedSubscriptionId: subscriptionId });
+    return { success: true };
+});
+
+// Lấy danh sách subscriptions từ server (live)
+ipcMain.handle('bnc-get-subscriptions', async () => {
+    const result = await bncCheckSubscription();
+    if (result?.subscriptions) {
+        // Update cached subscriptions in auth file
+        const auth = getSavedBncAuth();
+        if (auth) saveBncAuth({ ...auth, subscriptions: result.subscriptions });
+        return result.subscriptions;
+    }
+    // Fallback to auth file cache
+    const auth = getSavedBncAuth();
+    return auth?.subscriptions || [];
 });
 
 // Danh sách plans

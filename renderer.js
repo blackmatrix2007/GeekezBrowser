@@ -242,7 +242,8 @@ async function openPlansModal() {
         ];
 
         return `
-        <div style="background:${isActive ? 'rgba(0,224,255,0.06)' : 'rgba(0,0,0,0.2)'};border:1.5px solid ${isActive ? '#00e0ff' : 'rgba(255,255,255,0.08)'};border-radius:12px;padding:20px 16px;display:flex;flex-direction:column;gap:10px;position:relative;">
+        <div data-plan-id="${p.id}" data-plan-price="${p.price}" data-plan-name="${p.name}"
+            style="background:${isActive ? 'rgba(0,224,255,0.06)' : 'rgba(0,0,0,0.2)'};border:1.5px solid ${isActive ? '#00e0ff' : 'rgba(255,255,255,0.08)'};border-radius:12px;padding:20px 16px;display:flex;flex-direction:column;gap:10px;position:relative;cursor:pointer;">
             ${isActive ? '<div style="position:absolute;top:-1px;left:50%;transform:translateX(-50%);background:#00e0ff;color:#000;font-size:10px;font-weight:700;padding:2px 10px;border-radius:0 0 6px 6px;white-space:nowrap;">Đang dùng</div>' : ''}
             <div style="font-size:15px;font-weight:800;color:#fff;margin-top:${isActive?'8px':'0'};">${p.name}</div>
             <div>
@@ -252,12 +253,23 @@ async function openPlansModal() {
             <div style="font-size:11px;color:#888;">
                 ${features.map(f => `<div style="margin-bottom:4px;">✓ ${f}</div>`).join('')}
             </div>
-            <button onclick="openPaymentModal('${p.id}',${p.price},'${p.name}')"
-                style="margin-top:auto;padding:9px 0;border-radius:8px;border:none;background:${isActive?'rgba(0,224,255,0.15)':'linear-gradient(135deg,#00e0ff,#0055ff)'};color:${isActive?'#00e0ff':'#fff'};font-size:13px;font-weight:700;cursor:pointer;width:100%;">
+            <button data-btn="select-plan"
+                style="margin-top:auto;padding:9px 0;border-radius:8px;border:none;background:${isActive?'rgba(0,224,255,0.15)':'linear-gradient(135deg,#00e0ff,#0055ff)'};color:${isActive?'#00e0ff':'#fff'};font-size:13px;font-weight:700;cursor:pointer;width:100%;pointer-events:none;">
                 ${isActive ? 'Gia hạn' : 'Chọn gói'}
             </button>
         </div>`;
     }).join('');
+
+    // Event delegation — tránh inline onclick bị chặn
+    grid.onclick = (e) => {
+        const card = e.target.closest('[data-plan-id]');
+        if (!card) return;
+        const id    = card.dataset.planId;
+        const price = Number(card.dataset.planPrice);
+        const name  = card.dataset.planName;
+        console.log('[BNC] card clicked:', id, price, name);
+        openPaymentModal(id, price, name);
+    };
 }
 
 function closePlansModal() {
@@ -266,35 +278,44 @@ function closePlansModal() {
 
 // ── Payment Modal ─────────────────────────────────────────────────────────────
 async function openPaymentModal(planId, price, planName) {
-    document.getElementById('bncPlansModal').style.display = 'none';
-    document.getElementById('bncPaymentModal').style.display = 'flex';
+    console.log('[BNC] openPaymentModal called:', planId, price, planName);
+    const plansModal   = document.getElementById('bncPlansModal');
+    const paymentModal = document.getElementById('bncPaymentModal');
+    const content      = document.getElementById('bncPaymentContent');
 
-    const info = await window.electronAPI.bncGetPaymentInfo();
-    const content = document.getElementById('bncPaymentContent');
-    const fmt = (n) => new Intl.NumberFormat('vi-VN').format(n);
+    plansModal.style.display = 'none';
+    paymentModal.style.display = 'flex';
+    content.innerHTML = '<div style="color:#aaa;padding:20px 0;">Đang tải thông tin...</div>';
 
-    // VietQR URL
-    const qrUrl = `https://img.vietqr.io/image/${info.bankAcqId}-${info.bankAccountNo}-compact2.png?amount=${price}&addInfo=${encodeURIComponent(info.transferContent)}&accountName=${encodeURIComponent(info.bankAccountName)}`;
+    try {
+        const info = await window.electronAPI.bncGetPaymentInfo();
+        const fmt  = (n) => new Intl.NumberFormat('vi-VN').format(n);
+        const qrUrl = `https://img.vietqr.io/image/${info.bankAcqId}-${info.bankAccountNo}-compact2.png?amount=${price}&addInfo=${encodeURIComponent(info.transferContent)}&accountName=${encodeURIComponent(info.bankAccountName)}`;
 
-    content.innerHTML = `
-        <div style="margin-bottom:14px;">
-            <div style="font-size:13px;color:#aaa;margin-bottom:4px;">Gói đã chọn</div>
-            <div style="font-size:18px;font-weight:700;color:#00e0ff;">${planName} — ${fmt(price)}đ/tháng</div>
-        </div>
-        <img src="${qrUrl}" alt="QR" style="width:200px;height:200px;border-radius:10px;margin-bottom:14px;background:#fff;" onerror="this.style.display='none'">
-        <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:14px;text-align:left;font-size:13px;line-height:1.8;color:#ccc;margin-bottom:4px;">
-            <div><span style="color:#888;">Ngân hàng:</span> <strong style="color:#fff;">Vietinbank</strong></div>
-            <div><span style="color:#888;">Số TK:</span> <strong style="color:#00e0ff;">${info.bankAccountNo}</strong></div>
-            <div><span style="color:#888;">Chủ TK:</span> <strong style="color:#fff;">${info.bankAccountName}</strong></div>
-            <div><span style="color:#888;">Số tiền:</span> <strong style="color:#fff;">${fmt(price)}đ</strong></div>
-            <div><span style="color:#888;">Nội dung:</span> <strong style="color:#ff9800;font-family:monospace;font-size:14px;">${info.transferContent}</strong></div>
-        </div>
-        <div style="font-size:11px;color:#666;margin-top:10px;">Hệ thống tự động gia hạn sau khi nhận được chuyển khoản (thường trong vài phút)</div>
-    `;
+        content.innerHTML = `
+            <div style="margin-bottom:14px;">
+                <div style="font-size:13px;color:#aaa;margin-bottom:4px;">Gói đã chọn</div>
+                <div style="font-size:18px;font-weight:700;color:#00e0ff;">${planName} — ${fmt(price)}đ/tháng</div>
+            </div>
+            <img src="${qrUrl}" alt="QR" style="width:200px;height:200px;border-radius:10px;margin-bottom:14px;background:#fff;" onerror="this.style.display='none'">
+            <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:14px;text-align:left;font-size:13px;line-height:1.8;color:#ccc;margin-bottom:4px;">
+                <div><span style="color:#888;">Ngân hàng:</span> <strong style="color:#fff;">Vietinbank</strong></div>
+                <div><span style="color:#888;">Số TK:</span> <strong style="color:#00e0ff;">${info.bankAccountNo}</strong></div>
+                <div><span style="color:#888;">Chủ TK:</span> <strong style="color:#fff;">${info.bankAccountName}</strong></div>
+                <div><span style="color:#888;">Số tiền:</span> <strong style="color:#fff;">${fmt(price)}đ</strong></div>
+                <div><span style="color:#888;">Nội dung:</span> <strong style="color:#ff9800;font-family:monospace;font-size:14px;">${info.transferContent}</strong></div>
+            </div>
+            <div style="font-size:11px;color:#666;margin-top:10px;">Hệ thống tự động gia hạn sau khi nhận được chuyển khoản (thường trong vài phút)</div>
+            <button onclick="closePaymentModal(true)" style="margin-top:14px;padding:8px 20px;border-radius:8px;border:1px solid #444;background:transparent;color:#aaa;font-size:13px;cursor:pointer;">← Quay lại</button>
+        `;
+    } catch (e) {
+        content.innerHTML = `<div style="color:#f44336;padding:20px 0;">Lỗi tải thông tin thanh toán.<br><button onclick="closePaymentModal(true)" style="margin-top:12px;padding:8px 20px;border-radius:8px;border:1px solid #444;background:transparent;color:#aaa;font-size:13px;cursor:pointer;">← Quay lại</button></div>`;
+    }
 }
 
-function closePaymentModal() {
+function closePaymentModal(backToPlans) {
     document.getElementById('bncPaymentModal').style.display = 'none';
+    if (backToPlans) openPlansModal();
 }
 
 function openBncPaymentHistory() {

@@ -1370,6 +1370,7 @@ function createWindow() {
     });
     win.setMenuBarVisibility(false);
     win.loadFile('index.html');
+    win.webContents.openDevTools({ mode: 'detach' });
     mainWindow = win;
 
     // Show confirm dialog on X — give user 3 choices instead of closing silently
@@ -2051,8 +2052,7 @@ app.whenReady().then(async () => {
         }
     }
 
-    // Kiểm tra version ngay khi khởi động (dùng kết quả toolphuc heartbeat)
-    await checkAndNotifyUpdate(heartbeatResult);
+    // Version check đã chạy song song ở trên qua bncCheckVersion()
 
     // BNC subscription check định kỳ mỗi 30 phút
     setInterval(async () => {
@@ -2216,12 +2216,21 @@ ipcMain.handle('bnc-get-subscription', async () => {
 
 // Danh sách plans
 ipcMain.handle('bnc-get-plans', async () => {
-    return [
-        { id: 'starter', name: 'Starter', maxProfiles: 30,   price: 199000 },
-        { id: 'pro',     name: 'Pro',     maxProfiles: 100,  price: 399000 },
-        { id: 'team',    name: 'Team',    maxProfiles: 300,  price: 699000 },
-        { id: 'scale',   name: 'Scale',   maxProfiles: 1000, price: 1299000 },
-    ];
+    try {
+        return await new Promise((resolve) => {
+            const url = new URL(BNC_API + '/plans');
+            const req = https.request({ hostname: url.hostname, path: url.pathname, method: 'GET' }, (res) => {
+                let data = '';
+                res.on('data', c => data += c);
+                res.on('end', () => {
+                    try { resolve(JSON.parse(data).plans || []); } catch (_) { resolve([]); }
+                });
+            });
+            req.on('error', () => resolve([]));
+            req.setTimeout(8000, () => { req.destroy(); resolve([]); });
+            req.end();
+        });
+    } catch (_) { return []; }
 });
 
 // Thông tin thanh toán (bank)

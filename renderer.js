@@ -9,7 +9,13 @@ async function bncInit() {
     // Nhận trạng thái từ main process (gửi sau access check)
     window.electronAPI.onBncAuthState(async (state) => {
         if (!state.isLoggedIn) {
-            showBncLoginOverlay();
+            if (state.reason === 'expired') {
+                showBncExpiredOverlay();
+            } else if (state.reason === 'other_device') {
+                showBncOtherDeviceOverlay(state.message);
+            } else {
+                showBncLoginOverlay();
+            }
         } else {
             hideBncLoginOverlay();
             await bncLoadUserInfo();
@@ -26,17 +32,19 @@ async function bncInit() {
         } else {
             hideBncLoginOverlay();
             bncRenderUserInfo(auth);
+            // Check expired from cache
+            if (auth.subscription?.isExpired) showBncExpiredOverlay();
         }
     } catch (_) {}
 
     // Register link → open browser
     document.getElementById('bncRegisterLink')?.addEventListener('click', (e) => {
         e.preventDefault();
-        window.electronAPI.invoke('open-url', 'https://bagi.vn/dang-ky');
+        window.electronAPI.invoke('open-url', 'https://yttool.vn/dang-ky');
     });
     document.getElementById('bncForgotLink')?.addEventListener('click', (e) => {
         e.preventDefault();
-        window.electronAPI.invoke('open-url', 'https://bagi.vn/quen-mat-khau');
+        window.electronAPI.invoke('open-url', 'https://yttool.vn/quen-mat-khau');
     });
 
     // Đóng dropdown khi click ngoài
@@ -60,6 +68,67 @@ function showBncLoginOverlay() {
 function hideBncLoginOverlay() {
     const overlay = document.getElementById('bncLoginOverlay');
     if (overlay) overlay.style.display = 'none';
+}
+
+function showBncExpiredOverlay() {
+    // Reuse login overlay nhưng show expired message, ẩn form login, show gia hạn
+    const overlay = document.getElementById('bncLoginOverlay');
+    if (!overlay) return;
+    const form = document.getElementById('bncLoginForm');
+    const expired = document.getElementById('bncExpiredBox');
+    if (form) form.style.display = 'none';
+    if (expired) expired.style.display = 'block';
+    overlay.style.display = 'flex';
+}
+
+function hideBncExpiredOverlay() {
+    const overlay = document.getElementById('bncLoginOverlay');
+    const form = document.getElementById('bncLoginForm');
+    const expired = document.getElementById('bncExpiredBox');
+    const otherDevice = document.getElementById('bncOtherDeviceBox');
+    if (form) form.style.display = 'block';
+    if (expired) expired.style.display = 'none';
+    if (otherDevice) otherDevice.style.display = 'none';
+    if (overlay) overlay.style.display = 'none';
+}
+
+function showBncOtherDeviceOverlay(msg) {
+    const overlay = document.getElementById('bncLoginOverlay');
+    if (!overlay) return;
+    const form = document.getElementById('bncLoginForm');
+    const expired = document.getElementById('bncExpiredBox');
+    let otherDevice = document.getElementById('bncOtherDeviceBox');
+    if (!otherDevice) {
+        otherDevice = document.createElement('div');
+        otherDevice.id = 'bncOtherDeviceBox';
+        otherDevice.style.cssText = 'text-align:center;padding:24px;';
+        otherDevice.innerHTML = `
+            <div style="font-size:48px;margin-bottom:12px;">📱</div>
+            <h2 style="margin-bottom:8px;">Đăng nhập ở máy khác</h2>
+            <p style="color:#888;margin-bottom:20px;font-size:13px;">${msg || 'Tài khoản đang được sử dụng trên một thiết bị khác.'}</p>
+            <button onclick="doBncLoginFromOtherDevice()" style="background:#4a90e2;color:#fff;border:none;border-radius:8px;padding:10px 24px;font-size:14px;cursor:pointer;margin-right:8px;">
+                🔄 Đăng nhập máy này
+            </button>
+            <button onclick="document.getElementById('bncOtherDeviceBox').style.display='none';document.getElementById('bncLoginForm').style.display='block';" style="background:transparent;color:#aaa;border:1px solid #444;border-radius:8px;padding:10px 18px;font-size:13px;cursor:pointer;">
+                Đổi tài khoản
+            </button>
+        `;
+        overlay.querySelector('.bnc-login-box, div')?.appendChild(otherDevice)
+            || overlay.appendChild(otherDevice);
+    }
+    if (form) form.style.display = 'none';
+    if (expired) expired.style.display = 'none';
+    otherDevice.style.display = 'block';
+    overlay.style.display = 'flex';
+}
+
+// Đăng nhập lại trên máy này — kick máy kia
+async function doBncLoginFromOtherDevice() {
+    // Hide other-device box, show login form to re-authenticate
+    const otherDevice = document.getElementById('bncOtherDeviceBox');
+    const form = document.getElementById('bncLoginForm');
+    if (otherDevice) otherDevice.style.display = 'none';
+    if (form) form.style.display = 'block';
 }
 
 function toggleBncPassword() {
@@ -166,12 +235,11 @@ async function openPlansModal() {
 
     grid.innerHTML = plans.map(p => {
         const isActive = p.id === currentPlan;
-        const features = {
-            starter: ['30 profiles', 'Tất cả tính năng', 'Hỗ trợ cơ bản'],
-            pro:     ['100 profiles', 'Tất cả tính năng', 'Hỗ trợ ưu tiên'],
-            team:    ['300 profiles', 'Tất cả tính năng', 'Hỗ trợ ưu tiên', 'Multi-user'],
-            scale:   ['1000 profiles', 'Tất cả tính năng', 'Hỗ trợ 24/7', 'Multi-user', 'API Access'],
-        }[p.id] || [];
+        const features = [
+            `${p.maxProfiles} profiles`,
+            p.maxDevices > 1 ? `${p.maxDevices} thiết bị đồng thời` : '1 thiết bị',
+            'Tất cả tính năng',
+        ];
 
         return `
         <div style="background:${isActive ? 'rgba(0,224,255,0.06)' : 'rgba(0,0,0,0.2)'};border:1.5px solid ${isActive ? '#00e0ff' : 'rgba(255,255,255,0.08)'};border-radius:12px;padding:20px 16px;display:flex;flex-direction:column;gap:10px;position:relative;">
@@ -231,7 +299,7 @@ function closePaymentModal() {
 
 function openBncPaymentHistory() {
     document.getElementById('bncUserDropdown').style.display = 'none';
-    window.electronAPI.invoke('open-url', 'https://bagi.vn/tai-khoan/giao-dich');
+    window.electronAPI.invoke('open-url', 'https://yttool.vn/tai-khoan/giao-dich');
 }
 
 // Khởi động BNC UI
@@ -1237,6 +1305,21 @@ async function quickUpdatePreProxy(id, val) {
 }
 
 function openAddModal() {
+    // ── BNC: kiểm tra giới hạn profiles theo gói ──────────────────────────
+    const sub = _bncAuth?.subscription;
+    if (sub && !sub.isExpired) {
+        const maxProfiles = sub.maxProfiles || 0;
+        const currentCount = (window._cachedProfiles || []).length;
+        if (currentCount >= maxProfiles) {
+            showConfirm(
+                `Gói ${(sub.planType || '').toUpperCase()} chỉ cho phép tối đa ${maxProfiles} profiles (đang dùng ${currentCount}/${maxProfiles}).\n\nNâng cấp gói để tạo thêm?`,
+                () => openPlansModal()
+            );
+            return;
+        }
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
     document.getElementById('addName').value = '';
     document.getElementById('addProxy').value = '';
     _addTags = []; _addNote = '';
@@ -2437,7 +2520,7 @@ function switchSettingsTab(tabName, clickedBtn) {
     });
     document.getElementById('settings-' + tabName).style.display = 'block';
     if (tabName === 'chrome') loadChromePath();
-    if (tabName === 'license') { loadLicenseStatus(); loadDataPathSetting(); }
+    if (tabName === 'license') { loadBncDevices(); loadDataPathSetting(); }
     if (tabName === 'advanced') loadDataPathSetting();
 }
 // ============================================================================
@@ -2921,72 +3004,60 @@ async function confirmAssignGroup() {
 }
 
 // ============================================================================
-// License Management
+// Device Management (BNC)
 // ============================================================================
-async function loadLicenseStatus() {
+async function loadBncDevices() {
     const deviceIdEl = document.getElementById('licenseDeviceId');
-    const badgeEl = document.getElementById('licenseBadge');
-    const infoEl = document.getElementById('licenseInfo');
+    const listEl = document.getElementById('bncDevicesList');
+    const maxEl = document.getElementById('bncMaxDevices');
 
     try {
-        const { deviceId, license } = await window.electronAPI.licenseGetStatus();
-
+        const { deviceId } = await window.electronAPI.licenseGetStatus();
         if (deviceIdEl) deviceIdEl.textContent = deviceId || '-';
 
-        if (license && license.tokenType) {
-            badgeEl.textContent = '● Đã kích hoạt';
-            badgeEl.style.background = 'rgba(76,175,80,0.2)';
-            badgeEl.style.color = '#4CAF50';
-
-            document.getElementById('licenseType').textContent = license.tokenType;
-            document.getElementById('licensePhone').textContent = license.phoneNumber || '-';
-            document.getElementById('licenseExpiry').textContent = license.expiryDate
-                ? new Date(license.expiryDate).toLocaleDateString('vi-VN') : '-';
-            if (infoEl) infoEl.style.display = 'block';
-
-            const keyInput = document.getElementById('licenseKeyInput');
-            if (keyInput) keyInput.value = license.licenseKey || '';
-        } else {
-            badgeEl.textContent = '● Chưa kích hoạt';
-            badgeEl.style.background = 'rgba(100,100,100,0.3)';
-            badgeEl.style.color = '#aaa';
-            if (infoEl) infoEl.style.display = 'none';
+        const result = await window.electronAPI.invoke('bnc-get-sessions');
+        if (!result || result.error) {
+            if (listEl) listEl.innerHTML = '<div style="color:#aaa;font-size:.85rem;padding:8px 0">Chưa đăng nhập hoặc không thể tải danh sách thiết bị.</div>';
+            return;
         }
+
+        const { sessions = [], maxDevices = 1, currentDeviceId } = result;
+
+        if (maxEl) maxEl.textContent = `${sessions.length} / ${maxDevices} thiết bị`;
+
+        if (!listEl) return;
+        if (sessions.length === 0) {
+            listEl.innerHTML = '<div style="color:#aaa;font-size:.85rem;padding:8px 0">Chưa có thiết bị nào đăng nhập.</div>';
+            return;
+        }
+
+        listEl.innerHTML = sessions.map(s => {
+            const isCurrent = s.deviceId === currentDeviceId;
+            const lastSeen = s.lastSeenAt ? new Date(s.lastSeenAt).toLocaleString('vi-VN') : '-';
+            return `
+              <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:${isCurrent ? 'rgba(76,175,80,0.08)' : 'rgba(255,255,255,0.04)'};border-radius:8px;margin-bottom:6px;border:1px solid ${isCurrent ? 'rgba(76,175,80,0.25)' : 'rgba(255,255,255,0.08)'}">
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:.88rem;font-weight:600;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.deviceName || s.deviceId}</div>
+                  <div style="font-size:.75rem;color:#888;margin-top:2px">${s.platform || ''} · Hoạt động: ${lastSeen}</div>
+                </div>
+                ${isCurrent
+                    ? '<span style="font-size:.75rem;background:rgba(76,175,80,0.2);color:#4CAF50;padding:3px 8px;border-radius:12px;white-space:nowrap">Thiết bị này</span>'
+                    : `<button onclick="kickBncDevice('${s.deviceId}')" style="padding:5px 12px;border-radius:6px;border:1px solid rgba(244,67,54,0.4);background:rgba(244,67,54,0.1);color:#f44336;font-size:.78rem;cursor:pointer">Đăng xuất</button>`
+                }
+              </div>`;
+        }).join('');
     } catch (e) {
-        if (deviceIdEl) deviceIdEl.textContent = 'Lỗi khi tải';
+        if (listEl) listEl.innerHTML = '<div style="color:#f44336;font-size:.85rem;padding:8px 0">Lỗi khi tải danh sách thiết bị.</div>';
     }
 }
 
-async function activateLicenseKey() {
-    const input = document.getElementById('licenseKeyInput');
-    const btn = document.getElementById('licenseActivateBtn');
-    const msgEl = document.getElementById('licenseMsg');
-    const key = input?.value?.trim();
-
-    if (!key) {
-        showLicenseMsg('Vui lòng nhập license key', false);
-        return;
-    }
-
-    btn.disabled = true;
-    btn.textContent = 'Đang kích hoạt...';
-    hideLicenseMsg();
-
+async function kickBncDevice(deviceId) {
+    if (!confirm('Đăng xuất thiết bị này khỏi tài khoản BNC?')) return;
     try {
-        const result = await window.electronAPI.licenseActivate(key);
-        if (result.success) {
-            showLicenseMsg('✅ ' + result.message, true);
-            loadLicenseStatus();
-            // Hỏi chọn thư mục lưu dữ liệu sau khi kích hoạt thành công
-            setTimeout(() => askDataPathAfterActivation(), 800);
-        } else {
-            showLicenseMsg('❌ ' + result.message, false);
-        }
+        await window.electronAPI.invoke('bnc-kick-session', deviceId);
+        await loadBncDevices();
     } catch (e) {
-        showLicenseMsg('❌ Lỗi không xác định', false);
-    } finally {
-        btn.disabled = false;
-        btn.textContent = 'Kích hoạt';
+        alert('Lỗi khi đăng xuất thiết bị: ' + (e.message || e));
     }
 }
 
@@ -3073,37 +3144,3 @@ async function askDataPathAfterActivation() {
     });
 }
 
-async function deactivateLicense() {
-    const key = document.getElementById('licenseKeyInput')?.value?.trim() || null;
-    if (!confirm(`Huỷ kích hoạt license khỏi thiết bị này?${key ? '\n\nKey: ' + key : ''}`)) return;
-
-    const btn = document.getElementById('licenseDeactivateBtn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Đang huỷ...'; }
-
-    const result = await window.electronAPI.invoke('license-deactivate', key);
-
-    if (btn) { btn.disabled = false; btn.textContent = 'Huỷ kích hoạt'; }
-
-    if (result.success) {
-        document.getElementById('licenseKeyInput').value = '';
-        showLicenseMsg('✅ Đã huỷ kích hoạt', true);
-        loadLicenseStatus();
-    } else {
-        showLicenseMsg('❌ ' + (result.message || 'Huỷ thất bại'), false);
-    }
-}
-
-function showLicenseMsg(text, success) {
-    const el = document.getElementById('licenseMsg');
-    if (!el) return;
-    el.textContent = text;
-    el.style.display = 'block';
-    el.style.background = success ? 'rgba(76,175,80,0.15)' : 'rgba(244,67,54,0.15)';
-    el.style.color = success ? '#4CAF50' : '#f44336';
-    el.style.border = `1px solid ${success ? 'rgba(76,175,80,0.3)' : 'rgba(244,67,54,0.3)'}`;
-}
-
-function hideLicenseMsg() {
-    const el = document.getElementById('licenseMsg');
-    if (el) el.style.display = 'none';
-}

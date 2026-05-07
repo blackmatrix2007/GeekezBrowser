@@ -82,13 +82,9 @@ const SETTINGS_FILE = path.join(DATA_PATH, 'settings.json');
 fs.ensureDirSync(DATA_PATH);
 fs.ensureDirSync(TRASH_PATH);
 
-// ─── License & Device Tracking ───────────────────────────────────────────────
-const TOOLPHUC_API = 'https://tool.erp-x.com/api/geekez';
-const LICENSE_FILE          = path.join(app.getPath('userData'), 'license.json');
-const ACCESS_CACHE          = path.join(app.getPath('userData'), '.access_cache.json');
+// ─── Update Check ────────────────────────────────────────────────────────────
 const DATA_PATH_CONFIRMED   = path.join(app.getPath('userData'), '.data_path_confirmed');
 const SKIPPED_UPDATE_FILE   = path.join(app.getPath('userData'), '.skipped_update_version');
-const GRACE_HOURS           = 48; // Offline grace period: cho dùng tiếp 48h nếu mất mạng
 
 // ─── BNC Subscription Auth ───────────────────────────────────────────────────
 const BNC_API       = 'https://yttool.vn/api/bnc';
@@ -124,7 +120,7 @@ function readBncSubCache() {
 // Gọi muachungtool /api/bnc/login — trả về { accessToken, customer, subscription } hoặc null
 async function bncLogin(email, password) {
     try {
-        const body = JSON.stringify({ email, password });
+        const body = JSON.stringify({ email, password, deviceId: getDeviceId() });
         const loginUrl = BNC_API + '/login';
         console.log('[DEBUG:BNC_LOGIN] Calling', loginUrl, 'email:', email);
         return await new Promise((resolve) => {
@@ -133,7 +129,7 @@ async function bncLogin(email, password) {
                 hostname: url.hostname,
                 path: url.pathname,
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), 'x-device-id': getDeviceId() },
             }, (res) => {
                 let data = '';
                 res.on('data', c => data += c);
@@ -176,7 +172,10 @@ async function bncCheckSubscription() {
                 hostname: url.hostname,
                 path: url.pathname,
                 method: 'GET',
-                headers: { 'Authorization': 'Bearer ' + auth.accessToken },
+                headers: {
+                    'Authorization': 'Bearer ' + auth.accessToken,
+                    'x-device-id': getDeviceId(),
+                },
             }, (res) => {
                 let data = '';
                 res.on('data', c => data += c);
@@ -191,11 +190,48 @@ async function bncCheckSubscription() {
     } catch (_) { return null; }
 }
 
+// Helper: gọi BNC API với auth + deviceId (fire-and-forget sync, không block local op)
+async function bncApiCall(method, path, body) {
+    const auth = getSavedBncAuth();
+    if (!auth || !auth.accessToken) return null;
+    try {
+        const bodyStr = body ? JSON.stringify(body) : null;
+        const url = new URL(BNC_API + path);
+        return await new Promise((resolve) => {
+            const headers = {
+                'Authorization': 'Bearer ' + auth.accessToken,
+                'x-device-id': getDeviceId(),
+                'Content-Type': 'application/json',
+            };
+            if (bodyStr) headers['Content-Length'] = Buffer.byteLength(bodyStr);
+            const req = https.request({
+                hostname: url.hostname,
+                path: url.pathname,
+                method,
+                headers,
+            }, (res) => {
+                let data = '';
+                res.on('data', c => data += c);
+                res.on('end', () => {
+                    try { resolve({ ...JSON.parse(data), _statusCode: res.statusCode }); } catch (_) { resolve(null); }
+                });
+            });
+            req.on('error', () => resolve(null));
+            req.setTimeout(10000, () => { req.destroy(); resolve(null); });
+            if (bodyStr) req.write(bodyStr);
+            req.end();
+        });
+    } catch (_) { return null; }
+}
+
 // Kiểm tra quyền truy cập BNC — { allowed, daysRemaining, isWarning, isExpired, offlineMode }
 async function bncCheckAccess() {
     const result = await bncCheckSubscription();
 
     if (result && result._statusCode === 401) {
+        if (result.reason === 'other_device' || result.reason === 'device_kicked') {
+            return { allowed: false, reason: 'other_device', message: result.message || 'Tài khoản đang đăng nhập ở thiết bị khác.' };
+        }
         // Token expired/invalid → force re-login
         return { allowed: false, reason: 'token_invalid', message: 'Phiên đăng nhập hết hạn, vui lòng đăng nhập lại.' };
     }
@@ -268,121 +304,27 @@ function getDeviceId() {
     }
 }
 
-// Gọi heartbeat và trả về response (có thể null nếu lỗi mạng)
-async function sendHeartbeat() {
+// Kiểm tra version mới từ yttool.vn — thay thế heartbeat toolphuc
+// Trả về { version, downloadUrl, forceUpdate, releaseNotes, minVersion } hoặc null
+async function bncCheckVersion() {
     try {
-        const deviceId = getDeviceId();
-        const body = JSON.stringify({
-            deviceId,
-            deviceName: os.hostname(),
-            platform: `${process.platform}-${process.arch}`,
-            appVersion: app.getVersion(),
-        });
-        const result = await new Promise((resolve) => {
-            const url = new URL(TOOLPHUC_API + '/heartbeat');
+        return await new Promise((resolve) => {
+            const url = new URL(BNC_API + '/version');
             const req = https.request({
                 hostname: url.hostname,
                 path: url.pathname,
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+                method: 'GET',
+                headers: { 'x-app-version': app.getVersion() },
             }, (res) => {
                 let data = '';
                 res.on('data', c => data += c);
                 res.on('end', () => { try { resolve(JSON.parse(data)); } catch (_) { resolve(null); } });
             });
-            req.on('error', (err) => { debugLog('HEARTBEAT_ERROR', { error: err.message }); resolve(null); });
-            req.setTimeout(8000, () => { req.destroy(); debugLog('HEARTBEAT_TIMEOUT', {}); resolve(null); });
-            req.write(body);
+            req.on('error', () => resolve(null));
+            req.setTimeout(8000, () => { req.destroy(); resolve(null); });
             req.end();
         });
-        debugLog('HEARTBEAT', { sent: JSON.parse(body), response: result });
-        return result;
-    } catch (err) {
-        debugLog('HEARTBEAT_ERROR', { error: err.message });
-        return null;
-    }
-}
-
-// Lưu kết quả heartbeat vào cache local
-function saveAccessCache(result) {
-    try { fs.writeJsonSync(ACCESS_CACHE, { ...result, cachedAt: new Date().toISOString() }); } catch (_) {}
-}
-
-// Đọc cache và kiểm tra còn trong grace period không
-function readAccessCache() {
-    try {
-        if (!fs.existsSync(ACCESS_CACHE)) return null;
-        const cache = fs.readJsonSync(ACCESS_CACHE);
-        const hours = (Date.now() - new Date(cache.cachedAt).getTime()) / 3600000;
-        if (hours > GRACE_HOURS) return null; // Cache quá hạn
-        return cache;
     } catch (_) { return null; }
-}
-
-// Kiểm tra quyền truy cập khi khởi động
-// Trả về { allowed, reason, message } — luôn có kết quả (offline thì dùng cache)
-async function checkAccess() {
-    // Log trạng thái file local trước khi gọi server
-    const localLicense = getSavedLicense();
-    const cacheExists = fs.existsSync(ACCESS_CACHE);
-    debugLog('LICENSE_STARTUP', {
-        licenseFileExists: fs.existsSync(LICENSE_FILE),
-        licenseKey: localLicense ? localLicense.licenseKey : null,
-        licenseType: localLicense ? localLicense.tokenType : null,
-        cacheFileExists: cacheExists,
-        cacheContent: cacheExists ? (() => { try { return fs.readJsonSync(ACCESS_CACHE); } catch(_) { return null; } })() : null,
-    });
-
-    const result = await sendHeartbeat();
-
-    if (result) {
-        // Validate response — server có thể trả lỗi dạng {message: "..."} không có "allowed"
-        // Trường hợp này coi như server lỗi, fallback về cache thay vì block user
-        if (typeof result.allowed !== 'boolean') {
-            debugLog('ACCESS_CHECK', { mode: 'server_error', serverMessage: result.message || result.error || 'unknown', action: 'fallback to cache' });
-        } else {
-            saveAccessCache(result);
-            // Nếu server báo license bị thu hồi → xóa license.json local để UI cập nhật đúng
-            if (result.licenseRevoked) {
-                try { fs.removeSync(LICENSE_FILE); } catch (_) {}
-                debugLog('LICENSE_REVOKED', { reason: result.reason });
-            }
-            debugLog('ACCESS_CHECK', {
-                mode: 'online',
-                allowed: result.allowed,
-                reason: result.reason,
-                requireLicense: result.requireLicense,
-                licenseStatus: result.licenseStatus,
-                willShowDialog: !result.allowed,
-            });
-            return result;
-        }
-    }
-
-    // Mất mạng — dùng cache
-    const cache = readAccessCache();
-    if (cache) {
-        const hoursLeft = Math.round(GRACE_HOURS - (Date.now() - new Date(cache.cachedAt).getTime()) / 3600000);
-        debugLog('ACCESS_CHECK', { mode: 'offline_cache', hoursLeft, cachedAt: cache.cachedAt, allowed: cache.allowed !== false });
-        return {
-            ...cache,
-            allowed: cache.allowed !== false,
-            offlineMode: true,
-            hoursLeft,
-        };
-    }
-
-    // Không có cache → lần đầu dùng offline, cho qua
-    debugLog('ACCESS_CHECK', { mode: 'offline_no_cache', allowed: true });
-    return { allowed: true, offlineMode: true, hoursLeft: GRACE_HOURS };
-}
-
-// Đọc license đã lưu (nếu có)
-function getSavedLicense() {
-    try {
-        if (fs.existsSync(LICENSE_FILE)) return fs.readJsonSync(LICENSE_FILE);
-    } catch (_) {}
-    return null;
 }
 
 // ─── License Blocked Dialog (custom window với ô nhập key) ───────────────────
@@ -500,7 +442,7 @@ function showBncLoginDialog(access) {
                 resolve(true);
             } else if (navUrl.startsWith('activate://renew')) {
                 e.preventDefault();
-                shell.openExternal('https://muachung.bagi.vn');
+                shell.openExternal('https://yttool.vn');
             }
         });
 
@@ -513,102 +455,48 @@ function showBncLoginDialog(access) {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ─── Server Announcement (thông báo / cập nhật từ server) ────────────────────
-// Cache announcement nhận được từ server
-let cachedAnnouncement = null;
+// ─── Update Check ────────────────────────────────────────────────────────────
 let updateShownThisSession = false;
 
-// Kiểm tra version và hiện dialog nếu có bản mới — chỉ hiện 1 lần/session
-async function checkAndNotifyUpdate(heartbeatResult) {
-    debugLog('UPDATE_CHECK', { updateShownThisSession, hasResult: !!heartbeatResult, latestVersion: heartbeatResult?.latestVersion });
-
-    if (updateShownThisSession) { debugLog('UPDATE_CHECK', 'skip — already shown this session'); return; }
-    if (!heartbeatResult || !heartbeatResult.latestVersion) { debugLog('UPDATE_CHECK', 'skip — no latestVersion in heartbeat response'); return; }
+// Kiểm tra version từ yttool.vn và hiện dialog nếu có bản mới — chỉ hiện 1 lần/session
+async function checkAndNotifyUpdate(versionResult) {
+    if (updateShownThisSession || !versionResult?.version) return;
 
     const current = app.getVersion();
-    const latest = heartbeatResult.latestVersion;
+    const latest = versionResult.version;
     const isOutdated = latest.localeCompare(current, undefined, { numeric: true, sensitivity: 'base' }) > 0;
     debugLog('UPDATE_CHECK', { current, latest, isOutdated });
-    if (!isOutdated) { debugLog('UPDATE_CHECK', 'skip — already on latest'); return; }
+    if (!isOutdated) return;
 
-    const forceUpdate = heartbeatResult.forceUpdate === true;
+    const forceUpdate = versionResult.forceUpdate === true;
 
-    // Kiểm tra version đã bị skip chưa (chỉ áp dụng khi không force)
     if (!forceUpdate) {
         try {
             const skipped = fs.existsSync(SKIPPED_UPDATE_FILE)
-                ? fs.readFileSync(SKIPPED_UPDATE_FILE, 'utf8').trim()
-                : null;
-            debugLog('UPDATE_CHECK', { skippedVersion: skipped });
-            if (skipped === latest) { debugLog('UPDATE_CHECK', `skip — user previously skipped v${latest}`); return; }
+                ? fs.readFileSync(SKIPPED_UPDATE_FILE, 'utf8').trim() : null;
+            if (skipped === latest) return;
         } catch (_) {}
     }
 
-    debugLog('UPDATE_CHECK', { action: 'showing dialog', forceUpdate });
     updateShownThisSession = true;
-    const downloadUrl = heartbeatResult.downloadUrl || 'https://tool.erp-x.com';
-    const notes = heartbeatResult.releaseNotes ? `\n\n${heartbeatResult.releaseNotes}` : '';
-
+    const downloadUrl = versionResult.downloadUrl || 'https://yttool.vn';
+    const notes = versionResult.releaseNotes ? `\n\n${versionResult.releaseNotes}` : '';
     const buttons = forceUpdate ? ['Tải ngay'] : ['Tải ngay', 'Bỏ qua phiên bản này'];
+
     const { response } = await dialog.showMessageBox({
         type: 'info',
         title: `Có phiên bản mới — v${latest}`,
         message: `BNC Browser ${latest} đã sẵn sàng`,
         detail: `Bạn đang dùng v${current}. Tải phiên bản mới để có trải nghiệm tốt hơn.${notes}`,
-        buttons,
-        defaultId: 0,
-        cancelId: forceUpdate ? 0 : 1,
-        noLink: true,
+        buttons, defaultId: 0, cancelId: forceUpdate ? 0 : 1, noLink: true,
     });
 
-    debugLog('UPDATE_CHECK', { userResponse: response, buttonLabel: buttons[response] });
-
     if (response === 0) {
-        debugLog('UPDATE_CHECK', { action: 'opening download URL', downloadUrl });
         shell.openExternal(downloadUrl);
-        if (forceUpdate) {
-            debugLog('UPDATE_CHECK', 'forceUpdate — quitting in 1.5s');
-            setTimeout(() => app.quit(), 1500);
-        }
-    }
-
-    // Bỏ qua version này → lưu vào file, không nhắc lại lần sau
-    if (!forceUpdate && response === 1) {
-        try {
-            fs.writeFileSync(SKIPPED_UPDATE_FILE, latest, 'utf8');
-            debugLog('UPDATE_CHECK', { action: 'saved skipped version', version: latest });
-        } catch (_) {}
+        if (forceUpdate) setTimeout(() => app.quit(), 1500);
+    } else if (!forceUpdate && response === 1) {
+        try { fs.writeFileSync(SKIPPED_UPDATE_FILE, latest, 'utf8'); } catch (_) {}
         setTimeout(() => { updateShownThisSession = false; }, 60 * 60 * 1000);
-    }
-}
-
-// Gọi /api/geekez/announcement để lấy thông báo mới nhất từ server
-// Server trả về: { show: bool, version?: string, url?: string, notes?: string, skipable?: bool }
-async function fetchAnnouncement() {
-    try {
-        const deviceId = getDeviceId();
-        const params = new URLSearchParams({ deviceId, appVersion: app.getVersion() });
-        return await new Promise((resolve) => {
-            const url = new URL(TOOLPHUC_API + '/announcement?' + params.toString());
-            const req = https.request({
-                hostname: url.hostname,
-                path: url.pathname + url.search,
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' },
-            }, (res) => {
-                let data = '';
-                res.on('data', c => data += c);
-                res.on('end', () => { try { resolve(JSON.parse(data)); } catch (_) { resolve(null); } });
-            });
-            req.on('error', () => resolve(null));
-            req.setTimeout(6000, () => { req.destroy(); resolve(null); });
-            req.end();
-        });
-        debugLog('ANNOUNCEMENT', { response: result });
-        return result;
-    } catch (err) {
-        debugLog('ANNOUNCEMENT_ERROR', { error: err.message });
-        return null;
     }
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -700,43 +588,8 @@ function createInternalApiServer() {
 
         // Kích hoạt license từ blocked dialog (không qua preload vì dialog dùng data: URL)
         if (req.method === 'POST' && url.pathname === '/api/activate-license') {
-            let body = await new Promise(resolve => {
-                let data = ''; req.on('data', chunk => data += chunk); req.on('end', () => resolve(data));
-            });
-            try {
-                const { licenseKey } = JSON.parse(body);
-                if (!licenseKey) { res.writeHead(400); return res.end(JSON.stringify({ success: false, message: 'Thiếu license key' })); }
-                // Tái dùng IPC handler logic
-                const deviceId = getDeviceId();
-                const reqBody = JSON.stringify({ deviceId, licenseKey });
-                const result = await new Promise((resolve, reject) => {
-                    const activateUrl = new URL(TOOLPHUC_API + '/activate');
-                    const areq = https.request({
-                        hostname: activateUrl.hostname,
-                        path: activateUrl.pathname,
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(reqBody) },
-                    }, (ares) => {
-                        let d = '';
-                        ares.on('data', c => d += c);
-                        ares.on('end', () => { try { resolve({ statusCode: ares.statusCode, body: JSON.parse(d) }); } catch (_) { resolve({ statusCode: ares.statusCode, body: {} }); } });
-                    });
-                    areq.on('error', reject);
-                    areq.setTimeout(8000, () => { areq.destroy(); reject(new Error('Timeout')); });
-                    areq.write(reqBody);
-                    areq.end();
-                });
-                if (result.statusCode === 200 && result.body.allowed) {
-                    const licenseData = { licenseKey, ...result.body.data, activatedAt: new Date().toISOString() };
-                    await fs.writeJson(LICENSE_FILE, licenseData);
-                    // Cập nhật cache access → allowed
-                    saveAccessCache({ allowed: true, reason: null });
-                    res.writeHead(200); return res.end(JSON.stringify({ success: true, message: result.body.message }));
-                }
-                res.writeHead(200); return res.end(JSON.stringify({ success: false, message: result.body.message || 'Kích hoạt thất bại' }));
-            } catch (err) {
-                res.writeHead(500); return res.end(JSON.stringify({ success: false, message: 'Lỗi server: ' + err.message }));
-            }
+            // Legacy endpoint — BNC dùng subscription thay license key
+            res.writeHead(410); return res.end(JSON.stringify({ success: false, message: 'License key không còn được hỗ trợ. Dùng tài khoản BNC.' }));
         }
 
         if (req.method === 'POST' && url.pathname === '/api/passwords/sync') {
@@ -2147,15 +2000,12 @@ app.whenReady().then(async () => {
         console.error('Failed to auto-start Internal Guard Server:', e);
     }
 
-    // ── BNC Subscription Check (thay license GKZ) ──────────────────────────────
-    // Song song: kiểm tra subscription + fetch announcement + heartbeat toolphuc (update check)
-    const [bncAccess, announcement, heartbeatResult] = await Promise.all([
+    // ── BNC Subscription Check + Update Check ──────────────────────────────────
+    const [bncAccess, versionResult] = await Promise.all([
         bncCheckAccess(),
-        fetchAnnouncement(),
-        sendHeartbeat(),
+        bncCheckVersion(),
     ]);
-    if (announcement) cachedAnnouncement = announcement;
-    if (heartbeatResult) saveAccessCache(heartbeatResult);
+    if (versionResult) checkAndNotifyUpdate(versionResult);
 
     debugLog('BNC_STARTUP', { allowed: bncAccess.allowed, reason: bncAccess.reason, daysRemaining: bncAccess.daysRemaining, offlineMode: bncAccess.offlineMode || false });
 
@@ -2228,9 +2078,9 @@ app.whenReady().then(async () => {
                 buttons: ['OK'],
             }).then(() => app.quit());
         }
-        // Toolphuc heartbeat để check update
-        const r = await sendHeartbeat();
-        if (r) { saveAccessCache(r); checkAndNotifyUpdate(r); }
+        // Check version mới từ yttool.vn
+        const r = await bncCheckVersion();
+        if (r) checkAndNotifyUpdate(r);
     }, 30 * 60 * 1000);
 
     // Auto-start public API server if enabled
@@ -2303,6 +2153,37 @@ ipcMain.handle('bnc-login', async (_, { email, password }) => {
     saveBncAuth({ accessToken: result.accessToken, email, customerId, savedAt: new Date().toISOString() });
     saveBncSubCache(result.subscription);
     console.log('[DEBUG:BNC_IPC_LOGIN] success, customerId:', customerId);
+
+    // ── Profile/Group sync from server ──────────────────────────────────
+    const serverProfiles = result.profiles || [];
+    const serverGroups   = result.groups   || [];
+
+    if (serverProfiles.length > 0) {
+        // Server has profiles → use server as source of truth
+        await fs.writeJson(PROFILES_FILE, serverProfiles);
+        console.log('[BNC_SYNC] Loaded', serverProfiles.length, 'profiles from server');
+    } else {
+        // Server has no profiles → upload local profiles (initial sync)
+        const localProfiles = fs.existsSync(PROFILES_FILE) ? await fs.readJson(PROFILES_FILE) : [];
+        if (localProfiles.length > 0) {
+            bncApiCall('POST', '/profiles/bulk', { profiles: localProfiles })
+                .then(() => console.log('[BNC_SYNC] Uploaded', localProfiles.length, 'local profiles to server'))
+                .catch(() => {});
+        }
+    }
+
+    if (serverGroups.length > 0) {
+        await fs.writeJson(GROUPS_FILE, serverGroups);
+        console.log('[BNC_SYNC] Loaded', serverGroups.length, 'groups from server');
+    } else {
+        const localGroups = fs.existsSync(GROUPS_FILE) ? await fs.readJson(GROUPS_FILE) : [];
+        if (localGroups.length > 0) {
+            bncApiCall('POST', '/groups/bulk', { groups: localGroups })
+                .then(() => console.log('[BNC_SYNC] Uploaded', localGroups.length, 'local groups to server'))
+                .catch(() => {});
+        }
+    }
+
     return { success: true, customer: result.customer, subscription: result.subscription };
 });
 
@@ -2353,110 +2234,37 @@ ipcMain.handle('bnc-get-payment-info', async () => {
         transferContent: auth?.customerId ? `BNC${auth.customerId}` : 'BNC',
     };
 });
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Lấy trạng thái license + deviceId hiện tại
-ipcMain.handle('license-get-status', async () => {
-    let saved = getSavedLicense();
-    // Fallback: đọc licenseKey từ ACCESS_CACHE nếu LICENSE_FILE bị xoá
-    if (!saved && fs.existsSync(ACCESS_CACHE)) {
-        try {
-            const cache = fs.readJsonSync(ACCESS_CACHE);
-            if (cache.licenseKey) {
-                saved = { licenseKey: cache.licenseKey, tokenType: cache.tokenType, fromCache: true };
-            }
-        } catch (_) {}
-    }
-    return { deviceId: getDeviceId(), license: saved || null };
-});
-
-// Kích hoạt license key
-ipcMain.handle('license-activate', async (_, licenseKey) => {
-    if (!licenseKey) return { success: false, message: 'Vui lòng nhập license key' };
-    const deviceId = getDeviceId();
-    const body = JSON.stringify({ deviceId, licenseKey });
+// ─── BNC Device Sessions ─────────────────────────────────────────────────────
+ipcMain.handle('bnc-get-sessions', async () => {
+    const auth = getSavedBncAuth();
+    if (!auth?.accessToken) return { error: 'not_logged_in' };
     try {
-        const result = await new Promise((resolve, reject) => {
-            const url = new URL(TOOLPHUC_API + '/activate');
-            const req = https.request({
-                hostname: url.hostname,
-                path: url.pathname,
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-            }, (res) => {
-                let data = '';
-                res.on('data', c => data += c);
-                res.on('end', () => {
-                    try { resolve({ statusCode: res.statusCode, body: JSON.parse(data) }); }
-                    catch (_) { resolve({ statusCode: res.statusCode, body: {} }); }
-                });
-            });
-            req.on('error', reject);
-            req.setTimeout(8000, () => { req.destroy(); reject(new Error('Timeout')); });
-            req.write(body);
-            req.end();
-        });
-
-        if (result.statusCode === 200 && result.body.allowed) {
-            const licenseData = { licenseKey, ...result.body.data, activatedAt: new Date().toISOString() };
-            await fs.writeJson(LICENSE_FILE, licenseData);
-            // Lưu licenseKey vào ACCESS_CACHE để dùng khi LICENSE_FILE bị xoá
-            saveAccessCache({ ...result.body, licenseKey });
-            return { success: true, message: result.body.message, data: licenseData };
-        }
-        return { success: false, message: result.body.message || 'Kích hoạt thất bại' };
-    } catch (err) {
-        return { success: false, message: 'Không thể kết nối server: ' + err.message };
+        const res = await bncApiCall('GET', '/sessions');
+        const sub = await bncApiCall('GET', '/subscription');
+        return {
+            sessions: res.sessions || [],
+            maxDevices: sub?.subscription?.maxDevices ?? 1,
+            currentDeviceId: getDeviceId(),
+        };
+    } catch (e) {
+        return { error: e.message };
     }
 });
-// Huỷ kích hoạt — gọi server + xoá local file
-// licenseKey truyền từ UI (không đọc file — file có thể đã bị xoá)
-ipcMain.handle('license-deactivate', async (_, licenseKeyFromUI) => {
+
+ipcMain.handle('bnc-kick-session', async (_, deviceId) => {
+    if (!deviceId) return { error: 'missing deviceId' };
     try {
-        const deviceId = getDeviceId();
-        // Ưu tiên key từ UI → file local → ACCESS_CACHE
-        let licenseKey = licenseKeyFromUI || null;
-        if (!licenseKey && fs.existsSync(LICENSE_FILE)) {
-            try { licenseKey = (fs.readJsonSync(LICENSE_FILE)).licenseKey; } catch (_) {}
-        }
-        if (!licenseKey && fs.existsSync(ACCESS_CACHE)) {
-            try { licenseKey = (fs.readJsonSync(ACCESS_CACHE)).licenseKey || null; } catch (_) {}
-        }
-
-        // Gọi server — gửi cả deviceId lẫn licenseKey (server có thể tìm theo một trong hai)
-        debugLog('DEACTIVATE_SEND', { deviceId, licenseKey, hasKey: !!licenseKey });
-        {
-            const body = JSON.stringify({ deviceId, licenseKey });
-            const deactivateResult = await new Promise((resolve) => {
-                const url = new URL(TOOLPHUC_API + '/deactivate');
-                const req = https.request({
-                    hostname: url.hostname,
-                    path: url.pathname,
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-                }, (res) => {
-                    let data = '';
-                    res.on('data', c => data += c);
-                    res.on('end', () => {
-                        try { resolve({ statusCode: res.statusCode, body: JSON.parse(data) }); }
-                        catch (_) { resolve({ statusCode: res.statusCode, rawBody: data }); }
-                    });
-                });
-                req.on('error', (err) => resolve({ error: err.message }));
-                req.setTimeout(5000, () => { req.destroy(); resolve({ error: 'timeout' }); });
-                req.write(body);
-                req.end();
-            });
-            debugLog('DEACTIVATE_RESPONSE', deactivateResult);
-        }
-
-        // Xoá local dù server có lỗi hay không
-        if (fs.existsSync(LICENSE_FILE)) fs.removeSync(LICENSE_FILE);
-        if (fs.existsSync(ACCESS_CACHE)) fs.removeSync(ACCESS_CACHE);
+        await bncApiCall('DELETE', `/sessions/${deviceId}`);
         return { success: true };
     } catch (e) {
-        return { success: false, message: e.message };
+        return { error: e.message };
     }
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Lấy deviceId (dùng trong settings để hiển thị)
+ipcMain.handle('license-get-status', async () => {
+    return { deviceId: getDeviceId(), license: null };
 });
 // ─── Data Path Confirmed Flag ─────────────────────────────────────────────────
 ipcMain.handle('data-path-get-confirmed', () => fs.existsSync(DATA_PATH_CONFIRMED));
@@ -2477,48 +2285,20 @@ ipcMain.handle('restart-app', () => {
 ipcMain.handle('renderer-debug-log', (_, tag, data) => {
     debugLog('RENDERER:' + tag, data);
 });
-// ─────────────────────────────────────────────────────────────────────────────
-// Thông báo từ server — nội dung & link cấu hình hoàn toàn trên tool.erp-x.com
+// ─── Check update — gọi yttool.vn/api/bnc/version ────────────────────────────
 ipcMain.handle('check-app-update', async () => {
-    // Refresh announcement từ server mỗi lần user nhấn "Check Updates"
-    const fresh = await fetchAnnouncement();
-    if (fresh) cachedAnnouncement = fresh;
-
-    // Đọc heartbeat cache để lấy downloadUrl / latestVersion làm fallback
-    const hbCache = readAccessCache();
-
-    const ann = cachedAnnouncement;
-    if (ann && ann.show) {
-        const url = ann.url || hbCache?.downloadUrl || '';
-        const remote = ann.version || hbCache?.latestVersion || '';
-        debugLog('CHECK_APP_UPDATE', { source: 'announcement', remote, url, skipable: ann.skipable });
-        return {
-            update: true,
-            remote,
-            url,
-            notes:    ann.notes  || hbCache?.releaseNotes || '',
-            skipable: ann.skipable !== false,
-        };
-    }
-
-    // Không có announcement nhưng heartbeat báo có bản mới
-    if (hbCache?.latestVersion) {
-        const current = app.getVersion();
-        const isOutdated = hbCache.latestVersion.localeCompare(current, undefined, { numeric: true, sensitivity: 'base' }) > 0;
-        if (isOutdated) {
-            debugLog('CHECK_APP_UPDATE', { source: 'heartbeat_cache', remote: hbCache.latestVersion, url: hbCache.downloadUrl });
-            return {
-                update: true,
-                remote:   hbCache.latestVersion,
-                url:      hbCache.downloadUrl || '',
-                notes:    hbCache.releaseNotes || '',
-                skipable: hbCache.forceUpdate !== true,
-            };
-        }
-    }
-
-    debugLog('CHECK_APP_UPDATE', { update: false });
-    return { update: false };
+    const v = await bncCheckVersion();
+    if (!v?.version) return { update: false };
+    const current = app.getVersion();
+    const isOutdated = v.version.localeCompare(current, undefined, { numeric: true, sensitivity: 'base' }) > 0;
+    if (!isOutdated) return { update: false };
+    return {
+        update: true,
+        remote: v.version,
+        url: v.downloadUrl || 'https://yttool.vn',
+        notes: v.releaseNotes || '',
+        skipable: v.forceUpdate !== true,
+    };
 });
 ipcMain.handle('check-xray-update', async () => { try { const data = await fetchJson('https://api.github.com/repos/XTLS/Xray-core/releases/latest'); if (!data || !data.tag_name) return { update: false }; const remoteVer = data.tag_name; const currentVer = await getLocalXrayVersion(); if (remoteVer !== currentVer) { let assetName = ''; const arch = os.arch(); const platform = os.platform(); if (platform === 'win32') assetName = `Xray-windows-${arch === 'x64' ? '64' : '32'}.zip`; else if (platform === 'darwin') assetName = `Xray-macos-${arch === 'arm64' ? 'arm64-v8a' : '64'}.zip`; else assetName = `Xray-linux-${arch === 'x64' ? '64' : '32'}.zip`; const downloadUrl = `https://gh-proxy.com/https://github.com/XTLS/Xray-core/releases/download/${remoteVer}/${assetName}`; return { update: true, remote: remoteVer.replace(/^v/, ''), downloadUrl }; } return { update: false }; } catch (e) { return { update: false }; } });
 ipcMain.handle('download-xray-update', async (e, url) => {
@@ -2638,7 +2418,18 @@ ipcMain.handle('verify-profile', async (event, profileId) => {
     }
 });
 ipcMain.handle('get-profiles', async () => { if (!fs.existsSync(PROFILES_FILE)) return []; return fs.readJson(PROFILES_FILE); });
-ipcMain.handle('update-profile', async (event, updatedProfile) => { let profiles = await fs.readJson(PROFILES_FILE); const index = profiles.findIndex(p => p.id === updatedProfile.id); if (index > -1) { profiles[index] = updatedProfile; await fs.writeJson(PROFILES_FILE, profiles); return true; } return false; });
+ipcMain.handle('update-profile', async (event, updatedProfile) => {
+    let profiles = await fs.readJson(PROFILES_FILE);
+    const index = profiles.findIndex(p => p.id === updatedProfile.id);
+    if (index > -1) {
+        profiles[index] = updatedProfile;
+        await fs.writeJson(PROFILES_FILE, profiles);
+        // Sync to server (fire-and-forget)
+        bncApiCall('PUT', `/profiles/${updatedProfile.id}`, updatedProfile).catch(() => {});
+        return true;
+    }
+    return false;
+});
 ipcMain.handle('save-profile', async (event, data) => {
     const profiles = fs.existsSync(PROFILES_FILE) ? await fs.readJson(PROFILES_FILE) : [];
     const fingerprint = data.fingerprint || generateFingerprint();
@@ -2674,6 +2465,9 @@ ipcMain.handle('save-profile', async (event, data) => {
     profiles.push(newProfile);
     await fs.writeJson(PROFILES_FILE, profiles);
 
+    // Sync to server (fire-and-forget)
+    bncApiCall('POST', '/profiles', newProfile).catch(() => {});
+
     debugLog('PROFILE_CREATED', {
         id: newProfile.id,
         name: newProfile.name,
@@ -2707,13 +2501,17 @@ ipcMain.handle('save-group', async (event, data) => {
     const group = { id: uuidv4(), name: data.name, createdAt: Date.now() };
     groups.push(group);
     await fs.writeJson(GROUPS_FILE, groups);
+    // Sync to server (fire-and-forget)
+    bncApiCall('POST', '/groups', group).catch(() => {});
     return group;
 });
 ipcMain.handle('update-group', async (event, updated) => {
     const groups = readGroups();
     const idx = groups.findIndex(g => g.id === updated.id);
-    if (idx > -1) { groups[idx] = { ...groups[idx], ...updated }; await fs.writeJson(GROUPS_FILE, groups); return true; }
-    return false;
+    if (idx > -1) { groups[idx] = { ...groups[idx], ...updated }; await fs.writeJson(GROUPS_FILE, groups); }
+    // Sync to server (fire-and-forget)
+    if (idx > -1) bncApiCall('PUT', `/groups/${updated.id}`, { name: updated.name }).catch(() => {});
+    return idx > -1;
 });
 ipcMain.handle('delete-group', async (event, id) => {
     // Remove group and unassign all profiles in that group
@@ -2725,14 +2523,21 @@ ipcMain.handle('delete-group', async (event, id) => {
         profiles = profiles.map(p => p.groupId === id ? { ...p, groupId: null } : p);
         await fs.writeJson(PROFILES_FILE, profiles);
     }
+    // Sync to server (fire-and-forget)
+    bncApiCall('DELETE', `/groups/${id}`).catch(() => {});
     return true;
 });
 ipcMain.handle('assign-profile-group', async (event, { profileId, groupId }) => {
     if (!fs.existsSync(PROFILES_FILE)) return false;
     let profiles = await fs.readJson(PROFILES_FILE);
     const idx = profiles.findIndex(p => p.id === profileId);
-    if (idx > -1) { profiles[idx].groupId = groupId || null; await fs.writeJson(PROFILES_FILE, profiles); return true; }
-    return false;
+    if (idx > -1) {
+        profiles[idx].groupId = groupId || null;
+        await fs.writeJson(PROFILES_FILE, profiles);
+        // Sync to server (fire-and-forget)
+        bncApiCall('PUT', `/profiles/${profileId}`, { groupId: groupId || null }).catch(() => {});
+    }
+    return idx > -1;
 });
 
 ipcMain.handle('delete-profile', async (event, id) => {
@@ -2760,6 +2565,8 @@ ipcMain.handle('delete-profile', async (event, id) => {
     let profiles = await fs.readJson(PROFILES_FILE);
     profiles = profiles.filter(p => p.id !== id);
     await fs.writeJson(PROFILES_FILE, profiles);
+    // Sync to server (fire-and-forget)
+    bncApiCall('DELETE', `/profiles/${id}`).catch(() => {});
 
     // 永久删除 profile 文件夹（带重试机制）
     const profileDir = path.join(DATA_PATH, id);

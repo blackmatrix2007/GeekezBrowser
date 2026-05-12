@@ -25,13 +25,32 @@ const initSqlJs = require('sql.js');
 {
     const _legacyData = path.join(app.getPath('appData'), 'GeekEZ Browser');
     app.setPath('userData', _legacyData);
-    // One-time migration: copy profiles from 'BNC' folder (users who ran the BNC-branded build)
-    // The BNC build stored data in AppData\Roaming\BNC — bring it forward to GeekEZ Browser.
-    const _bncData = path.join(app.getPath('appData'), 'BNC');
-    const _destProfiles = path.join(_legacyData, 'BrowserProfiles', 'profiles.json');
-    const _srcProfiles  = path.join(_bncData,    'BrowserProfiles', 'profiles.json');
-    if (!fs.existsSync(_destProfiles) && fs.existsSync(_srcProfiles)) {
-        try { fs.copySync(path.join(_bncData, 'BrowserProfiles'), path.join(_legacyData, 'BrowserProfiles')); } catch (e) { /* non-fatal */ }
+
+    // One-time migration from previous userData locations into 'GeekEZ Browser'.
+    // Sources (checked in priority order):
+    //   1. 'geekez-browser' — dev-mode userData of the 1.4.x source build
+    //   2. 'BNC'            — packaged userData when productName was "BNC"
+    const _sources = [
+        path.join(app.getPath('appData'), 'geekez-browser'),
+        path.join(app.getPath('appData'), 'BNC'),
+    ];
+    for (const _src of _sources) {
+        if (!fs.existsSync(_src)) continue;
+        // app-config.json (custom data path — must migrate first so DATA_PATH resolves correctly)
+        const _destCfg = path.join(_legacyData, 'app-config.json');
+        if (!fs.existsSync(_destCfg) && fs.existsSync(path.join(_src, 'app-config.json'))) {
+            try { fs.copySync(path.join(_src, 'app-config.json'), _destCfg); } catch (e) { /* non-fatal */ }
+        }
+        // license.json
+        const _destLic = path.join(_legacyData, 'license.json');
+        if (!fs.existsSync(_destLic) && fs.existsSync(path.join(_src, 'license.json'))) {
+            try { fs.copySync(path.join(_src, 'license.json'), _destLic); } catch (e) { /* non-fatal */ }
+        }
+        // BrowserProfiles/profiles.json
+        const _destProfiles = path.join(_legacyData, 'BrowserProfiles', 'profiles.json');
+        if (!fs.existsSync(_destProfiles) && fs.existsSync(path.join(_src, 'BrowserProfiles', 'profiles.json'))) {
+            try { fs.copySync(path.join(_src, 'BrowserProfiles'), path.join(_legacyData, 'BrowserProfiles')); } catch (e) { /* non-fatal */ }
+        }
     }
 }
 // ─────────────────────────────────────────────────────────────────────────────

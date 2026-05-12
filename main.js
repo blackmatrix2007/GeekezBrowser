@@ -25,6 +25,14 @@ const initSqlJs = require('sql.js');
 {
     const _legacyData = path.join(app.getPath('appData'), 'GeekEZ Browser');
     app.setPath('userData', _legacyData);
+    // One-time migration: copy profiles from 'BNC' folder (users who ran the BNC-branded build)
+    // The BNC build stored data in AppData\Roaming\BNC — bring it forward to GeekEZ Browser.
+    const _bncData = path.join(app.getPath('appData'), 'BNC');
+    const _destProfiles = path.join(_legacyData, 'BrowserProfiles', 'profiles.json');
+    const _srcProfiles  = path.join(_bncData,    'BrowserProfiles', 'profiles.json');
+    if (!fs.existsSync(_destProfiles) && fs.existsSync(_srcProfiles)) {
+        try { fs.copySync(path.join(_bncData, 'BrowserProfiles'), path.join(_legacyData, 'BrowserProfiles')); } catch (e) { /* non-fatal */ }
+    }
 }
 // ─────────────────────────────────────────────────────────────────────────────
 

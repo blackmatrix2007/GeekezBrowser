@@ -2298,9 +2298,10 @@ ipcMain.handle('bnc-sync-profiles', async () => {
             return { success: true, direction: 'nothing', count: 0, message: 'Cả server lẫn local đều không có profile' };
         }
 
-        // 2. Server có profiles → ghi đè local
-        await fs.writeJson(PROFILES_FILE, serverProfiles);
-        console.log('[BNC_SYNC] Ghi', serverProfiles.length, 'profiles xuống local');
+        // 2. Server có profiles → ghi đè local, mark tất cả đã sync
+        const markedProfiles = serverProfiles.map(p => ({ ...p, syncedToServer: true }));
+        await fs.writeJson(PROFILES_FILE, markedProfiles);
+        console.log('[BNC_SYNC] Ghi', markedProfiles.length, 'profiles xuống local');
 
         return {
             success: true,
@@ -2497,6 +2498,19 @@ ipcMain.handle('verify-profile', async (event, profileId) => {
         if (verifyBrowser) { try { await verifyBrowser.close(); } catch(e) {} }
     }
 });
+// Helper: cập nhật syncedToServer cho 1 profile trong file local
+async function updateProfileSyncStatus(id, synced) {
+    try {
+        if (!fs.existsSync(PROFILES_FILE)) return;
+        const profiles = await fs.readJson(PROFILES_FILE);
+        const idx = profiles.findIndex(p => p.id === id);
+        if (idx > -1) {
+            profiles[idx].syncedToServer = synced;
+            await fs.writeJson(PROFILES_FILE, profiles);
+        }
+    } catch (_) {}
+}
+
 ipcMain.handle('get-profiles', async () => {
     if (!fs.existsSync(PROFILES_FILE)) return [];
     return fs.readJson(PROFILES_FILE);
@@ -2546,12 +2560,23 @@ ipcMain.handle('save-profile', async (event, data) => {
         isSetup: false,
         createdAt: Date.now(),
         subscriptionId: auth?.selectedSubscriptionId || null,
+        syncedToServer: false,  // pending — cập nhật sau khi server xác nhận
     };
     profiles.push(newProfile);
     await fs.writeJson(PROFILES_FILE, profiles);
 
-    // Sync to server (fire-and-forget)
-    bncApiCall('POST', '/profiles', newProfile).catch(() => {});
+    // Sync to server — track kết quả và notify renderer
+    bncApiCall('POST', '/profiles', newProfile).then(res => {
+        const ok = res && (res._statusCode === 201 || res._statusCode === 200);
+        updateProfileSyncStatus(newProfile.id, ok);
+        if (!event.sender.isDestroyed()) {
+            event.sender.send('profile-sync-status', { id: newProfile.id, syncedToServer: ok });
+        }
+    }).catch(() => {
+        if (!event.sender.isDestroyed()) {
+            event.sender.send('profile-sync-status', { id: newProfile.id, syncedToServer: false });
+        }
+    });
 
     debugLog('PROFILE_CREATED', {
         id: newProfile.id,

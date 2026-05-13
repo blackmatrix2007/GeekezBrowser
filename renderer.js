@@ -56,6 +56,19 @@ async function bncInit() {
             dd.style.display = 'none';
         }
     });
+
+    // Cập nhật badge sync cho từng profile khi main.js xác nhận sync xong
+    window.electronAPI.onProfileSyncStatus(({ id, syncedToServer }) => {
+        const badge = document.getElementById('sync-' + id);
+        if (!badge) return;
+        const color = syncedToServer ? '#22c55e' : '#ef4444';
+        const icon  = syncedToServer ? '✔' : '✘';
+        badge.title = syncedToServer ? 'Đã sync lên yttool.vn' : 'Chưa sync lên server';
+        badge.textContent = '☁ ' + icon;
+        badge.style.color = color;
+        badge.style.background = color + '22';
+        badge.style.borderColor = color + '66';
+    });
 }
 
 function showBncLoginOverlay() {
@@ -1457,12 +1470,22 @@ async function loadProfiles() {
             const proxyParts = proxyBody.split(':');
             const proxyHost = isDirect ? 'Mạng máy tính' : proxyParts.slice(0, 2).join(':');
 
+            // Sync status badge
+            const ss = p.syncedToServer;
+            const syncColor = ss === true ? '#22c55e' : ss === false ? '#ef4444' : '#9ca3af';
+            const syncIcon  = ss === true ? '✔' : ss === false ? '✘' : '?';
+            const syncTitle = ss === true ? 'Đã sync lên yttool.vn' : ss === false ? 'Chưa sync lên server' : 'Chưa rõ trạng thái sync';
+            const syncBadge = `<span id="sync-${p.id}" title="${syncTitle}"
+                style="display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:600;margin-left:5px;padding:1px 5px;border-radius:10px;background:${syncColor}22;color:${syncColor};border:1px solid ${syncColor}66;flex-shrink:0;cursor:default;line-height:1.4;">
+                ☁ ${syncIcon}
+            </span>`;
+
             const el = document.createElement('div');
             el.className = 'profile-item no-drag';
             el.innerHTML = `
                 <!-- Col 1: identity -->
                 <div class="pi-main">
-                    <div class="pi-name-row">${flagHtml}<h4>${p.name}</h4><span id="status-${p.id}" class="running-badge ${isRunning ? 'active' : ''}">${t('runningStatus')}</span>${groupBadge}</div>
+                    <div class="pi-name-row">${flagHtml}<h4>${p.name}</h4><span id="status-${p.id}" class="running-badge ${isRunning ? 'active' : ''}">${t('runningStatus')}</span>${groupBadge}${syncBadge}</div>
                     <div class="pi-sub-row">
                         ${notePill}
                         <div class="pi-tags-wrap no-drag" onclick="openTagsDialogInline('${p.id}')" title="Edit tags">${tagsPills}</div>

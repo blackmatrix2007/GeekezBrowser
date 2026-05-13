@@ -233,6 +233,29 @@ function bncRenderUserInfo(auth) {
     }
     const planEl = document.getElementById('bncDropPlan');
     if (planEl) planEl.textContent = planText;
+
+    // Plan pill bên cạnh avatar
+    _updatePlanPill(auth);
+}
+
+function _updatePlanPill(auth) {
+    const pill = document.getElementById('bncPlanPill');
+    if (!pill) return;
+
+    // Tìm sub đang chọn
+    const subs = auth?.subscriptions || [];
+    const selId = auth?.selectedSubscriptionId;
+    const selected = subs.find(s => s.id === selId) || auth?.subscription;
+
+    if (!selected || selected.isExpired) {
+        pill.style.display = 'none';
+        return;
+    }
+
+    const name = (selected.planType || '').toUpperCase();
+    const days = selected.daysRemaining;
+    pill.textContent = `${name} · ${days}d`;
+    pill.style.display = 'block';
 }
 
 async function bncLoadUserInfo() {

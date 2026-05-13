@@ -1,6 +1,6 @@
 # BNC — Luồng E2E: Mua Gói → Quản lý Profile
 
-> Cập nhật: 2026-05-08
+> Cập nhật: 2026-05-13
 
 ---
 
@@ -223,3 +223,82 @@ bnc_sessions
 | `GeekezBrowser/renderer.js` | UI: login, subscription switcher, payment poll |
 | `GeekezBrowser/preload.js` | contextBridge — expose electronAPI |
 | `GeekezBrowser/index.html` | UI layout, modals, dropdown |
+
+---
+
+## 11. Sequence Diagram (E2E)
+
+```mermaid
+sequenceDiagram
+    actor U as Khách hàng
+    participant App as GeekezBrowser
+    participant Main as main.js (Electron)
+    participant Server as yttool.vn/api/bnc
+    participant DB as PostgreSQL
+    participant Casso as Casso Webhook
+
+    %% ── LOGIN ──────────────────────────────────────────────
+    U->>App: Đăng nhập
+    App->>Main: bnc-login IPC
+    Main->>Server: POST /api/bnc/login
+    Server->>DB: SELECT bnc_subscriptions WHERE status=active
+    DB-->>Server: [sub_Pro(id=1), sub_Test(id=3)]
+    Server-->>Main: { subscriptions[], subscription: sub_Pro }
+    Main->>Main: saveBncAuth({ subscriptions[], selectedSubscriptionId: 1 })
+    Main-->>App: { subscriptions[], selectedSubscriptionId: 1 }
+    App->>App: renderBncSubscriptions() — hiện danh sách sub trong dropdown
+
+    %% ── MUA GÓI MỚI ────────────────────────────────────────
+    U->>App: Mở Plans modal → chọn gói Test
+    App->>Main: bnc-get-payment-info IPC
+    Main-->>App: { bankAccountNo, transferContent: "BNC2" }
+    App->>U: Hiện QR + nội dung chuyển khoản "BNC2"
+    U->>U: Chuyển khoản 5.000đ — "BNC2"
+
+    U->>App: Đóng payment modal (không bấm Quay lại)
+    App->>App: startPaymentPoll() — poll mỗi 5s
+
+    Casso->>Server: POST /webhook (amount=5000, desc="BNC2")
+    Server->>Server: verifyWebhookSignature HMAC-SHA512
+    Server->>Server: processBncPayment — parse "BNC2" → customerId=2
+    Server->>Server: match amount 5000đ → gói Test (±10%)
+    Server->>DB: INSERT bnc_subscriptions (customerId=2, planType=test, maxProfiles=2)
+    DB-->>Server: sub_Test(id=3)
+    Server-->>Casso: 200 OK
+
+    App->>Main: bnc-get-subscriptions IPC (poll)
+    Main->>Server: GET /api/bnc/subscription
+    Server->>DB: SELECT bnc_subscriptions WHERE status=active
+    DB-->>Server: [sub_Pro(id=1), sub_Test(id=3)]
+    Server-->>Main: { subscriptions: [sub_Pro, sub_Test] }
+    Main->>Main: update auth file — subscriptions[]
+    Main-->>App: [sub_Pro, sub_Test]
+    App->>App: phát hiện sub_Test mới → toast "✅ Đã kích hoạt Test"
+    App->>App: renderBncSubscriptions() — hiện cả 2 sub
+
+    %% ── CHỌN SUB ĐỂ DÙNG ───────────────────────────────────
+    U->>App: Bấm "Dùng gói này" trên sub_Test
+    App->>Main: bnc-select-subscription(3) IPC
+    Main->>Main: saveBncAuth({ selectedSubscriptionId: 3 })
+    Main-->>App: { success: true }
+    App->>App: renderBncSubscriptions() — sub_Test badge "Đang dùng"
+    App->>App: loadProfiles() — reload UI
+
+    %% ── TẠO PROFILE ────────────────────────────────────────
+    U->>App: Tạo profile mới
+    App->>Main: save-profile IPC { name, proxy, ... }
+    Main->>Main: getSavedBncAuth() → selectedSubscriptionId = 3
+    Main->>Main: newProfile = { id, name, ..., subscriptionId: 3 }
+    Main->>Main: writeJson(PROFILES_FILE, profiles)
+    Main-->>App: profile saved locally ✅
+
+    Main--)Server: POST /api/bnc/profiles { ...profile, subscriptionId: 3 }
+    Note right of Main: fire-and-forget, không block UI
+    Server->>DB: SELECT bnc_subscriptions WHERE id=3 AND status=active
+    DB-->>Server: sub_Test { maxProfiles: 2 }
+    Server->>DB: SELECT COUNT(*) FROM bnc_profiles WHERE subscription_id=3
+    DB-->>Server: count = 0 (< 2 → OK)
+    Server->>DB: INSERT bnc_profiles (subscription_id=3, name=..., ...)
+    DB-->>Server: profile saved ✅
+    Server-->>Main: 201 { profile }
+```

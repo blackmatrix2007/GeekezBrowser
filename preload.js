@@ -53,12 +53,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     bncLogin: (email, password) => ipcRenderer.invoke('bnc-login', { email, password }),
     bncLogout: () => ipcRenderer.invoke('bnc-logout'),
     bncGetAuth: () => ipcRenderer.invoke('bnc-get-auth'),
-    bncGetSubscription: () => ipcRenderer.invoke('bnc-get-subscription'),
     bncGetPlans: () => ipcRenderer.invoke('bnc-get-plans'),
     bncGetPaymentInfo: () => ipcRenderer.invoke('bnc-get-payment-info'),
-    bncSelectSubscription: (subscriptionId) => ipcRenderer.invoke('bnc-select-subscription', subscriptionId),
     bncGetSubscriptions: () => ipcRenderer.invoke('bnc-get-subscriptions'),
     bncSyncProfiles: () => ipcRenderer.invoke('bnc-sync-profiles'),
     onBncAuthState: (cb) => ipcRenderer.on('bnc-auth-state', (_, data) => cb(data)),
     onProfileSyncStatus: (cb) => ipcRenderer.on('profile-sync-status', (_, data) => cb(data)),
+    onBncSlotsUpdated: (cb) => ipcRenderer.on('bnc-slots-updated', (_, data) => cb(data)),
 });

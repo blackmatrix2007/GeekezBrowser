@@ -86,11 +86,9 @@ fs.ensureDirSync(TRASH_PATH);
 const DATA_PATH_CONFIRMED   = path.join(app.getPath('userData'), '.data_path_confirmed');
 const SKIPPED_UPDATE_FILE   = path.join(app.getPath('userData'), '.skipped_update_version');
 
-// ─── BNC Subscription Auth ───────────────────────────────────────────────────
+// ─── BNC Auth ────────────────────────────────────────────────────────────────
 const BNC_API       = 'https://yttool.vn/api/bnc';
 const BNC_AUTH_FILE = path.join(app.getPath('userData'), 'bnc_auth.json');
-const BNC_SUB_CACHE = path.join(app.getPath('userData'), '.bnc_sub_cache.json');
-const BNC_GRACE_HOURS = 24; // offline grace: cho dùng tiếp 24h nếu mất mạng
 
 function saveBncAuth(data) {
     try { fs.writeJsonSync(BNC_AUTH_FILE, data); } catch (_) {}
@@ -103,21 +101,7 @@ function getSavedBncAuth() {
     return null;
 }
 
-function saveBncSubCache(sub) {
-    try { fs.writeJsonSync(BNC_SUB_CACHE, { ...sub, cachedAt: new Date().toISOString() }); } catch (_) {}
-}
-
-function readBncSubCache() {
-    try {
-        if (!fs.existsSync(BNC_SUB_CACHE)) return null;
-        const cache = fs.readJsonSync(BNC_SUB_CACHE);
-        const hours = (Date.now() - new Date(cache.cachedAt).getTime()) / 3600000;
-        if (hours > BNC_GRACE_HOURS) return null;
-        return cache;
-    } catch (_) { return null; }
-}
-
-// Gọi muachungtool /api/bnc/login — trả về { accessToken, customer, subscription } hoặc null
+// Gọi muachungtool /api/bnc/login — trả về { accessToken, customer, slots } hoặc null
 async function bncLogin(email, password) {
     try {
         const body = JSON.stringify({ email, password, deviceId: getDeviceId() });
@@ -161,8 +145,8 @@ async function bncLogin(email, password) {
     }
 }
 
-// Kiểm tra subscription với token đã lưu — trả về { subscription, isExpired, daysRemaining } hoặc null
-async function bncCheckSubscription() {
+// Ping server để verify token + lấy slots mới nhất — trả về { slots, _statusCode } hoặc null
+async function bncPingServer() {
     const auth = getSavedBncAuth();
     if (!auth || !auth.accessToken) return null;
     try {
@@ -224,50 +208,32 @@ async function bncApiCall(method, path, body) {
     } catch (_) { return null; }
 }
 
-// Kiểm tra quyền truy cập BNC — { allowed, daysRemaining, isWarning, isExpired, offlineMode }
+// Kiểm tra quyền truy cập BNC — chỉ cần đăng nhập (token hợp lệ) là được dùng
+// Profile limit do slots kiểm soát, không phải subscription
 async function bncCheckAccess() {
-    const result = await bncCheckSubscription();
+    const auth = getSavedBncAuth();
+    if (!auth?.accessToken) {
+        return { allowed: false, reason: 'not_logged_in' };
+    }
+
+    const result = await bncPingServer();
 
     if (result && result._statusCode === 401) {
-        if (result.reason === 'other_device' || result.reason === 'device_kicked') {
-            return { allowed: false, reason: 'other_device', message: result.message || 'Tài khoản đang đăng nhập ở thiết bị khác.' };
-        }
-        // Token expired/invalid → force re-login
-        return { allowed: false, reason: 'token_invalid', message: 'Phiên đăng nhập hết hạn, vui lòng đăng nhập lại.' };
+        try { fs.removeSync(BNC_AUTH_FILE); } catch (_) {}
+        return { allowed: false, reason: 'token_invalid' };
     }
 
-    if (result && result.subscription) {
-        const sub = result.subscription;
-        saveBncSubCache(sub);
-        return {
-            allowed: !sub.isExpired,
-            daysRemaining: sub.daysRemaining,
-            isWarning: sub.isWarning,
-            isExpired: sub.isExpired,
-            planType: sub.planType,
-            maxProfiles: sub.maxProfiles,
-            endDate: sub.endDate,
-        };
+    if (!result) {
+        // Offline — có token local → vẫn cho vào
+        return { allowed: true, offlineMode: true };
     }
 
-    if (result && result.isExpired) {
-        return { allowed: false, reason: 'expired', message: 'Gói BNC đã hết hạn. Vui lòng gia hạn để tiếp tục sử dụng.' };
+    // Cập nhật slots nếu server trả về
+    if (result.slots) {
+        saveBncAuth({ ...auth, slots: result.slots });
     }
 
-    // Offline — dùng cache
-    const cache = readBncSubCache();
-    if (cache) {
-        const daysLeft = cache.daysRemaining ?? 0;
-        return {
-            allowed: daysLeft > 0,
-            daysRemaining: daysLeft,
-            isWarning: cache.isWarning,
-            offlineMode: true,
-        };
-    }
-
-    // Không có auth → cần login
-    return { allowed: false, reason: 'not_logged_in', message: 'Vui lòng đăng nhập để tiếp tục sử dụng BNC.' };
+    return { allowed: true, slots: result.slots };
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2008,17 +1974,14 @@ app.whenReady().then(async () => {
     ]);
     if (versionResult) checkAndNotifyUpdate(versionResult);
 
-    debugLog('BNC_STARTUP', { allowed: bncAccess.allowed, reason: bncAccess.reason, daysRemaining: bncAccess.daysRemaining, offlineMode: bncAccess.offlineMode || false });
+    debugLog('BNC_STARTUP', { allowed: bncAccess.allowed, reason: bncAccess.reason, offlineMode: bncAccess.offlineMode || false });
 
-    // Renderer sẽ tự kiểm tra và hiện login overlay qua bncGetAuth IPC
-    // Gửi trạng thái BNC cho renderer sau khi window load để hiện login overlay nếu cần
+    // Gửi trạng thái đến renderer để hiện login overlay nếu cần
     const sendBncState = () => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
         const send = () => mainWindow.webContents.send('bnc-auth-state', {
             isLoggedIn: bncAccess.allowed,
             reason: bncAccess.reason,
-            daysRemaining: bncAccess.daysRemaining,
-            isWarning: bncAccess.isWarning,
             offlineMode: bncAccess.offlineMode,
         });
         if (mainWindow.webContents.isLoading()) {
@@ -2029,37 +1992,14 @@ app.whenReady().then(async () => {
     };
     sendBncState();
 
-    // Data path prompt: hiện khi chưa từng xác nhận (renderer tự gọi sau login thành công qua IPC)
+    // Data path prompt
     const dataPathAlreadyConfirmed = fs.existsSync(DATA_PATH_CONFIRMED);
 
-    // Warning ≤7 ngày còn lại
-    if (bncAccess.isWarning && bncAccess.daysRemaining > 0) {
-        const showWarning = () => {
-            dialog.showMessageBox(mainWindow, {
-                type: 'warning',
-                title: 'BNC — Sắp hết hạn',
-                message: `Gói BNC của bạn còn ${bncAccess.daysRemaining} ngày`,
-                detail: `Chuyển khoản với nội dung "BNC${(getSavedBncAuth() || {}).customerId || ''}" để gia hạn thêm 30 ngày.\nLiên hệ hỗ trợ nếu cần giúp đỡ.`,
-                buttons: ['OK'],
-            }).catch(() => {});
-        };
-        if (mainWindow && !mainWindow.isDestroyed()) {
-            if (mainWindow.webContents.isLoading()) {
-                mainWindow.webContents.once('did-finish-load', () => setTimeout(showWarning, 2000));
-            } else {
-                setTimeout(showWarning, 2000);
-            }
-        }
-    }
-
-    // Version check đã chạy song song ở trên qua bncCheckVersion()
-
-    // BNC subscription check định kỳ mỗi 30 phút
+    // Heartbeat mỗi 30 phút — chỉ check token hợp lệ + cập nhật slots
     setInterval(async () => {
-        const sub = await bncCheckSubscription();
-        if (!sub) return; // offline — không làm gì
-        if (sub._statusCode === 401) {
-            // Token hết hạn → xóa auth, thông báo và thoát
+        const result = await bncPingServer();
+        if (!result) return; // offline
+        if (result._statusCode === 401) {
             try { fs.removeSync(BNC_AUTH_FILE); } catch (_) {}
             dialog.showMessageBox({
                 type: 'warning',
@@ -2069,16 +2009,15 @@ app.whenReady().then(async () => {
             }).then(() => app.quit());
             return;
         }
-        if (sub.isExpired || (sub.subscription && sub.subscription.isExpired)) {
-            dialog.showMessageBox({
-                type: 'warning',
-                title: 'BNC — Hết hạn',
-                message: 'Gói BNC của bạn đã hết hạn.',
-                detail: 'Gia hạn bằng cách chuyển khoản với nội dung BNC{customer_id}. App sẽ thoát.',
-                buttons: ['OK'],
-            }).then(() => app.quit());
+        // Cập nhật slots từ server
+        if (result.slots) {
+            const auth = getSavedBncAuth();
+            if (auth) saveBncAuth({ ...auth, slots: result.slots });
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('bnc-slots-updated', result.slots);
+            }
         }
-        // Check version mới từ yttool.vn
+        // Check version mới
         const r = await bncCheckVersion();
         if (r) checkAndNotifyUpdate(r);
     }, 30 * 60 * 1000);
@@ -2150,12 +2089,9 @@ ipcMain.handle('bnc-login', async (_, { email, password }) => {
         return { success: false, message: result.message || 'Email hoặc mật khẩu không đúng' };
     }
     const customerId = result.customer?.id || null;
-    const subscriptions = result.subscriptions || (result.subscription ? [result.subscription] : []);
-    // Auto-select first active subscription
-    const selectedSubscriptionId = subscriptions[0]?.id || null;
-    saveBncAuth({ accessToken: result.accessToken, email, customerId, subscriptions, selectedSubscriptionId, savedAt: new Date().toISOString() });
-    saveBncSubCache(result.subscription);
-    console.log('[DEBUG:BNC_IPC_LOGIN] success, customerId:', customerId);
+    const slots = result.slots || { totalGranted: 0, slotsUsed: 0, available: 0 };
+    saveBncAuth({ accessToken: result.accessToken, email, customerId, slots, savedAt: new Date().toISOString() });
+    console.log('[DEBUG:BNC_IPC_LOGIN] success, customerId:', customerId, '| slots:', slots);
 
     // ── Profile/Group sync from server ──────────────────────────────────
     const serverProfiles = result.profiles || [];
@@ -2187,12 +2123,12 @@ ipcMain.handle('bnc-login', async (_, { email, password }) => {
         }
     }
 
-    return { success: true, customer: result.customer, subscription: result.subscription, subscriptions, selectedSubscriptionId };
+    return { success: true, customer: result.customer, slots };
 });
 
 // Đăng xuất: xóa token local
 ipcMain.handle('bnc-logout', async () => {
-    try { fs.removeSync(BNC_AUTH_FILE); fs.removeSync(BNC_SUB_CACHE); } catch (_) {}
+    try { fs.removeSync(BNC_AUTH_FILE); } catch (_) {}
     return { success: true };
 });
 
@@ -2200,45 +2136,21 @@ ipcMain.handle('bnc-logout', async () => {
 ipcMain.handle('bnc-get-auth', async () => {
     const auth = getSavedBncAuth();
     if (!auth) return { isLoggedIn: false };
-    const cache = readBncSubCache();
     return {
         isLoggedIn: true,
         email: auth.email,
         customerId: auth.customerId,
-        subscription: cache || null,
-        subscriptions: auth.subscriptions || [],
-        selectedSubscriptionId: auth.selectedSubscriptionId || null,
+        slots: auth.slots || { totalGranted: 0, slotsUsed: 0, available: 0 },
     };
 });
 
-// Kiểm tra subscription từ server (live)
-ipcMain.handle('bnc-get-subscription', async () => {
-    const result = await bncCheckSubscription();
-    if (!result) return readBncSubCache(); // fallback cache
-    if (result.subscription) saveBncSubCache(result.subscription);
-    return result.subscription || null;
-});
-
-// Chọn subscription muốn dùng (lưu vào auth file)
-ipcMain.handle('bnc-select-subscription', (_, subscriptionId) => {
-    const auth = getSavedBncAuth();
-    if (!auth) return { success: false };
-    saveBncAuth({ ...auth, selectedSubscriptionId: subscriptionId });
-    return { success: true };
-});
-
-// Lấy danh sách subscriptions từ server (live)
+// Poll sau thanh toán — trả về slots mới nhất từ server (webhook đã grantSlots)
 ipcMain.handle('bnc-get-subscriptions', async () => {
-    const result = await bncCheckSubscription();
-    if (result?.subscriptions) {
-        // Update cached subscriptions in auth file
-        const auth = getSavedBncAuth();
-        if (auth) saveBncAuth({ ...auth, subscriptions: result.subscriptions });
-        return result.subscriptions;
-    }
-    // Fallback to auth file cache
+    const result = await bncPingServer();
     const auth = getSavedBncAuth();
-    return auth?.subscriptions || [];
+    const freshSlots = result?._statusCode !== 401 ? result?.slots : null;
+    if (freshSlots && auth) saveBncAuth({ ...auth, slots: freshSlots });
+    return { slots: freshSlots || auth?.slots || { totalGranted: 0, slotsUsed: 0, available: 0 } };
 });
 
 // Danh sách plans
@@ -2283,9 +2195,6 @@ ipcMain.handle('bnc-sync-profiles', async () => {
 
         const serverProfiles = res.profiles || [];
         console.log('[BNC_SYNC] Server trả về', serverProfiles.length, 'profiles');
-        serverProfiles.forEach(p => {
-            console.log(`  - ${p.name} | subscriptionId=${p.subscriptionId} | id=${p.id}`);
-        });
 
         if (serverProfiles.length === 0) {
             // Server không có → upload local lên
@@ -2307,7 +2216,7 @@ ipcMain.handle('bnc-sync-profiles', async () => {
             success: true,
             direction: 'download',
             count: serverProfiles.length,
-            profiles: serverProfiles.map(p => ({ id: p.id, name: p.name, subscriptionId: p.subscriptionId })),
+            profiles: serverProfiles.map(p => ({ id: p.id, name: p.name })),
         };
     } catch (e) {
         console.error('[BNC_SYNC] Lỗi:', e.message);
@@ -2559,7 +2468,6 @@ ipcMain.handle('save-profile', async (event, data) => {
         preProxyOverride: data.preProxyOverride || 'default',
         isSetup: false,
         createdAt: Date.now(),
-        subscriptionId: auth?.selectedSubscriptionId || null,
         syncedToServer: false,  // pending — cập nhật sau khi server xác nhận
     };
     profiles.push(newProfile);

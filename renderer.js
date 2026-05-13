@@ -3,23 +3,16 @@
 // ════════════════════════════════════════════════════════════════════════════
 // BNC AUTH UI
 // ════════════════════════════════════════════════════════════════════════════
-let _bncAuth = null; // { email, customerId, subscription, subscriptions[], selectedSubscriptionId }
+let _bncAuth = null; // { email, customerId, slots: { totalGranted, slotsUsed, available } }
 
 async function bncInit() {
     // Nhận trạng thái từ main process (gửi sau access check)
     window.electronAPI.onBncAuthState(async (state) => {
         if (!state.isLoggedIn) {
-            if (state.reason === 'expired') {
-                showBncExpiredOverlay();
-            } else if (state.reason === 'other_device') {
-                showBncOtherDeviceOverlay(state.message);
-            } else {
-                showBncLoginOverlay();
-            }
+            showBncLoginOverlay();
         } else {
             hideBncLoginOverlay();
             await bncLoadUserInfo();
-            if (state.isWarning) showBncSubWarning(state.daysRemaining);
         }
     });
 
@@ -32,9 +25,6 @@ async function bncInit() {
         } else {
             hideBncLoginOverlay();
             bncRenderUserInfo(auth);
-            renderBncSubscriptions(auth.subscriptions || [], auth.selectedSubscriptionId);
-            // Check expired from cache
-            if (auth.subscription?.isExpired) showBncExpiredOverlay();
         }
     } catch (_) {}
 
@@ -57,17 +47,32 @@ async function bncInit() {
         }
     });
 
+    // Heartbeat cập nhật slots từ server
+    window.electronAPI.onBncSlotsUpdated((slots) => {
+        if (_bncAuth && slots) {
+            _bncAuth.slots = slots;
+            _updatePlanPill(_bncAuth);
+        }
+    });
+
     // Cập nhật badge sync cho từng profile khi main.js xác nhận sync xong
     window.electronAPI.onProfileSyncStatus(({ id, syncedToServer }) => {
         const badge = document.getElementById('sync-' + id);
-        if (!badge) return;
-        const color = syncedToServer ? '#22c55e' : '#ef4444';
-        const icon  = syncedToServer ? '✔' : '✘';
-        badge.title = syncedToServer ? 'Đã sync lên yttool.vn' : 'Chưa sync lên server';
-        badge.textContent = '☁ ' + icon;
-        badge.style.color = color;
-        badge.style.background = color + '22';
-        badge.style.borderColor = color + '66';
+        if (badge) {
+            const color = syncedToServer ? '#22c55e' : '#ef4444';
+            const icon  = syncedToServer ? '✔' : '✘';
+            badge.title = syncedToServer ? 'Đã sync lên yttool.vn' : 'Chưa sync lên server';
+            badge.textContent = '☁ ' + icon;
+            badge.style.color = color;
+            badge.style.background = color + '22';
+            badge.style.borderColor = color + '66';
+        }
+        // Nếu server từ chối (hết slot / lỗi) → hoàn lại 1 slot optimistic
+        if (!syncedToServer && _bncAuth?.slots) {
+            _bncAuth.slots.slotsUsed = Math.max(0, _bncAuth.slots.slotsUsed - 1);
+            _bncAuth.slots.available += 1;
+            _updatePlanPill(_bncAuth);
+        }
     });
 }
 
@@ -84,66 +89,6 @@ function hideBncLoginOverlay() {
     if (overlay) overlay.style.display = 'none';
 }
 
-function showBncExpiredOverlay() {
-    // Reuse login overlay nhưng show expired message, ẩn form login, show gia hạn
-    const overlay = document.getElementById('bncLoginOverlay');
-    if (!overlay) return;
-    const form = document.getElementById('bncLoginForm');
-    const expired = document.getElementById('bncExpiredBox');
-    if (form) form.style.display = 'none';
-    if (expired) expired.style.display = 'block';
-    overlay.style.display = 'flex';
-}
-
-function hideBncExpiredOverlay() {
-    const overlay = document.getElementById('bncLoginOverlay');
-    const form = document.getElementById('bncLoginForm');
-    const expired = document.getElementById('bncExpiredBox');
-    const otherDevice = document.getElementById('bncOtherDeviceBox');
-    if (form) form.style.display = 'block';
-    if (expired) expired.style.display = 'none';
-    if (otherDevice) otherDevice.style.display = 'none';
-    if (overlay) overlay.style.display = 'none';
-}
-
-function showBncOtherDeviceOverlay(msg) {
-    const overlay = document.getElementById('bncLoginOverlay');
-    if (!overlay) return;
-    const form = document.getElementById('bncLoginForm');
-    const expired = document.getElementById('bncExpiredBox');
-    let otherDevice = document.getElementById('bncOtherDeviceBox');
-    if (!otherDevice) {
-        otherDevice = document.createElement('div');
-        otherDevice.id = 'bncOtherDeviceBox';
-        otherDevice.style.cssText = 'text-align:center;padding:24px;';
-        otherDevice.innerHTML = `
-            <div style="font-size:48px;margin-bottom:12px;">📱</div>
-            <h2 style="margin-bottom:8px;">Đăng nhập ở máy khác</h2>
-            <p style="color:#888;margin-bottom:20px;font-size:13px;">${msg || 'Tài khoản đang được sử dụng trên một thiết bị khác.'}</p>
-            <button onclick="doBncLoginFromOtherDevice()" style="background:#4a90e2;color:#fff;border:none;border-radius:8px;padding:10px 24px;font-size:14px;cursor:pointer;margin-right:8px;">
-                🔄 Đăng nhập máy này
-            </button>
-            <button onclick="document.getElementById('bncOtherDeviceBox').style.display='none';document.getElementById('bncLoginForm').style.display='block';" style="background:transparent;color:#aaa;border:1px solid #444;border-radius:8px;padding:10px 18px;font-size:13px;cursor:pointer;">
-                Đổi tài khoản
-            </button>
-        `;
-        overlay.querySelector('.bnc-login-box, div')?.appendChild(otherDevice)
-            || overlay.appendChild(otherDevice);
-    }
-    if (form) form.style.display = 'none';
-    if (expired) expired.style.display = 'none';
-    otherDevice.style.display = 'block';
-    overlay.style.display = 'flex';
-}
-
-// Đăng nhập lại trên máy này — kick máy kia
-async function doBncLoginFromOtherDevice() {
-    // Hide other-device box, show login form to re-authenticate
-    const otherDevice = document.getElementById('bncOtherDeviceBox');
-    const form = document.getElementById('bncLoginForm');
-    if (otherDevice) otherDevice.style.display = 'none';
-    if (form) form.style.display = 'block';
-}
 
 function toggleBncPassword() {
     const inp = document.getElementById('bncPasswordInput');
@@ -168,14 +113,10 @@ async function doBncLogin() {
         if (result.success) {
             _bncAuth = {
                 isLoggedIn: true, email, customerId: result.customer?.id,
-                subscription: result.subscription,
-                subscriptions: result.subscriptions || [],
-                selectedSubscriptionId: result.selectedSubscriptionId || null,
+                slots: result.slots || { totalGranted: 0, slotsUsed: 0, available: 0 },
             };
             hideBncLoginOverlay();
             bncRenderUserInfo(_bncAuth);
-            renderBncSubscriptions(_bncAuth.subscriptions, _bncAuth.selectedSubscriptionId);
-            if (result.subscription?.isWarning) showBncSubWarning(result.subscription.daysRemaining);
         } else {
             errEl.textContent = result.message || 'Đăng nhập thất bại';
             errEl.style.display = 'block';
@@ -196,7 +137,8 @@ async function doBncLogout() {
     document.getElementById('bncAvatarInitial').textContent = '?';
     document.getElementById('bncDropEmail').textContent = '';
     document.getElementById('bncDropPlan').textContent = '';
-    document.getElementById('bncSubBadge').style.display = 'none';
+    const pill = document.getElementById('bncPlanPill');
+    if (pill) pill.style.display = 'none';
     showBncLoginOverlay();
 }
 
@@ -224,15 +166,15 @@ function bncRenderUserInfo(auth) {
     const emailEl = document.getElementById('bncDropEmail');
     if (emailEl) emailEl.textContent = auth.email;
 
-    const sub = auth.subscription;
-    let planText = 'Chưa có gói';
-    if (sub && !sub.isExpired) {
-        planText = `${(sub.planType||'').toUpperCase()} — còn ${sub.daysRemaining} ngày`;
-    } else if (sub && sub.isExpired) {
-        planText = 'Gói đã hết hạn';
-    }
+    const slots = auth.slots;
     const planEl = document.getElementById('bncDropPlan');
-    if (planEl) planEl.textContent = planText;
+    if (planEl) {
+        if (slots && slots.totalGranted > 0) {
+            planEl.textContent = `${slots.available} / ${slots.totalGranted} slots`;
+        } else {
+            planEl.textContent = 'Chưa có slot';
+        }
+    }
 
     // Plan pill bên cạnh avatar
     _updatePlanPill(auth);
@@ -242,20 +184,30 @@ function _updatePlanPill(auth) {
     const pill = document.getElementById('bncPlanPill');
     if (!pill) return;
 
-    // Tìm sub đang chọn
-    const subs = auth?.subscriptions || [];
-    const selId = auth?.selectedSubscriptionId;
-    const selected = subs.find(s => s.id === selId) || auth?.subscription;
-
-    if (!selected || selected.isExpired) {
+    const slots = auth?.slots;
+    if (!slots || slots.totalGranted === 0) {
         pill.style.display = 'none';
         return;
     }
 
-    const name = (selected.planType || '').toUpperCase();
-    const days = selected.daysRemaining;
-    pill.textContent = `${name} · ${days}d`;
+    pill.textContent = `${slots.available} slot còn`;
     pill.style.display = 'block';
+
+    // Màu cảnh báo khi gần hết
+    const ratio = slots.available / slots.totalGranted;
+    if (ratio <= 0.1 || slots.available === 0) {
+        pill.style.background = 'rgba(239,68,68,0.15)';
+        pill.style.color = '#ef4444';
+        pill.style.borderColor = 'rgba(239,68,68,0.4)';
+    } else if (ratio <= 0.3) {
+        pill.style.background = 'rgba(245,158,11,0.15)';
+        pill.style.color = '#f59e0b';
+        pill.style.borderColor = 'rgba(245,158,11,0.4)';
+    } else {
+        pill.style.background = 'rgba(0,224,255,0.1)';
+        pill.style.color = '#00e0ff';
+        pill.style.borderColor = 'rgba(0,224,255,0.25)';
+    }
 }
 
 async function bncLoadUserInfo() {
@@ -264,66 +216,8 @@ async function bncLoadUserInfo() {
         if (auth) {
             _bncAuth = auth;
             bncRenderUserInfo(auth);
-            renderBncSubscriptions(auth.subscriptions || [], auth.selectedSubscriptionId);
         }
     } catch (_) {}
-}
-
-// Render danh sách subscriptions trong dropdown — chỉ hiện khi có > 0
-function renderBncSubscriptions(subscriptions, selectedId) {
-    const container = document.getElementById('bncSubList');
-    if (!container) return;
-    if (!subscriptions || subscriptions.length === 0) {
-        container.style.display = 'none';
-        return;
-    }
-    container.style.display = 'block';
-    const fmt = (d) => new Date(d).toLocaleDateString('vi-VN');
-    container.innerHTML = `
-        <div style="font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Gói của bạn</div>
-        ${subscriptions.map(sub => {
-            const isSelected = sub.id === selectedId;
-            const label = `${(sub.planType||'').toUpperCase()} — còn ${sub.daysRemaining}d (hết ${fmt(sub.endDate)})`;
-            return `<div data-sub-id="${sub.id}" onclick="selectBncSubscription(${sub.id})"
-                style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;margin-bottom:4px;
-                border-radius:6px;cursor:pointer;font-size:12px;
-                background:${isSelected ? 'rgba(0,224,255,0.1)' : 'rgba(255,255,255,0.03)'};
-                border:1px solid ${isSelected ? 'rgba(0,224,255,0.4)' : 'rgba(255,255,255,0.07)'};
-                color:${isSelected ? '#00e0ff' : '#bbb'};">
-                <span>${label}</span>
-                ${isSelected
-                    ? '<span style="font-size:10px;background:#00e0ff;color:#000;padding:1px 6px;border-radius:4px;font-weight:700;">Đang dùng</span>'
-                    : '<button onclick="event.stopPropagation();selectBncSubscription(' + sub.id + ')" style="font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid #444;background:transparent;color:#aaa;cursor:pointer;">Dùng gói này</button>'
-                }
-            </div>`;
-        }).join('')}
-    `;
-}
-
-async function selectBncSubscription(subscriptionId) {
-    await window.electronAPI.bncSelectSubscription(subscriptionId);
-    if (_bncAuth) {
-        _bncAuth.selectedSubscriptionId = subscriptionId;
-        renderBncSubscriptions(_bncAuth.subscriptions || [], subscriptionId);
-        // Update displayed plan info
-        const selected = (_bncAuth.subscriptions || []).find(s => s.id === subscriptionId);
-        if (selected) {
-            _bncAuth.subscription = selected;
-            bncRenderUserInfo(_bncAuth);
-        }
-    }
-    // Reload profile list để hiện đúng profiles của sub vừa chọn
-    document.getElementById('bncUserDropdown').style.display = 'none';
-    if (typeof loadProfiles === 'function') await loadProfiles();
-}
-
-function showBncSubWarning(daysRemaining) {
-    const badge = document.getElementById('bncSubBadge');
-    const text  = document.getElementById('bncSubBadgeText');
-    if (badge && text) {
-        text.textContent = `${daysRemaining} ngày`;
-        badge.style.display = 'flex';
-    }
 }
 
 // ── Plans Modal ──────────────────────────────────────────────────────────────
@@ -332,37 +226,30 @@ async function openPlansModal() {
     document.getElementById('bncPlansModal').style.display = 'flex';
 
     const plans = await window.electronAPI.bncGetPlans();
-    // "Đang dùng" = sub đang được select, không phải sub mới nhất
-    const selectedSub = (_bncAuth?.subscriptions || []).find(s => s.id === _bncAuth?.selectedSubscriptionId)
-        || _bncAuth?.subscription;
-    const currentPlan = selectedSub?.planType;
     const grid = document.getElementById('bncPlansGrid');
 
     const fmt = (n) => new Intl.NumberFormat('vi-VN').format(n) + 'đ';
 
     grid.innerHTML = plans.map(p => {
-        const isActive = p.id === currentPlan;
         const features = [
-            `${p.maxProfiles} profiles`,
-            p.maxDevices > 1 ? `${p.maxDevices} thiết bị đồng thời` : '1 thiết bị',
+            `+${p.maxProfiles} slots profile`,
             'Tất cả tính năng',
         ];
 
         return `
         <div data-plan-id="${p.id}" data-plan-price="${p.price}" data-plan-name="${p.name}"
-            style="background:${isActive ? 'rgba(0,224,255,0.06)' : 'rgba(0,0,0,0.2)'};border:1.5px solid ${isActive ? '#00e0ff' : 'rgba(255,255,255,0.08)'};border-radius:12px;padding:20px 16px;display:flex;flex-direction:column;gap:10px;position:relative;cursor:pointer;">
-            ${isActive ? '<div style="position:absolute;top:-1px;left:50%;transform:translateX(-50%);background:#00e0ff;color:#000;font-size:10px;font-weight:700;padding:2px 10px;border-radius:0 0 6px 6px;white-space:nowrap;">Đang dùng</div>' : ''}
-            <div style="font-size:15px;font-weight:800;color:#fff;margin-top:${isActive?'8px':'0'};">${p.name}</div>
+            style="background:rgba(0,0,0,0.2);border:1.5px solid rgba(255,255,255,0.08);border-radius:12px;padding:20px 16px;display:flex;flex-direction:column;gap:10px;position:relative;cursor:pointer;">
+            <div style="font-size:15px;font-weight:800;color:#fff;">${p.name}</div>
             <div>
-                <span style="font-size:20px;font-weight:800;color:${isActive?'#00e0ff':'#fff'};">${fmt(p.price)}</span>
-                <span style="font-size:11px;color:#667;">/tháng</span>
+                <span style="font-size:20px;font-weight:800;color:#fff;">${fmt(p.price)}</span>
+                <span style="font-size:11px;color:#667;">/lần</span>
             </div>
             <div style="font-size:11px;color:#888;">
                 ${features.map(f => `<div style="margin-bottom:4px;">✓ ${f}</div>`).join('')}
             </div>
             <button data-btn="select-plan"
-                style="margin-top:auto;padding:9px 0;border-radius:8px;border:none;background:${isActive?'rgba(0,224,255,0.15)':'linear-gradient(135deg,#00e0ff,#0055ff)'};color:${isActive?'#00e0ff':'#fff'};font-size:13px;font-weight:700;cursor:pointer;width:100%;pointer-events:none;">
-                ${isActive ? 'Gia hạn' : 'Chọn gói'}
+                style="margin-top:auto;padding:9px 0;border-radius:8px;border:none;background:linear-gradient(135deg,#00e0ff,#0055ff);color:#fff;font-size:13px;font-weight:700;cursor:pointer;width:100%;pointer-events:none;">
+                Mua slots
             </button>
         </div>`;
     }).join('');
@@ -402,7 +289,7 @@ async function openPaymentModal(planId, price, planName) {
         content.innerHTML = `
             <div style="margin-bottom:14px;">
                 <div style="font-size:13px;color:#aaa;margin-bottom:4px;">Gói đã chọn</div>
-                <div style="font-size:18px;font-weight:700;color:#00e0ff;">${planName} — ${fmt(price)}đ/tháng</div>
+                <div style="font-size:18px;font-weight:700;color:#00e0ff;">${planName} — ${fmt(price)}đ</div>
             </div>
             <img src="${qrUrl}" alt="QR" style="width:200px;height:200px;border-radius:10px;margin-bottom:14px;background:#fff;" onerror="this.style.display='none'">
             <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:14px;text-align:left;font-size:13px;line-height:1.8;color:#ccc;margin-bottom:4px;">
@@ -422,18 +309,16 @@ async function openPaymentModal(planId, price, planName) {
 
 function closePaymentModal(backToPlans) {
     document.getElementById('bncPaymentModal').style.display = 'none';
-    if (backToPlans) {
-        openPlansModal();
-    } else {
-        // User đóng modal (không quay lại) → poll server chờ sub mới
-        startPaymentPoll();
-    }
+    // Luôn poll bất kể user quay lại hay đóng — user có thể đã chuyển khoản trước khi bấm
+    startPaymentPoll();
+    if (backToPlans) openPlansModal();
 }
 
 // Poll server sau khi thanh toán — tối đa 3 phút, mỗi 5 giây
+// Phát hiện thanh toán bằng cách so sánh totalGranted tăng lên
 let _paymentPollTimer = null;
 function startPaymentPoll() {
-    const knownIds = new Set((_bncAuth?.subscriptions || []).map(s => s.id));
+    const knownGranted = _bncAuth?.slots?.totalGranted || 0;
     let attempts = 0;
     const MAX = 36; // 36 × 5s = 3 phút
 
@@ -444,27 +329,19 @@ function startPaymentPoll() {
     _paymentPollTimer = setInterval(async () => {
         attempts++;
         try {
-            const subs = await window.electronAPI.bncGetSubscriptions();
-            const newSub = subs.find(s => !knownIds.has(s.id));
-            if (newSub) {
+            const result = await window.electronAPI.bncGetSubscriptions();
+            const slots = result.slots || null;
+            if (slots && slots.totalGranted > knownGranted) {
                 clearInterval(_paymentPollTimer);
                 _paymentPollTimer = null;
 
-                // Cập nhật auth local
+                const added = slots.totalGranted - knownGranted;
                 if (_bncAuth) {
-                    _bncAuth.subscriptions = subs;
-                    if (!_bncAuth.selectedSubscriptionId) {
-                        _bncAuth.selectedSubscriptionId = newSub.id;
-                        _bncAuth.subscription = newSub;
-                        await window.electronAPI.bncSelectSubscription(newSub.id);
-                    }
+                    _bncAuth.slots = slots;
                     bncRenderUserInfo(_bncAuth);
-                    renderBncSubscriptions(subs, _bncAuth.selectedSubscriptionId);
                 }
 
-                hideBncExpiredOverlay();
-                showBncToast(`✅ Đã kích hoạt gói ${(newSub.planType||'').toUpperCase()}! Còn ${newSub.daysRemaining} ngày.`, 5000);
-                if (typeof loadProfiles === 'function') await loadProfiles();
+                showBncToast(`✅ Nạp thành công! +${added} slots mới. Còn: ${slots.available} slots.`, 5000);
                 return;
             }
         } catch (_) {}
@@ -1546,18 +1423,14 @@ async function quickUpdatePreProxy(id, val) {
 }
 
 function openAddModal() {
-    // ── BNC: kiểm tra giới hạn profiles theo gói ──────────────────────────
-    const sub = _bncAuth?.subscription;
-    if (sub && !sub.isExpired) {
-        const maxProfiles = sub.maxProfiles || 0;
-        const currentCount = (window._cachedProfiles || []).length;
-        if (currentCount >= maxProfiles) {
-            showConfirm(
-                `Gói ${(sub.planType || '').toUpperCase()} chỉ cho phép tối đa ${maxProfiles} profiles (đang dùng ${currentCount}/${maxProfiles}).\n\nNâng cấp gói để tạo thêm?`,
-                () => openPlansModal()
-            );
-            return;
-        }
+    // ── BNC: kiểm tra slots còn lại ───────────────────────────────────────
+    const slots = _bncAuth?.slots;
+    if (slots !== undefined && slots.available <= 0) {
+        const msg = slots.totalGranted === 0
+            ? 'Bạn chưa có slot profile nào.\n\nMua gói để bắt đầu tạo profile?'
+            : `Bạn đã dùng hết ${slots.totalGranted} slot profile.\n\nMua thêm slots để tạo profile mới?`;
+        showConfirm(msg, () => openPlansModal());
+        return;
     }
     // ─────────────────────────────────────────────────────────────────────
 
@@ -1618,11 +1491,21 @@ async function saveNewProfile() {
     // Split multi-line proxy links
     const proxyLines = proxyText.split('\n').map(l => l.trim()).filter(l => l);
 
+    // Optimistic slot decrement — server sẽ trừ thật, client cập nhật ngay để pill phản ánh đúng
+    function _decrementSlot() {
+        if (_bncAuth?.slots) {
+            _bncAuth.slots.slotsUsed += 1;
+            _bncAuth.slots.available = Math.max(0, _bncAuth.slots.available - 1);
+            _updatePlanPill(_bncAuth);
+        }
+    }
+
     // No proxy — require a name, create single profile with no proxy
     if (proxyLines.length === 0) {
         if (!nameBase) return showAlert(t('inputReq'));
         try {
             await window.electronAPI.saveProfile({ name: nameBase, proxyStr: '', tags, note, timezone, city, geolocation, language, screen, preProxyOverride });
+            _decrementSlot();
         } catch (e) {
             console.error(`Failed to create profile ${nameBase}:`, e);
         }
@@ -1651,6 +1534,7 @@ async function saveNewProfile() {
         try {
             await window.electronAPI.saveProfile({ name, proxyStr, tags, note, timezone, city, geolocation, language, screen, preProxyOverride });
             createdCount++;
+            _decrementSlot();
         } catch (e) {
             console.error(`Failed to create profile ${name}:`, e);
         }

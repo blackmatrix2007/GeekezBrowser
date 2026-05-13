@@ -3785,6 +3785,7 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             // 性能优化参数
             '--no-first-run',                    // 跳过首次运行向导
             '--no-default-browser-check',        // 跳过默认浏览器检查
+            '--disable-infobars',                // ẩn các infobar (Chrome for Testing banner, unsupported flag warnings)
             '--disable-session-crashed-bubble',  // 隐藏恢复会话提示气泡
             '--disable-background-timer-throttling', // 防止后台标签页被限速
             '--disable-backgrounding-occluded-windows',

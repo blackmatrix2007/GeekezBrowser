@@ -296,7 +296,10 @@ async function openPlansModal() {
     document.getElementById('bncPlansModal').style.display = 'flex';
 
     const plans = await window.electronAPI.bncGetPlans();
-    const currentPlan = _bncAuth?.subscription?.planType;
+    // "Đang dùng" = sub đang được select, không phải sub mới nhất
+    const selectedSub = (_bncAuth?.subscriptions || []).find(s => s.id === _bncAuth?.selectedSubscriptionId)
+        || _bncAuth?.subscription;
+    const currentPlan = selectedSub?.planType;
     const grid = document.getElementById('bncPlansGrid');
 
     const fmt = (n) => new Intl.NumberFormat('vi-VN').format(n) + 'đ';

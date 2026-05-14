@@ -185,6 +185,15 @@ function _updatePlanPill(auth) {
     if (!pill) return;
 
     const slots = auth?.slots;
+
+    // Đồng bộ luôn dropdown text để pill và dropdown luôn nhất quán
+    const planEl = document.getElementById('bncDropPlan');
+    if (planEl) {
+        planEl.textContent = (slots && slots.totalGranted > 0)
+            ? `${slots.available} / ${slots.totalGranted} slots`
+            : 'Chưa có slot';
+    }
+
     if (!slots || slots.totalGranted === 0) {
         pill.style.display = 'none';
         return;
@@ -394,6 +403,15 @@ async function syncBncProfiles() {
             showBncToast('⚠ Không có profile nào (cả local lẫn server)', 4000);
         }
         if (typeof loadProfiles === 'function') await loadProfiles();
+
+        // Refresh slots từ server sau sync để pill luôn đúng
+        try {
+            const slotResult = await window.electronAPI.bncGetSubscriptions();
+            if (slotResult?.slots && _bncAuth) {
+                _bncAuth.slots = slotResult.slots;
+                _updatePlanPill(_bncAuth);
+            }
+        } catch (_) {}
     } catch (e) {
         showBncToast(`❌ ${e.message}`, 5000);
     }

@@ -1995,7 +1995,7 @@ app.whenReady().then(async () => {
     // Data path prompt
     const dataPathAlreadyConfirmed = fs.existsSync(DATA_PATH_CONFIRMED);
 
-    // Heartbeat mỗi 30 phút — chỉ check token hợp lệ + cập nhật slots
+    // Heartbeat mỗi 5 phút — chỉ check token hợp lệ + cập nhật slots
     setInterval(async () => {
         const result = await bncPingServer();
         if (!result) return; // offline
@@ -2020,7 +2020,7 @@ app.whenReady().then(async () => {
         // Check version mới
         const r = await bncCheckVersion();
         if (r) checkAndNotifyUpdate(r);
-    }, 30 * 60 * 1000);
+    }, 5 * 60 * 1000);
 
     // Auto-start public API server if enabled
     try {

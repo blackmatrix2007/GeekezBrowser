@@ -82,6 +82,12 @@ const SETTINGS_FILE = path.join(DATA_PATH, 'settings.json');
 fs.ensureDirSync(DATA_PATH);
 fs.ensureDirSync(TRASH_PATH);
 
+async function writeProfilesAtomic(profiles) {
+    const tmp = PROFILES_FILE + '.tmp';
+    await fs.writeJson(tmp, profiles);
+    await fs.move(tmp, PROFILES_FILE, { overwrite: true });
+}
+
 // ─── Update Check ────────────────────────────────────────────────────────────
 const DATA_PATH_CONFIRMED   = path.join(app.getPath('userData'), '.data_path_confirmed');
 const SKIPPED_UPDATE_FILE   = path.join(app.getPath('userData'), '.skipped_update_version');
@@ -669,7 +675,7 @@ async function handleApiRequest(method, pathname, body, params) {
             createdAt: Date.now()
         };
         profiles.push(newProfile);
-        await fs.writeJson(PROFILES_FILE, profiles);
+        await writeProfilesAtomic(profiles);
         notifyUIRefresh(); // Notify UI to refresh
         return { success: true, profile: newProfile };
     }
@@ -685,7 +691,7 @@ async function handleApiRequest(method, pathname, body, params) {
             data.name = generateUniqueName(data.name);
         }
         profiles[idx] = { ...profiles[idx], ...data };
-        await fs.writeJson(PROFILES_FILE, profiles);
+        await writeProfilesAtomic(profiles);
         return { success: true, profile: profiles[idx] };
     }
 
@@ -694,7 +700,7 @@ async function handleApiRequest(method, pathname, body, params) {
         const profile = findProfile(decodeURIComponent(profileMatch[1]));
         if (!profile) return { status: 404, data: { success: false, error: 'Profile not found' } };
         profiles = profiles.filter(p => p.id !== profile.id);
-        await fs.writeJson(PROFILES_FILE, profiles);
+        await writeProfilesAtomic(profiles);
         notifyUIRefresh(); // Notify UI to refresh
         return { success: true, message: 'Profile deleted' };
     }
@@ -847,7 +853,7 @@ async function handleApiRequest(method, pathname, body, params) {
                         profiles.push(newProfile);
                         imported++;
                     }
-                    await fs.writeJson(PROFILES_FILE, profiles);
+                    await writeProfilesAtomic(profiles);
                     notifyUIRefresh(); // Notify UI to refresh
                     return { success: true, message: `Imported ${imported} profiles from YAML`, count: imported };
                 }
@@ -870,7 +876,7 @@ async function handleApiRequest(method, pathname, body, params) {
                     profiles.push(newProfile);
                     imported++;
                 }
-                await fs.writeJson(PROFILES_FILE, profiles);
+                await writeProfilesAtomic(profiles);
                 notifyUIRefresh(); // Notify UI to refresh
                 return { success: true, message: `Imported ${imported} profiles from backup`, count: imported };
             } catch (decryptErr) {
@@ -1997,7 +2003,7 @@ app.whenReady().then(async () => {
         bncApiCall('GET', '/profiles').then(async (res) => {
             const serverProfiles = res?.profiles || [];
             if (serverProfiles.length > 0) {
-                await fs.writeJson(PROFILES_FILE, serverProfiles);
+                await writeProfilesAtomic(serverProfiles);
                 if (mainWindow && !mainWindow.isDestroyed()) {
                     mainWindow.webContents.send('bnc-profiles-reloaded');
                 }
@@ -2036,7 +2042,7 @@ app.whenReady().then(async () => {
                         const rank = sorted.findIndex(s => s.id === p.id);
                         return { ...p, isLocked: rank >= available };
                     });
-                    await fs.writeJson(PROFILES_FILE, updated);
+                    await writeProfilesAtomic(updated);
                 }
             } catch (_) {}
             if (mainWindow && !mainWindow.isDestroyed()) {
@@ -2125,7 +2131,7 @@ ipcMain.handle('bnc-login', async (_, { email, password }) => {
 
     if (serverProfiles.length > 0) {
         // Server has profiles → use server as source of truth
-        await fs.writeJson(PROFILES_FILE, serverProfiles);
+        await writeProfilesAtomic(serverProfiles);
         console.log('[BNC_SYNC] Loaded', serverProfiles.length, 'profiles from server');
     } else {
         // Server has no profiles → upload local profiles (initial sync)
@@ -2235,7 +2241,7 @@ ipcMain.handle('bnc-sync-profiles', async () => {
 
         // 2. Server có profiles → ghi đè local, mark tất cả đã sync
         const markedProfiles = serverProfiles.map(p => ({ ...p, syncedToServer: true }));
-        await fs.writeJson(PROFILES_FILE, markedProfiles);
+        await writeProfilesAtomic(markedProfiles);
         console.log('[BNC_SYNC] Ghi', markedProfiles.length, 'profiles xuống local');
 
         return {
@@ -2441,21 +2447,25 @@ async function updateProfileSyncStatus(id, synced) {
         const idx = profiles.findIndex(p => p.id === id);
         if (idx > -1) {
             profiles[idx].syncedToServer = synced;
-            await fs.writeJson(PROFILES_FILE, profiles);
+            await writeProfilesAtomic(profiles);
         }
     } catch (_) {}
 }
 
 ipcMain.handle('get-profiles', async () => {
     if (!fs.existsSync(PROFILES_FILE)) return [];
-    return fs.readJson(PROFILES_FILE);
+    try {
+        return await fs.readJson(PROFILES_FILE);
+    } catch (_) {
+        return [];
+    }
 });
 ipcMain.handle('update-profile', async (event, updatedProfile) => {
     let profiles = await fs.readJson(PROFILES_FILE);
     const index = profiles.findIndex(p => p.id === updatedProfile.id);
     if (index > -1) {
         profiles[index] = updatedProfile;
-        await fs.writeJson(PROFILES_FILE, profiles);
+        await writeProfilesAtomic(profiles);
         // Sync to server (fire-and-forget)
         bncApiCall('PUT', `/profiles/${updatedProfile.id}`, updatedProfile).catch(() => {});
         return true;
@@ -2497,7 +2507,7 @@ ipcMain.handle('save-profile', async (event, data) => {
         syncedToServer: false,  // pending — cập nhật sau khi server xác nhận
     };
     profiles.push(newProfile);
-    await fs.writeJson(PROFILES_FILE, profiles);
+    await writeProfilesAtomic(profiles);
 
     // Sync to server — track kết quả và notify renderer
     bncApiCall('POST', '/profiles', newProfile).then(res => {
@@ -2565,7 +2575,7 @@ ipcMain.handle('delete-group', async (event, id) => {
     if (fs.existsSync(PROFILES_FILE)) {
         let profiles = await fs.readJson(PROFILES_FILE);
         profiles = profiles.map(p => p.groupId === id ? { ...p, groupId: null } : p);
-        await fs.writeJson(PROFILES_FILE, profiles);
+        await writeProfilesAtomic(profiles);
     }
     // Sync to server (fire-and-forget)
     bncApiCall('DELETE', `/groups/${id}`).catch(() => {});
@@ -2577,7 +2587,7 @@ ipcMain.handle('assign-profile-group', async (event, { profileId, groupId }) => 
     const idx = profiles.findIndex(p => p.id === profileId);
     if (idx > -1) {
         profiles[idx].groupId = groupId || null;
-        await fs.writeJson(PROFILES_FILE, profiles);
+        await writeProfilesAtomic(profiles);
         // Sync to server (fire-and-forget)
         bncApiCall('PUT', `/profiles/${profileId}`, { groupId: groupId || null }).catch(() => {});
     }
@@ -2608,7 +2618,7 @@ ipcMain.handle('delete-profile', async (event, id) => {
     // 从 profiles.json 中删除
     let profiles = await fs.readJson(PROFILES_FILE);
     profiles = profiles.filter(p => p.id !== id);
-    await fs.writeJson(PROFILES_FILE, profiles);
+    await writeProfilesAtomic(profiles);
     // Sync to server (fire-and-forget)
     bncApiCall('DELETE', `/profiles/${id}`).catch(() => {});
 
@@ -3427,7 +3437,7 @@ ipcMain.handle('import-full-backup', async (e, { password }) => {
             if (idx > -1) { currentProfiles[idx] = profile; } else { currentProfiles.push(profile); }
             importedCount++;
         }
-        await fs.writeJson(PROFILES_FILE, currentProfiles);
+        await writeProfilesAtomic(currentProfiles);
 
         // 还原代理和订阅
         const currentSettings = fs.existsSync(SETTINGS_FILE) ? await fs.readJson(SETTINGS_FILE) : { preProxies: [], subscriptions: [] };
@@ -3558,7 +3568,7 @@ ipcMain.handle('import-data', async () => {
                             currentProfiles.push(p);
                         }
                     });
-                    await fs.writeJson(PROFILES_FILE, currentProfiles);
+                    await writeProfilesAtomic(currentProfiles);
                     updated = true;
                 }
                 if (Array.isArray(data.preProxies) || Array.isArray(data.subscriptions)) {
@@ -3583,7 +3593,7 @@ ipcMain.handle('import-data', async () => {
                 const profiles = fs.existsSync(PROFILES_FILE) ? await fs.readJson(PROFILES_FILE) : [];
                 const newProfile = { ...data, id: uuidv4(), isSetup: false, createdAt: Date.now() };
                 profiles.push(newProfile);
-                await fs.writeJson(PROFILES_FILE, profiles);
+                await writeProfilesAtomic(profiles);
                 updated = true;
             }
             return updated;

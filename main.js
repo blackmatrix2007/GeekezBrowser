@@ -2009,10 +2009,23 @@ app.whenReady().then(async () => {
             }).then(() => app.quit());
             return;
         }
-        // Cập nhật slots từ server
+        // Cập nhật slots từ server + recompute isLocked cho profiles local
         if (result.slots) {
             const auth = getSavedBncAuth();
             if (auth) saveBncAuth({ ...auth, slots: result.slots });
+            // Recompute isLocked: sort theo clientCreatedAt ASC, index < available = active
+            try {
+                if (fs.existsSync(PROFILES_FILE)) {
+                    const profiles = await fs.readJson(PROFILES_FILE);
+                    const available = result.slots.available || 0;
+                    const sorted = [...profiles].sort((a, b) => (a.clientCreatedAt || 0) - (b.clientCreatedAt || 0));
+                    const updated = profiles.map(p => {
+                        const rank = sorted.findIndex(s => s.id === p.id);
+                        return { ...p, isLocked: rank >= available };
+                    });
+                    await fs.writeJson(PROFILES_FILE, updated);
+                }
+            } catch (_) {}
             if (mainWindow && !mainWindow.isDestroyed()) {
                 mainWindow.webContents.send('bnc-slots-updated', result.slots);
             }

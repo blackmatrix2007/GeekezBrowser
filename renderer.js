@@ -290,6 +290,9 @@ async function openPaymentModal(planId, price, planName) {
     paymentModal.style.display = 'flex';
     content.innerHTML = '<div style="color:#aaa;padding:20px 0;">Đang tải thông tin...</div>';
 
+    // Bắt đầu poll ngay khi modal mở — không chờ user đóng
+    startPaymentPoll();
+
     try {
         const info = await window.electronAPI.bncGetPaymentInfo();
         const fmt  = (n) => new Intl.NumberFormat('vi-VN').format(n);
@@ -318,8 +321,7 @@ async function openPaymentModal(planId, price, planName) {
 
 function closePaymentModal(backToPlans) {
     document.getElementById('bncPaymentModal').style.display = 'none';
-    // Luôn poll bất kể user quay lại hay đóng — user có thể đã chuyển khoản trước khi bấm
-    startPaymentPoll();
+    // Poll đã chạy từ lúc openPaymentModal — không start lại ở đây
     if (backToPlans) openPlansModal();
 }
 
@@ -344,6 +346,10 @@ function startPaymentPoll() {
                 clearInterval(_paymentPollTimer);
                 _paymentPollTimer = null;
 
+                // Tự đóng payment modal nếu đang mở
+                const paymentModal = document.getElementById('bncPaymentModal');
+                if (paymentModal) paymentModal.style.display = 'none';
+
                 const added = slots.totalGranted - knownGranted;
                 if (_bncAuth) {
                     _bncAuth.slots = slots;
@@ -351,6 +357,8 @@ function startPaymentPoll() {
                 }
 
                 showBncToast(`✅ Nạp thành công! +${added} slots mới. Còn: ${slots.available} slots.`, 5000);
+                // BUG #6 FIX: sync profiles ngay để recompute isLocked với available mới
+                window.electronAPI.bncSyncProfiles().then(() => loadProfiles()).catch(() => {});
                 return;
             }
         } catch (_) {}
@@ -1398,12 +1406,14 @@ async function loadProfiles() {
                 ☁ ${syncIcon}
             </span>`;
 
+            const isLocked = !!p.isLocked;
             const el = document.createElement('div');
             el.className = 'profile-item no-drag';
+            if (isLocked) el.style.cssText = 'opacity:0.45;pointer-events:none;user-select:none;';
             el.innerHTML = `
                 <!-- Col 1: identity -->
                 <div class="pi-main">
-                    <div class="pi-name-row">${flagHtml}<h4>${p.name}</h4><span id="status-${p.id}" class="running-badge ${isRunning ? 'active' : ''}">${t('runningStatus')}</span>${groupBadge}${syncBadge}</div>
+                    <div class="pi-name-row">${flagHtml}<h4>${p.name}</h4><span id="status-${p.id}" class="running-badge ${isRunning ? 'active' : ''}">${t('runningStatus')}</span>${groupBadge}${syncBadge}${isLocked ? `<span title="Profile bị khóa — hết slot" style="margin-left:5px;font-size:11px;padding:1px 6px;border-radius:10px;background:#f4433622;color:#f44336;border:1px solid #f4433666;">🔒 Hết slot</span>` : ''}</div>
                     <div class="pi-sub-row">
                         ${notePill}
                         <div class="pi-tags-wrap no-drag" onclick="openTagsDialogInline('${p.id}')" title="Edit tags">${tagsPills}</div>
@@ -1426,7 +1436,13 @@ async function loadProfiles() {
                     </span>
                 </div>
                 <!-- Col 4: actions -->
-                <div class="actions"><button onclick="launch('${p.id}')" class="no-drag">${t('launch')}</button><button class="outline no-drag" onclick="openEditModal('${p.id}')">${t('edit')}</button><button class="outline no-drag" onclick="openAssignGroup('${p.id}')" title="Move to group">📁</button>${isRunning ? `<button class="outline no-drag" onclick="openVerifyModal('${p.id}')" title="Verify">✓</button>` : ''}<button class="danger no-drag" onclick="remove('${p.id}')">${t('delete')}</button></div>
+                <div class="actions" style="${isLocked ? 'pointer-events:auto;' : ''}">
+                    ${isLocked
+                        ? `<button class="no-drag" disabled style="opacity:0.4;cursor:not-allowed;" onclick="event.stopPropagation();showConfirm('Profile bị khóa do hết slot.\\n\\nMua thêm gói để mở khóa?',()=>openPlansModal())">${t('launch')}</button>`
+                        : `<button onclick="launch('${p.id}')" class="no-drag">${t('launch')}</button>`
+                    }
+                    <button class="outline no-drag" onclick="openEditModal('${p.id}')">${t('edit')}</button><button class="outline no-drag" onclick="openAssignGroup('${p.id}')" title="Move to group">📁</button>${isRunning ? `<button class="outline no-drag" onclick="openVerifyModal('${p.id}')" title="Verify">✓</button>` : ''}<button class="danger no-drag" onclick="remove('${p.id}')">${t('delete')}</button>
+                </div>
             `;
             listEl.appendChild(el);
         });
@@ -1567,6 +1583,19 @@ async function saveNewProfile() {
 }
 
 async function launch(id) {
+    // Kiểm tra isLocked từ profile data
+    const profiles = await window.electronAPI.getProfiles();
+    const profile = profiles.find(p => p.id === id);
+    if (profile?.isLocked) {
+        showConfirm('Profile này bị khóa do hết slot.\n\nMua thêm gói để mở khóa?', () => openPlansModal());
+        return;
+    }
+    // Fallback: kiểm tra available tổng
+    const slots = _bncAuth?.slots;
+    if (slots !== undefined && slots.available <= 0) {
+        showConfirm('Bạn đã hết slot — không thể mở profile.\n\nMua thêm gói để tiếp tục sử dụng?', () => openPlansModal());
+        return;
+    }
     try {
         const watermarkStyle = localStorage.getItem('geekez_watermark_style') || 'enhanced';
         const msg = await window.electronAPI.launchProfile(id, watermarkStyle);

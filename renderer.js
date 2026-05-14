@@ -50,9 +50,19 @@ async function bncInit() {
     // Heartbeat cập nhật slots từ server
     window.electronAPI.onBncSlotsUpdated((slots) => {
         if (_bncAuth && slots) {
+            const prevAvailable = _bncAuth.slots?.available ?? -1;
             _bncAuth.slots = slots;
             _updatePlanPill(_bncAuth);
+            // Reload profile list nếu available thay đổi → isLocked thay đổi
+            if (slots.available !== prevAvailable) {
+                loadProfiles();
+            }
         }
+    });
+
+    // Startup sync: main.js đã fetch profiles mới từ server → reload UI
+    window.electronAPI.onBncProfilesReloaded(() => {
+        loadProfiles();
     });
 
     // Cập nhật badge sync cho từng profile khi main.js xác nhận sync xong

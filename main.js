@@ -1992,6 +1992,19 @@ app.whenReady().then(async () => {
     };
     sendBncState();
 
+    // Sau startup: sync profiles silent để cập nhật isLocked theo available mới nhất
+    if (bncAccess.allowed && !bncAccess.offlineMode) {
+        bncApiCall('GET', '/profiles').then(async (res) => {
+            const serverProfiles = res?.profiles || [];
+            if (serverProfiles.length > 0) {
+                await fs.writeJson(PROFILES_FILE, serverProfiles);
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('bnc-profiles-reloaded');
+                }
+            }
+        }).catch(() => {});
+    }
+
     // Data path prompt
     const dataPathAlreadyConfirmed = fs.existsSync(DATA_PATH_CONFIRMED);
 

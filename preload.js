@@ -60,4 +60,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onBncAuthState: (cb) => ipcRenderer.on('bnc-auth-state', (_, data) => cb(data)),
     onProfileSyncStatus: (cb) => ipcRenderer.on('profile-sync-status', (_, data) => cb(data)),
     onBncSlotsUpdated: (cb) => ipcRenderer.on('bnc-slots-updated', (_, data) => cb(data)),
+    onBncProfilesReloaded: (cb) => ipcRenderer.on('bnc-profiles-reloaded', () => cb()),
 });

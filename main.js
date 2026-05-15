@@ -1342,7 +1342,7 @@ function createWindow() {
     });
     win.setMenuBarVisibility(false);
     win.loadFile('index.html');
-    win.webContents.openDevTools({ mode: 'detach' });
+    if (!app.isPackaged) win.webContents.openDevTools({ mode: 'detach' });
     mainWindow = win;
 
     // Show confirm dialog on X — give user 3 choices instead of closing silently

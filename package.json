@@ -15,7 +15,7 @@
     "build:linux": "electron-builder --linux"
   },
   "build": {
-    "appId": "com.geekez.browser",
+    "appId": "com.geekez.browser.slot",
     "productName": "BNC",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {

@@ -15,7 +15,7 @@
     "build:linux": "electron-builder --linux"
   },
   "build": {
-    "appId": "com.geekez.browser",
+    "appId": "com.geekez.browser.maintenance",
     "productName": "GeekEZ Browser",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {

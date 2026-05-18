@@ -2038,9 +2038,10 @@ app.whenReady().then(async () => {
                     const profiles = await fs.readJson(PROFILES_FILE);
                     const available = result.slots.available || 0;
                     const sorted = [...profiles].sort((a, b) => (a.clientCreatedAt || 0) - (b.clientCreatedAt || 0));
+                    const canRun = result.slots.canRun ?? result.slots.available ?? 0;
                     const updated = profiles.map(p => {
                         const rank = sorted.findIndex(s => s.id === p.id);
-                        return { ...p, isLocked: rank >= available };
+                        return { ...p, isLocked: rank >= canRun };
                     });
                     await writeProfilesAtomic(updated);
                 }
@@ -2161,6 +2162,9 @@ ipcMain.handle('bnc-login', async (_, { email, password }) => {
 // Đăng xuất: xóa token local
 ipcMain.handle('bnc-logout', async () => {
     try { fs.removeSync(BNC_AUTH_FILE); } catch (_) {}
+    // Clear profiles + groups để tránh data leak khi đổi account
+    try { await fs.writeJson(PROFILES_FILE, []); } catch (_) {}
+    try { await fs.writeJson(GROUPS_FILE, []); } catch (_) {}
     return { success: true };
 });
 

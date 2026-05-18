@@ -3,7 +3,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 // BNC AUTH UI
 // ════════════════════════════════════════════════════════════════════════════
-let _bncAuth = null; // { email, customerId, slots: { totalGranted, slotsUsed, available } }
+let _bncAuth = null; // { email, customerId, slots: { totalGranted, slotsUsed, slotsBilled, available, canRun } }
 
 async function bncInit() {
     // Nhận trạng thái từ main process (gửi sau access check)
@@ -180,7 +180,7 @@ function bncRenderUserInfo(auth) {
     const planEl = document.getElementById('bncDropPlan');
     if (planEl) {
         if (slots && slots.totalGranted > 0) {
-            planEl.textContent = `${slots.available} / ${slots.totalGranted} slots`;
+            planEl.textContent = `${slots.canRun ?? slots.available} / ${slots.totalGranted} slots`;
         } else {
             planEl.textContent = 'Chưa có slot';
         }
@@ -200,7 +200,7 @@ function _updatePlanPill(auth) {
     const planEl = document.getElementById('bncDropPlan');
     if (planEl) {
         planEl.textContent = (slots && slots.totalGranted > 0)
-            ? `${slots.available} / ${slots.totalGranted} slots`
+            ? `${slots.canRun ?? slots.available} / ${slots.totalGranted} slots`
             : 'Chưa có slot';
     }
 
@@ -209,12 +209,13 @@ function _updatePlanPill(auth) {
         return;
     }
 
-    pill.textContent = `${slots.available} slot còn`;
+    pill.textContent = `${slots.canRun ?? slots.available} slot còn`;
     pill.style.display = 'block';
 
     // Màu cảnh báo khi gần hết
-    const ratio = slots.available / slots.totalGranted;
-    if (ratio <= 0.1 || slots.available === 0) {
+    const canRunVal = slots.canRun ?? slots.available;
+    const ratio = canRunVal / slots.totalGranted;
+    if (ratio <= 0.1 || canRunVal === 0) {
         pill.style.background = 'rgba(239,68,68,0.15)';
         pill.style.color = '#ef4444';
         pill.style.borderColor = 'rgba(239,68,68,0.4)';
@@ -366,7 +367,7 @@ function startPaymentPoll() {
                     bncRenderUserInfo(_bncAuth);
                 }
 
-                showBncToast(`✅ Nạp thành công! +${added} slots mới. Còn: ${slots.available} slots.`, 5000);
+                showBncToast(`✅ Nạp thành công! +${added} slots mới. Còn: ${slots.canRun ?? slots.available} slots.`, 5000);
                 // BUG #6 FIX: sync profiles ngay để recompute isLocked với available mới
                 window.electronAPI.bncSyncProfiles().then(() => loadProfiles()).catch(() => {});
                 return;

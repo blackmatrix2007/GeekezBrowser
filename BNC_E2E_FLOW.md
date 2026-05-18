@@ -1,6 +1,6 @@
 # BNC — Luồng E2E: Mua Gói → Slot → Quản lý Profile
 
-> Cập nhật: 2026-05-13 — Chuyển sang mô hình slot (không còn subscription-per-profile)
+> Cập nhật: 2026-05-15 — Slot model hoàn chỉnh với billing cycle + profile locking
 
 ---
 
@@ -28,14 +28,78 @@ Nguồn duy nhất: `server/config/bncPlans.js`
 
 ```
 bnc_customer_slots (1 row per account)
-  total_granted  — tổng slot đã cấp (cộng dồn mỗi lần mua)
-  slots_used     — tổng slot đã dùng (tăng khi tạo profile, không giảm khi xoá)
-  available      = total_granted - slots_used
-
-Mua gói → grantSlots(customerId, plan.maxProfiles)
-Tạo profile → consumeSlots(customerId, 1) [atomic UPDATE ... RETURNING]
-Xoá profile → KHÔNG trả lại slot
+  total_granted  — tổng slot đã mua (cộng dồn, không bao giờ giảm)
+  slots_used     — tổng slot đã tiêu (tăng dần, không giảm)
+  available      = total_granted - slots_used  (không âm)
 ```
+
+### 4 sự kiện thay đổi slot
+
+| Sự kiện | Thay đổi | Ghi chú |
+|---------|----------|---------|
+| **Mua gói** | `total_granted += plan.maxProfiles` | Webhook Casso hoặc Admin tạo thủ công |
+| **Tạo profile** | `slots_used += 1` | Atomic `UPDATE ... RETURNING`, block nếu available = 0 |
+| **Billing hàng tháng** | `slots_used += MIN(COUNT(profiles), available)` | SQL: `LEAST(slots_used + cnt, total_granted)` |
+| **Xóa profile** | Không thay đổi | Slot đã dùng không được hoàn lại |
+
+### 3 Cases đã confirmed
+
+**Case 1 — Mua gói nhưng không tạo profile:**
+```
+Gói A: 10 slots
+Mua → available = 10
+Không tạo profile → billing charge 0 (không có profile nào)
+Sau 1 tháng, 40 ngày, 1 năm → vẫn còn 10 slots
+```
+
+**Case 2 — Tạo profile + billing hàng tháng:**
+```
+Gói A: 10 slots
+Mua → available = 10
+Tạo 1 profile → slots_used += 1 → available = 9
+Billing tháng 1: charge 1 (1 profile đang chạy) → available = 8
+Billing tháng 2: charge 1 → available = 7
+... (mỗi tháng -1 nếu không mua thêm)
+```
+
+**Case 3 — Hết slot, mua thêm, profiles unlock:**
+```
+Gói A: 10 slots, tạo 10 profiles → available = 0
+→ Tất cả 10 profiles bị LOCK (không dùng được)
+
+Mua gói 2 slots → available = 2
+→ 2 profile CŨ NHẤT được unlock
+→ 8 profile còn lại vẫn locked
+
+Billing chạy → charge 2 (2 unlocked profiles) → available = 0
+→ Tất cả locked lại
+```
+
+### Profile locking — isLocked
+
+```
+Profiles sort theo clientCreatedAt ASC (profile cũ nhất được ưu tiên giữ slot)
+
+index < available  →  unlocked: dùng bình thường
+index >= available →  isLocked = true:
+    - UI: mờ 45%, badge 🔒 "Hết slot"
+    - Nút KHỞI ĐỘNG: disabled
+    - Không thể mở profile cho đến khi mua thêm slot
+```
+
+### Billing cycle
+
+- **Production**: Cron chạy lúc `00:00 ngày 1 hàng tháng` (Asia/Ho_Chi_Minh)
+- **Test**: Set `BNC_BILLING_INTERVAL_MINUTES=N` trong `server/.env`
+- **File**: `server/cron/bncBillingJob.js`
+
+### Khi available = 0
+
+| Hành động | Kết quả |
+|-----------|---------|
+| Tạo profile mới | ❌ Block — server 400 + client guard trước form |
+| KHỞI ĐỘNG profile | ❌ Nút disabled hoàn toàn |
+| Mua gói | ✅ Unlock profiles ngay sau payment webhook |
 
 ---
 

@@ -1999,16 +1999,27 @@ app.whenReady().then(async () => {
     sendBncState();
 
     // Sau startup: sync profiles silent để cập nhật isLocked theo available mới nhất
+    // Guard: chỉ ghi nếu auth không thay đổi kể từ lúc start (tránh race với manual login)
     if (bncAccess.allowed && !bncAccess.offlineMode) {
+        const startupCustomerId = getSavedBncAuth()?.customerId;
+        console.log(`[BNC_STARTUP_SYNC] Start — customerId=${startupCustomerId}`);
         bncApiCall('GET', '/profiles').then(async (res) => {
+            const currentCustomerId = getSavedBncAuth()?.customerId;
+            console.log(`[BNC_STARTUP_SYNC] Complete — startupId=${startupCustomerId}, currentId=${currentCustomerId}`);
+            if (currentCustomerId !== startupCustomerId) {
+                console.log('[BNC_STARTUP_SYNC] ⚠ Auth changed → skip overwrite');
+                return;
+            }
             const serverProfiles = res?.profiles || [];
+            console.log(`[BNC_STARTUP_SYNC] Writing ${serverProfiles.length} profiles to file`);
             if (serverProfiles.length > 0) {
                 await writeProfilesAtomic(serverProfiles);
+                console.log('[BNC_STARTUP_SYNC] ✓ Sent bnc-profiles-reloaded');
                 if (mainWindow && !mainWindow.isDestroyed()) {
                     mainWindow.webContents.send('bnc-profiles-reloaded');
                 }
             }
-        }).catch(() => {});
+        }).catch((e) => console.error('[BNC_STARTUP_SYNC] Error:', e.message));
     }
 
     // Data path prompt
@@ -2133,7 +2144,7 @@ ipcMain.handle('bnc-login', async (_, { email, password }) => {
     if (serverProfiles.length > 0) {
         // Server has profiles → use server as source of truth
         await writeProfilesAtomic(serverProfiles);
-        console.log('[BNC_SYNC] Loaded', serverProfiles.length, 'profiles from server');
+        console.log(`[BNC_LOGIN_SYNC] ✓ Wrote ${serverProfiles.length} profiles for customerId=${customerId}`);
     } else {
         // Server has no profiles → upload local profiles (initial sync)
         const localProfiles = fs.existsSync(PROFILES_FILE) ? await fs.readJson(PROFILES_FILE) : [];
@@ -2161,10 +2172,11 @@ ipcMain.handle('bnc-login', async (_, { email, password }) => {
 
 // Đăng xuất: xóa token local
 ipcMain.handle('bnc-logout', async () => {
+    const prevAuth = getSavedBncAuth();
+    console.log(`[BNC_LOGOUT] customerId=${prevAuth?.customerId}, email=${prevAuth?.email}`);
     try { fs.removeSync(BNC_AUTH_FILE); } catch (_) {}
-    // Clear profiles + groups để tránh data leak khi đổi account
-    try { await fs.writeJson(PROFILES_FILE, []); } catch (_) {}
-    try { await fs.writeJson(GROUPS_FILE, []); } catch (_) {}
+    try { await fs.writeJson(PROFILES_FILE, []); console.log('[BNC_LOGOUT] ✓ Cleared profiles.json'); } catch (_) {}
+    try { await fs.writeJson(GROUPS_FILE, []); console.log('[BNC_LOGOUT] ✓ Cleared groups.json'); } catch (_) {}
     return { success: true };
 });
 

@@ -127,6 +127,7 @@ async function doBncLogin() {
             };
             hideBncLoginOverlay();
             bncRenderUserInfo(_bncAuth);
+            await loadProfiles(); // Load profiles của account vừa login
         } else {
             errEl.textContent = result.message || 'Đăng nhập thất bại';
             errEl.style.display = 'block';
@@ -1331,6 +1332,7 @@ function stringToColor(str) {
 async function loadProfiles() {
     try {
         const profiles = await window.electronAPI.getProfiles();
+        console.log(`[LOAD_PROFILES] ${profiles.length} profiles | account=${_bncAuth?.email} | locked=${profiles.filter(p=>p.isLocked).length}`);
         window._cachedProfiles = profiles; // cache for group assignment modal
         const runningIds = await window.electronAPI.getRunningIds();
         const listEl = document.getElementById('profileList');

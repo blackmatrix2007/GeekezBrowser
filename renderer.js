@@ -1603,9 +1603,9 @@ async function launch(id) {
         showConfirm('Profile này bị khóa do hết slot.\n\nMua thêm gói để mở khóa?', () => openPlansModal());
         return;
     }
-    // Fallback: kiểm tra available tổng
+    // Fallback: kiểm tra canRun (số profile được phép chạy, không phải slot còn trống)
     const slots = _bncAuth?.slots;
-    if (slots !== undefined && slots.available <= 0) {
+    if (slots !== undefined && (slots.canRun ?? slots.available) <= 0) {
         showConfirm('Bạn đã hết slot — không thể mở profile.\n\nMua thêm gói để tiếp tục sử dụng?', () => openPlansModal());
         return;
     }

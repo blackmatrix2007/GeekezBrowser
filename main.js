@@ -110,7 +110,13 @@ function getSavedBncAuth() {
 // Gọi muachungtool /api/bnc/login — trả về { accessToken, customer, slots } hoặc null
 async function bncLogin(email, password) {
     try {
-        const body = JSON.stringify({ email, password, deviceId: getDeviceId() });
+        const os = require('os');
+        const body = JSON.stringify({
+            email, password,
+            deviceId: getDeviceId(),
+            deviceName: os.hostname(),
+            platform: `${process.platform}-${process.arch}`,
+        });
         const loginUrl = BNC_API + '/login';
         console.log('[DEBUG:BNC_LOGIN] Calling', loginUrl, 'email:', email);
         return await new Promise((resolve) => {
@@ -119,7 +125,12 @@ async function bncLogin(email, password) {
                 hostname: url.hostname,
                 path: url.pathname,
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), 'x-device-id': getDeviceId() },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(body),
+                    'x-device-id': getDeviceId(),
+                    'x-app-version': app.getVersion(),
+                },
             }, (res) => {
                 let data = '';
                 res.on('data', c => data += c);
@@ -165,6 +176,7 @@ async function bncPingServer() {
                 headers: {
                     'Authorization': 'Bearer ' + auth.accessToken,
                     'x-device-id': getDeviceId(),
+                    'x-app-version': app.getVersion(),
                 },
             }, (res) => {
                 let data = '';
@@ -2134,7 +2146,13 @@ ipcMain.handle('bnc-login', async (_, { email, password }) => {
     }
     const customerId = result.customer?.id || null;
     const slots = result.slots || { totalGranted: 0, slotsUsed: 0, available: 0 };
-    saveBncAuth({ accessToken: result.accessToken, email, customerId, slots, savedAt: new Date().toISOString() });
+    const teams = result.teams || [];
+    saveBncAuth({
+        accessToken: result.accessToken, email, customerId, slots,
+        teams,
+        activeWorkspace: 'own',
+        savedAt: new Date().toISOString(),
+    });
     console.log('[DEBUG:BNC_IPC_LOGIN] success, customerId:', customerId, '| slots:', slots);
 
     // ── Profile/Group sync from server ──────────────────────────────────
@@ -2167,7 +2185,7 @@ ipcMain.handle('bnc-login', async (_, { email, password }) => {
         }
     }
 
-    return { success: true, customer: result.customer, slots };
+    return { success: true, customer: result.customer, slots, teams };
 });
 
 // Đăng xuất: xóa token local
@@ -2189,6 +2207,8 @@ ipcMain.handle('bnc-get-auth', async () => {
         email: auth.email,
         customerId: auth.customerId,
         slots: auth.slots || { totalGranted: 0, slotsUsed: 0, available: 0 },
+        teams: auth.teams || [],
+        activeWorkspace: auth.activeWorkspace || 'own',
     };
 });
 
@@ -2298,6 +2318,100 @@ ipcMain.handle('bnc-kick-session', async (_, deviceId) => {
         return { error: e.message };
     }
 });
+// ─── BNC Team / Workspace ────────────────────────────────────────────────────
+
+ipcMain.handle('bnc-team-invite', async (_, { email, permissions, allowedGroups, profileLimit, note }) => {
+    const auth = getSavedBncAuth();
+    if (!auth?.accessToken) return { success: false, error: 'Chưa đăng nhập' };
+    try {
+        const res = await bncApiCall('POST', '/team/invite', { email, permissions, allowedGroups, profileLimit, note });
+        if (!res) return { success: false, error: 'Không thể kết nối server' };
+        if (res._statusCode >= 400) return { success: false, error: res.message || 'Lỗi server' };
+        return { success: true, member: res.member };
+    } catch (e) { return { success: false, error: e.message }; }
+});
+
+ipcMain.handle('bnc-team-get-members', async () => {
+    const auth = getSavedBncAuth();
+    if (!auth?.accessToken) return { members: [] };
+    try {
+        const res = await bncApiCall('GET', '/team/members');
+        return { members: res.members || [] };
+    } catch (e) { return { members: [] }; }
+});
+
+ipcMain.handle('bnc-team-update-member', async (_, { memberId, permissions, allowedGroups, profileLimit, note }) => {
+    const auth = getSavedBncAuth();
+    if (!auth?.accessToken) return { success: false, error: 'Chưa đăng nhập' };
+    try {
+        const res = await bncApiCall('PUT', `/team/members/${memberId}`, { permissions, allowedGroups, profileLimit, note });
+        if (!res) return { success: false, error: 'Không thể kết nối server' };
+        if (res._statusCode >= 400) return { success: false, error: res.message || 'Lỗi server' };
+        return { success: true, member: res.member };
+    } catch (e) { return { success: false, error: e.message }; }
+});
+
+ipcMain.handle('bnc-team-remove-member', async (_, memberId) => {
+    const auth = getSavedBncAuth();
+    if (!auth?.accessToken) return { success: false };
+    try {
+        await bncApiCall('DELETE', `/team/members/${memberId}`);
+        return { success: true };
+    } catch (e) { return { success: false, error: e.message }; }
+});
+
+// Chuyển workspace — load profiles của owner về local
+ipcMain.handle('bnc-switch-workspace', async (_, ownerCustomerId) => {
+    const auth = getSavedBncAuth();
+    if (!auth?.accessToken) return { success: false, error: 'not_logged_in' };
+
+    if (ownerCustomerId === 'own') {
+        // Quay về workspace của chính mình
+        saveBncAuth({ ...auth, activeWorkspace: 'own', activePermissions: null });
+        // Sync lại profile của chính mình từ server
+        try {
+            const res = await bncApiCall('GET', '/profiles');
+            const profiles = res.profiles || [];
+            await writeProfilesAtomic(profiles);
+            const groupRes = await bncApiCall('GET', '/groups');
+            await fs.writeJson(GROUPS_FILE, groupRes.groups || []);
+            if (mainWindow) mainWindow.webContents.send('bnc-workspace-loaded', { ownerCustomerId: 'own', profileCount: profiles.length });
+        } catch (e) {
+            console.error('[TEAM] Error restoring own workspace:', e.message);
+        }
+        return { success: true };
+    }
+
+    try {
+        const res = await bncApiCall('GET', `/team/workspace/${ownerCustomerId}`);
+        if (!res || res.error) return { success: false, error: res?.error || 'Không tải được workspace' };
+
+        const profiles = res.profiles || [];
+        const groups   = res.groups   || [];
+        await writeProfilesAtomic(profiles);
+        await fs.writeJson(GROUPS_FILE, groups);
+
+        saveBncAuth({
+            ...auth,
+            activeWorkspace: ownerCustomerId,
+            activePermissions: res.permissions || null,
+            activeOwnerInfo: res.ownerInfo || null,
+        });
+
+        if (mainWindow) mainWindow.webContents.send('bnc-workspace-loaded', {
+            ownerCustomerId,
+            profileCount: profiles.length,
+            permissions: res.permissions,
+            ownerInfo: res.ownerInfo,
+        });
+
+        return { success: true, profileCount: profiles.length, permissions: res.permissions, ownerInfo: res.ownerInfo };
+    } catch (e) {
+        console.error('[TEAM] switchWorkspace error:', e.message);
+        return { success: false, error: e.message };
+    }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Lấy deviceId (dùng trong settings để hiển thị)

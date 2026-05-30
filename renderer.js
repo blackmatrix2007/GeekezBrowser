@@ -25,6 +25,10 @@ async function bncInit() {
         } else {
             hideBncLoginOverlay();
             bncRenderUserInfo(auth);
+            _renderWorkspaceSelector(auth.teams || []);
+            if (auth.activeWorkspace && auth.activeWorkspace !== 'own') {
+                await _switchWorkspace(auth.activeWorkspace);
+            }
         }
     } catch (_) {}
 
@@ -44,6 +48,11 @@ async function bncInit() {
         const btn = document.getElementById('bncAvatarBtn');
         if (dd && !dd.contains(e.target) && !btn?.contains(e.target)) {
             dd.style.display = 'none';
+        }
+        const wsMenu = document.getElementById('wsDropdown');
+        const wsBtn = document.getElementById('wsCurrent');
+        if (wsMenu && !wsMenu.contains(e.target) && !wsBtn?.contains(e.target)) {
+            wsMenu.style.display = 'none';
         }
     });
 
@@ -124,9 +133,12 @@ async function doBncLogin() {
             _bncAuth = {
                 isLoggedIn: true, email, customerId: result.customer?.id,
                 slots: result.slots || { totalGranted: 0, slotsUsed: 0, available: 0 },
+                teams: result.teams || [],
+                activeWorkspace: 'own',
             };
             hideBncLoginOverlay();
             bncRenderUserInfo(_bncAuth);
+            _renderWorkspaceSelector(_bncAuth.teams);
             await loadProfiles(); // Load profiles của account vừa login
         } else {
             errEl.textContent = result.message || 'Đăng nhập thất bại';
@@ -187,6 +199,14 @@ function bncRenderUserInfo(auth) {
         }
     }
 
+    // "Thành Viên" sidebar — chỉ hiện khi đang ở workspace của chính mình và có slot
+    const navTeam = document.getElementById('nav-team');
+    if (navTeam) {
+        const isOwner = !auth.activeWorkspace || auth.activeWorkspace === 'own';
+        const hasSlots = auth.slots && auth.slots.totalGranted > 0;
+        navTeam.style.display = (isOwner && hasSlots) ? '' : 'none';
+    }
+
     // Plan pill bên cạnh avatar
     _updatePlanPill(auth);
 }
@@ -237,68 +257,444 @@ async function bncLoadUserInfo() {
         if (auth) {
             _bncAuth = auth;
             bncRenderUserInfo(auth);
+            _renderWorkspaceSelector(auth.teams || []);
+            // Auto-restore team workspace nếu lần trước đang ở team workspace
+            if (auth.activeWorkspace && auth.activeWorkspace !== 'own') {
+                await _switchWorkspace(auth.activeWorkspace);
+            }
         }
     } catch (_) {}
 }
 
-// ── Plans Modal ──────────────────────────────────────────────────────────────
-async function openPlansModal() {
-    document.getElementById('bncUserDropdown').style.display = 'none';
-    document.getElementById('bncPlansModal').style.display = 'flex';
+// ── Workspace Selector ───────────────────────────────────────────────────────
+function _renderWorkspaceSelector(teams) {
+    const bar = document.getElementById('workspaceBar');
+    if (!bar) return;
 
+    if (!teams || teams.length === 0) {
+        bar.style.display = 'none';
+        _applyWorkspacePermissions(null);
+        return;
+    }
+
+    // Populate team list in dropdown
+    const list = document.getElementById('wsTeamList');
+    if (list) {
+        list.innerHTML = teams.map(t => `
+            <div class="ws-item" data-ws="${t.ownerId}" onclick="_switchWorkspace(${t.ownerId})"
+                style="padding:10px 14px;font-size:13px;color:#e0e0e0;cursor:pointer;display:flex;align-items:center;gap:9px;"
+                onmouseover="this.style.background='rgba(255,255,255,0.06)'"
+                onmouseout="this.style.background=window._activeWorkspace==${t.ownerId}?'rgba(0,224,255,0.06)':'transparent'">
+                <span style="width:8px;height:8px;border-radius:50%;background:#f59e0b;flex-shrink:0;"></span>
+                <span>${t.ownerName || t.ownerEmail}</span>
+            </div>`).join('');
+    }
+
+    const active = _bncAuth?.activeWorkspace || 'own';
+    window._activeWorkspace = active;
+    _updateWsCurrentDisplay(active, teams);
+    bar.style.display = 'block';
+}
+
+function _updateWsCurrentDisplay(activeWs, teams) {
+    const nameEl = document.getElementById('wsCurrentName');
+    const dotEl  = document.getElementById('wsCurrentDot');
+    const ownItem = document.getElementById('wsOwnItem');
+
+    if (nameEl) {
+        if (activeWs === 'own') {
+            nameEl.textContent = _bncAuth?.email || 'Workspace của tôi';
+        } else {
+            const t = (teams || _bncAuth?.teams || []).find(t => t.ownerId == activeWs);
+            nameEl.textContent = t?.ownerName || t?.ownerEmail || String(activeWs);
+        }
+    }
+    if (dotEl) dotEl.style.background = activeWs === 'own' ? '#00e0ff' : '#f59e0b';
+
+    if (ownItem) ownItem.style.background = activeWs === 'own' ? 'rgba(0,224,255,0.06)' : 'transparent';
+    document.querySelectorAll('#wsTeamList .ws-item').forEach(el => {
+        el.style.background = el.dataset.ws == activeWs ? 'rgba(0,224,255,0.06)' : 'transparent';
+    });
+}
+
+function toggleWsDropdown() {
+    const menu = document.getElementById('wsDropdown');
+    if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+
+async function _switchWorkspace(ownerCustomerId) {
+    const menu = document.getElementById('wsDropdown');
+    if (menu) menu.style.display = 'none';
+    const result = await window.electronAPI.switchWorkspace(ownerCustomerId);
+    if (!result.success) { alert('Không thể chuyển workspace: ' + (result.error || 'Lỗi không xác định')); return; }
+
+    if (_bncAuth) {
+        _bncAuth.activeWorkspace = ownerCustomerId;
+        _bncAuth.activePermissions = result.permissions || null;
+        _bncAuth.activeOwnerInfo = result.ownerInfo || null;
+    }
+
+    window._activeWorkspace = ownerCustomerId;
+    _updateWsCurrentDisplay(ownerCustomerId, _bncAuth?.teams || []);
+
+    _applyWorkspacePermissions(ownerCustomerId === 'own' ? null : (_bncAuth?.activePermissions || null));
+
+    await loadProfiles();
+}
+
+function _applyWorkspacePermissions(permissions) {
+    // null = own workspace → full quyền
+    const perm = permissions?.profile || null;
+    const canCreate = !perm || perm.create !== false;
+
+    // Nút "Thêm profile"
+    const addBtn = document.getElementById('addProfileBtn');
+    if (addBtn) addBtn.style.display = canCreate ? '' : 'none';
+
+    // Các mục sidebar chỉ hiện ở own workspace
+    const isOwn = permissions === null;
+    const navTeam = document.getElementById('nav-team');
+    if (navTeam) {
+        const hasSlots = _bncAuth?.slots && _bncAuth.slots.totalGranted > 0;
+        navTeam.style.display = (isOwn && hasSlots) ? '' : 'none';
+    }
+    // "Mua Gói" — ẩn khi ở team workspace (tránh member mua nhầm vào tài khoản mình)
+    const navPlans = document.getElementById('nav-plans');
+    if (navPlans) navPlans.style.display = isOwn ? '' : 'none';
+    const dropPlans = document.getElementById('dropPlansItem');
+    if (dropPlans) dropPlans.style.display = isOwn ? '' : 'none';
+
+    // Lưu vào global để launch() và action menu kiểm tra
+    window._activeWorkspacePerm = permissions;
+}
+
+// ── Team Members UI ──────────────────────────────────────────────────────────
+let _teamMembers = [];
+
+const _ALL_PAGES = ['profilesPage', 'teamPage', 'groupsPage', 'plansPage', 'settingsPage'];
+function _switchPage(activePageId, activeNavId) {
+    document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+    document.getElementById(activeNavId)?.classList.add('active');
+    _ALL_PAGES.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.style.display = (id === activePageId) ? 'flex' : 'none';
+    });
+    closeInvitePanel();
+}
+
+async function showTeamPage() {
+    _switchPage('teamPage', 'nav-team');
+    await refreshTeamMembers();
+}
+
+function showProfilesPage() {
+    _switchPage('profilesPage', 'nav-profiles');
+}
+
+function showGroupsPage() {
+    _switchPage('groupsPage', 'nav-groups');
+    renderGroupManagerList();
+    document.getElementById('newGroupInput')?.focus();
+}
+
+async function showPlansPage() {
+    if (_bncAuth?.activeWorkspace && _bncAuth.activeWorkspace !== 'own') return;
+    document.getElementById('bncUserDropdown').style.display = 'none';
+    _switchPage('plansPage', 'nav-plans');
+    // Load plans into grid
     const plans = await window.electronAPI.bncGetPlans();
     const grid = document.getElementById('bncPlansGrid');
-
+    if (!grid) return;
     const fmt = (n) => new Intl.NumberFormat('vi-VN').format(n) + 'đ';
-
-    grid.innerHTML = plans.map(p => {
-        const features = [
-            `+${p.maxProfiles} slots profile`,
-            'Tất cả tính năng',
-        ];
-
-        return `
+    grid.innerHTML = plans.map(p => `
         <div data-plan-id="${p.id}" data-plan-price="${p.price}" data-plan-name="${p.name}"
-            style="background:rgba(0,0,0,0.2);border:1.5px solid rgba(255,255,255,0.08);border-radius:12px;padding:20px 16px;display:flex;flex-direction:column;gap:10px;position:relative;cursor:pointer;">
+            style="background:rgba(0,0,0,0.2);border:1.5px solid rgba(255,255,255,0.08);border-radius:12px;padding:20px 16px;display:flex;flex-direction:column;gap:10px;cursor:pointer;transition:border-color .15s;"
+            onmouseover="this.style.borderColor='rgba(0,224,255,0.4)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.08)'">
             <div style="font-size:15px;font-weight:800;color:#fff;">${p.name}</div>
             <div>
                 <span style="font-size:20px;font-weight:800;color:#fff;">${fmt(p.price)}</span>
                 <span style="font-size:11px;color:#667;">/lần</span>
             </div>
-            <div style="font-size:11px;color:#888;">
-                ${features.map(f => `<div style="margin-bottom:4px;">✓ ${f}</div>`).join('')}
+            <div style="font-size:11px;color:#888;flex:1;">
+                <div style="margin-bottom:4px;">✓ +${p.maxProfiles} slots profile</div>
+                <div>✓ Tất cả tính năng</div>
             </div>
             <button data-btn="select-plan"
-                style="margin-top:auto;padding:9px 0;border-radius:8px;border:none;background:linear-gradient(135deg,#00e0ff,#0055ff);color:#fff;font-size:13px;font-weight:700;cursor:pointer;width:100%;pointer-events:none;">
+                style="padding:9px 0;border-radius:8px;border:none;background:linear-gradient(135deg,#00e0ff,#0055ff);color:#fff;font-size:13px;font-weight:700;cursor:pointer;width:100%;pointer-events:none;">
                 Mua slots
             </button>
-        </div>`;
-    }).join('');
-
-    // Event delegation — tránh inline onclick bị chặn
+        </div>`).join('');
     grid.onclick = (e) => {
         const card = e.target.closest('[data-plan-id]');
         if (!card) return;
-        const id    = card.dataset.planId;
-        const price = Number(card.dataset.planPrice);
-        const name  = card.dataset.planName;
-        console.log('[BNC] card clicked:', id, price, name);
-        openPaymentModal(id, price, name);
+        openPaymentModal(card.dataset.planId, Number(card.dataset.planPrice), card.dataset.planName);
     };
 }
 
+const _ROLE_DESCS = {
+    admin:   'Toàn quyền: thêm thành viên, tạo/xóa/sửa hồ sơ và nhóm.',
+    manager: 'Có thể tạo, sửa hồ sơ và nhóm. Không thể xóa hoặc thêm thành viên.',
+    member:  'Không thể thêm thành viên và chỉ được xem hồ sơ của nhóm thành viên.',
+};
+const _ROLE_PERMS = {
+    admin:   { profile: { launch:true, create:true, delete:true, editProxy:true, editFingerprint:true, editNote:true }, group: { create:true, edit:true, delete:true } },
+    manager: { profile: { launch:true, create:true, delete:false, editProxy:true, editFingerprint:true, editNote:true }, group: { create:true, edit:true, delete:false } },
+    member:  { profile: { launch:true, create:false, delete:false, editProxy:false, editFingerprint:false, editNote:false }, group: { create:false, edit:false, delete:false } },
+};
+
+let _inviteSelectedGroups = [];
+let _editSelectedGroups = [];
+
+function _roleFromPerms(perm, gperm) {
+    const p = perm || {};
+    const g = gperm || {};
+    if (p.create && p.delete && g.create && g.delete) return 'admin';
+    if (p.create && !p.delete && g.create && !g.delete) return 'manager';
+    return 'member';
+}
+
+function applyInviteRole(role) {
+    document.getElementById('inviteRoleDesc').textContent = _ROLE_DESCS[role] || '';
+}
+
+function applyEditRole(role) {
+    document.getElementById('editRoleDesc').textContent = _ROLE_DESCS[role] || '';
+}
+
+async function openInviteMemberModal() {
+    _inviteSelectedGroups = [];
+    document.getElementById('inviteEmail').value = '';
+    document.getElementById('inviteProfileLimit').value = '';
+    document.getElementById('inviteNote').value = '';
+    document.querySelectorAll('input[name="inviteRole"]').forEach(r => { r.checked = r.value === 'member'; });
+    applyInviteRole('member');
+    await _loadGroupsForDropdown('inviteGroupList', _inviteSelectedGroups, 'invite');
+    _renderGroupTags('invite');
+    document.getElementById('inviteMemberModal').style.display = 'flex';
+    document.getElementById('inviteEmail')?.focus();
+}
+
+function closeInviteMemberModal() {
+    document.getElementById('inviteMemberModal').style.display = 'none';
+    document.getElementById('inviteGroupDropdown').style.display = 'none';
+}
+
+function openInvitePanel() { openInviteMemberModal(); }
+function closeInvitePanel() { closeInviteMemberModal(); }
+
+async function _loadGroupsForDropdown(listId, selectedArr, prefix) {
+    const res = await window.electronAPI.getGroups();
+    const groups = res || [];
+    const list = document.getElementById(listId);
+    if (!list) return;
+    list.innerHTML = groups.length === 0
+        ? '<div style="font-size:12px;color:#999;padding:6px 8px;">Chưa có nhóm nào</div>'
+        : groups.map(g => `
+            <label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:5px;cursor:pointer;font-size:13px;color:#222;white-space:nowrap;" onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background='transparent'">
+                <input type="checkbox" value="${g.id}" data-name="${g.name}" style="width:14px;height:14px;flex-shrink:0;margin:0;padding:0;cursor:pointer;" onchange="_onGroupCheckChange('${prefix}', this)"
+                    ${selectedArr.some(s => s.id === g.id) ? 'checked' : ''}>
+                <span>${g.name}</span>
+            </label>`).join('');
+}
+
+function _onGroupCheckChange(prefix, checkbox) {
+    const arr = prefix === 'invite' ? _inviteSelectedGroups : _editSelectedGroups;
+    if (checkbox.checked) {
+        if (!arr.some(s => s.id == checkbox.value)) arr.push({ id: checkbox.value, name: checkbox.dataset.name });
+    } else {
+        const idx = arr.findIndex(s => s.id == checkbox.value);
+        if (idx >= 0) arr.splice(idx, 1);
+    }
+    _renderGroupTags(prefix);
+}
+
+function _renderGroupTags(prefix) {
+    const arr = prefix === 'invite' ? _inviteSelectedGroups : _editSelectedGroups;
+    const tagsEl = document.getElementById(prefix === 'invite' ? 'inviteGroupTags' : 'editGroupTags');
+    const labelEl = document.getElementById(prefix === 'invite' ? 'inviteGroupTagsLabel' : 'editGroupTagsLabel');
+    if (!tagsEl) return;
+    tagsEl.querySelectorAll('.group-tag').forEach(t => t.remove());
+    if (arr.length === 0) {
+        if (labelEl) labelEl.style.display = 'inline';
+    } else {
+        if (labelEl) labelEl.style.display = 'none';
+        arr.forEach(g => {
+            const tag = document.createElement('span');
+            tag.className = 'group-tag';
+            tag.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:rgba(0,224,255,0.12);color:#00e0ff;border-radius:12px;font-size:11px;';
+            tag.innerHTML = `${g.name} <span style="cursor:pointer;opacity:.7;" onclick="_removeGroupTag('${prefix}','${g.id}',this)">✕</span>`;
+            tagsEl.insertBefore(tag, labelEl || null);
+        });
+    }
+}
+
+function _removeGroupTag(prefix, groupId, el) {
+    const arr = prefix === 'invite' ? _inviteSelectedGroups : _editSelectedGroups;
+    const idx = arr.findIndex(s => s.id == groupId);
+    if (idx >= 0) arr.splice(idx, 1);
+    _renderGroupTags(prefix);
+    const dd = document.getElementById(prefix === 'invite' ? 'inviteGroupList' : 'editGroupList');
+    if (dd) { const cb = dd.querySelector(`input[value="${groupId}"]`); if (cb) cb.checked = false; }
+    el.stopPropagation?.();
+}
+
+function toggleInviteGroupDropdown() {
+    const dd = document.getElementById('inviteGroupDropdown');
+    dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleEditGroupDropdown() {
+    const dd = document.getElementById('editGroupDropdown');
+    dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+}
+
+async function openTeamModal() {
+    document.getElementById('bncUserDropdown').style.display = 'none';
+    await showTeamPage();
+}
+
+function closeTeamModal() {
+    showProfilesPage();
+}
+
+function closeEditMemberModal() {
+    const modal = document.getElementById('editMemberModal');
+    if (modal) modal.style.display = 'none';
+    _editingMemberId = null;
+}
+
+async function refreshTeamMembers() {
+    const res = await window.electronAPI.teamGetMembers();
+    _teamMembers = res.members || [];
+    renderTeamMemberList();
+}
+
+function renderTeamMemberList() {
+    const tbody = document.getElementById('teamMemberList');
+    if (!tbody) return;
+    if (_teamMembers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#555;padding:40px;font-size:14px;">Chưa có thành viên nào</td></tr>';
+        return;
+    }
+    tbody.innerHTML = _teamMembers.map(m => {
+        const perm = m.permissions?.profile || {};
+        const permTags = [
+            perm.launch !== false ? '<span style="font-size:10px;padding:2px 7px;background:rgba(0,224,255,0.1);color:#00e0ff;border-radius:4px;white-space:nowrap;">Mở</span>' : '',
+            perm.create ? '<span style="font-size:10px;padding:2px 7px;background:rgba(167,139,250,0.1);color:#a78bfa;border-radius:4px;white-space:nowrap;">Tạo</span>' : '',
+            perm.delete ? '<span style="font-size:10px;padding:2px 7px;background:rgba(239,68,68,0.1);color:#ef4444;border-radius:4px;white-space:nowrap;">Xóa</span>' : '',
+            perm.editProxy ? '<span style="font-size:10px;padding:2px 7px;background:rgba(245,158,11,0.1);color:#f59e0b;border-radius:4px;white-space:nowrap;">Proxy</span>' : '',
+            perm.editFingerprint ? '<span style="font-size:10px;padding:2px 7px;background:rgba(16,185,129,0.1);color:#10b981;border-radius:4px;white-space:nowrap;">FP</span>' : '',
+            perm.editNote ? '<span style="font-size:10px;padding:2px 7px;background:rgba(99,102,241,0.1);color:#6366f1;border-radius:4px;white-space:nowrap;">Note</span>' : '',
+        ].filter(Boolean).join(' ');
+        const statusBadge = m.status === 'pending'
+            ? '<span style="font-size:11px;padding:2px 8px;background:rgba(245,158,11,0.1);color:#f59e0b;border-radius:10px;white-space:nowrap;">⏳ Chờ</span>'
+            : '<span style="font-size:11px;padding:2px 8px;background:rgba(16,185,129,0.1);color:#10b981;border-radius:10px;white-space:nowrap;">✅ Hoạt động</span>';
+        return `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
+            <td style="padding:12px 12px;font-size:13px;color:#e0e0e0;">${m.memberName || '—'}</td>
+            <td style="padding:12px 12px;font-size:13px;color:#aaa;">${m.memberEmail}</td>
+            <td style="padding:12px 12px;">${statusBadge}</td>
+            <td style="padding:12px 12px;"><div style="display:flex;gap:4px;flex-wrap:wrap;">${permTags || '<span style="color:#555;font-size:12px;">—</span>'}</div></td>
+            <td style="padding:12px 12px;font-size:12px;color:#666;">${m.note || '—'}</td>
+            <td style="padding:12px 12px;text-align:right;white-space:nowrap;">
+                <button onclick="openEditMemberModal(${m.id})" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:5px 12px;border-radius:5px;cursor:pointer;font-size:12px;margin-right:4px;">Sửa</button>
+                <button onclick="removeTeamMember(${m.id})" style="background:rgba(239,68,68,0.1);border:none;color:#ef4444;padding:5px 12px;border-radius:5px;cursor:pointer;font-size:12px;">Xóa</button>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+function openInviteMemberForm() {
+    const form = document.getElementById('inviteMemberForm');
+    if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+
+async function submitInviteMember() {
+    const email = document.getElementById('inviteEmail')?.value?.trim();
+    if (!email) { alert('Nhập email thành viên'); return; }
+
+    const role = document.querySelector('input[name="inviteRole"]:checked')?.value || 'member';
+    const permissions = _ROLE_PERMS[role] || _ROLE_PERMS.member;
+    const profileLimit = parseInt(document.getElementById('inviteProfileLimit')?.value) || null;
+    const allowedGroups = _inviteSelectedGroups.length > 0 ? _inviteSelectedGroups.map(g => g.id) : null;
+    const note = document.getElementById('inviteNote')?.value?.trim() || null;
+
+    const result = await window.electronAPI.teamInvite({ email, permissions, allowedGroups, profileLimit, note });
+    if (result.success) {
+        closeInviteMemberModal();
+        await refreshTeamMembers();
+    } else {
+        alert(result.error || 'Lỗi mời thành viên');
+    }
+}
+
+async function removeTeamMember(memberId) {
+    if (!confirm('Xóa thành viên này khỏi nhóm?')) return;
+    const result = await window.electronAPI.teamRemoveMember(memberId);
+    if (result.success) await refreshTeamMembers();
+    else alert(result.error || 'Lỗi xóa thành viên');
+}
+
+let _editingMemberId = null;
+async function openEditMemberModal(memberId) {
+    const member = _teamMembers.find(m => m.id === memberId);
+    if (!member) return;
+    _editingMemberId = memberId;
+    const modal = document.getElementById('editMemberModal');
+    if (!modal) return;
+
+    document.getElementById('editMemberName').value = member.memberName || '';
+    document.getElementById('editMemberEmail').value = member.memberEmail || '';
+
+    const perm = member.permissions?.profile || {};
+    const gperm = member.permissions?.group || {};
+    const detectedRole = _roleFromPerms(perm, gperm);
+    document.querySelectorAll('input[name="editRole"]').forEach(r => { r.checked = r.value === detectedRole; });
+    applyEditRole(detectedRole);
+
+    _editSelectedGroups = member.allowedGroups ? member.allowedGroups.map(id => ({ id, name: id })) : [];
+    await _loadGroupsForDropdown('editGroupList', _editSelectedGroups, 'edit');
+    _renderGroupTags('edit');
+
+    document.getElementById('editProfileLimit').value = member.profileLimit || '';
+    document.getElementById('editNote').value = member.note || '';
+    modal.style.display = 'flex';
+}
+
+async function submitEditMember() {
+    if (!_editingMemberId) return;
+    const role = document.querySelector('input[name="editRole"]:checked')?.value || 'member';
+    const permissions = _ROLE_PERMS[role] || _ROLE_PERMS.member;
+    const profileLimit = parseInt(document.getElementById('editProfileLimit')?.value) || null;
+    const allowedGroups = _editSelectedGroups.length > 0 ? _editSelectedGroups.map(g => g.id) : null;
+    const note = document.getElementById('editNote')?.value?.trim() || null;
+
+    const result = await window.electronAPI.teamUpdateMember({ memberId: _editingMemberId, permissions, allowedGroups, profileLimit, note });
+    if (result.success) {
+        closeEditMemberModal();
+        await refreshTeamMembers();
+    } else {
+        alert(result.error || 'Lỗi cập nhật thành viên');
+    }
+}
+
+// ── Plans Modal ──────────────────────────────────────────────────────────────
+async function openPlansModal() {
+    await showPlansPage();
+}
+
 function closePlansModal() {
-    document.getElementById('bncPlansModal').style.display = 'none';
+    showProfilesPage();
 }
 
 // ── Payment Modal ─────────────────────────────────────────────────────────────
 async function openPaymentModal(planId, price, planName) {
     console.log('[BNC] openPaymentModal called:', planId, price, planName);
-    const plansModal   = document.getElementById('bncPlansModal');
     const paymentModal = document.getElementById('bncPaymentModal');
     const content      = document.getElementById('bncPaymentContent');
 
-    plansModal.style.display = 'none';
+    // Hide plans page while payment modal is open
+    document.getElementById('plansPage').style.display = 'none';
     paymentModal.style.display = 'flex';
     content.innerHTML = '<div style="color:#aaa;padding:20px 0;">Đang tải thông tin...</div>';
 
@@ -334,7 +730,7 @@ async function openPaymentModal(planId, price, planName) {
 function closePaymentModal(backToPlans) {
     document.getElementById('bncPaymentModal').style.display = 'none';
     // Poll đã chạy từ lúc openPaymentModal — không start lại ở đây
-    if (backToPlans) openPlansModal();
+    if (backToPlans) showPlansPage(); else showProfilesPage();
 }
 
 // Poll server sau khi thanh toán — tối đa 3 phút, mỗi 5 giây
@@ -1454,7 +1850,12 @@ async function loadProfiles() {
                         ? `<button class="no-drag" disabled style="opacity:0.4;cursor:not-allowed;" onclick="event.stopPropagation();showConfirm('Profile bị khóa do hết slot.\\n\\nMua thêm gói để mở khóa?',()=>openPlansModal())">${t('launch')}</button>`
                         : `<button onclick="launch('${p.id}')" class="no-drag">${t('launch')}</button>`
                     }
-                    <button class="outline no-drag" onclick="openEditModal('${p.id}')">${t('edit')}</button><button class="outline no-drag" onclick="openAssignGroup('${p.id}')" title="Move to group">📁</button>${isRunning ? `<button class="outline no-drag" onclick="openVerifyModal('${p.id}')" title="Verify">✓</button>` : ''}<button class="danger no-drag" onclick="remove('${p.id}')">${t('delete')}</button>
+                    ${(() => { const wp = window._activeWorkspacePerm?.profile || null;
+                        const canEdit   = !wp || wp.editProxy !== false || wp.editFingerprint !== false || wp.editNote !== false;
+                        const canDelete = !wp || wp.delete !== false;
+                        return (canEdit   ? `<button class="outline no-drag" onclick="openEditModal('${p.id}')">${t('edit')}</button><button class="outline no-drag" onclick="openAssignGroup('${p.id}')" title="Move to group">📁</button>${isRunning ? `<button class="outline no-drag" onclick="openVerifyModal('${p.id}')" title="Verify">✓</button>` : ''}` : '')
+                             + (canDelete ? `<button class="danger no-drag" onclick="remove('${p.id}')">${t('delete')}</button>` : '');
+                    })()}
                 </div>
             `;
             listEl.appendChild(el);
@@ -1596,6 +1997,7 @@ async function saveNewProfile() {
 }
 
 async function launch(id) {
+    const ws = _bncAuth?.activeWorkspace || 'own';
     // Kiểm tra isLocked từ profile data
     const profiles = await window.electronAPI.getProfiles();
     const profile = profiles.find(p => p.id === id);
@@ -1603,9 +2005,9 @@ async function launch(id) {
         showConfirm('Profile này bị khóa do hết slot.\n\nMua thêm gói để mở khóa?', () => openPlansModal());
         return;
     }
-    // Fallback: kiểm tra canRun (số profile được phép chạy, không phải slot còn trống)
+    // Fallback: kiểm tra canRun — bỏ qua nếu đang ở team workspace (dùng slot của owner)
     const slots = _bncAuth?.slots;
-    if (slots !== undefined && (slots.canRun ?? slots.available) <= 0) {
+    if (ws === 'own' && slots !== undefined && (slots.canRun ?? slots.available) <= 0) {
         showConfirm('Bạn đã hết slot — không thể mở profile.\n\nMua thêm gói để tiếp tục sử dụng?', () => openPlansModal());
         return;
     }
@@ -2372,8 +2774,8 @@ function switchHelpTab(tabName) {
 // ============================================================================
 // Settings Modal Functions
 // ============================================================================
-async function openSettings() {
-    document.getElementById('settingsModal').style.display = 'flex';
+async function showSettingsPage() {
+    _switchPage('settingsPage', 'nav-settings');
     try {
         const packaged = await window.electronAPI.isPackaged();
         if (packaged) {
@@ -2397,9 +2799,8 @@ async function openSettings() {
         loadDefaultProxySetting();
     }
 }
-function closeSettings() {
-    document.getElementById('settingsModal').style.display = 'none';
-}
+async function openSettings() { await showSettingsPage(); }
+function closeSettings() { showProfilesPage(); }
 
 // Watermark Style Functions
 function loadWatermarkStyle() {
@@ -2693,10 +3094,10 @@ function openApiDocs() {
 
 function switchSettingsTab(tabName, clickedBtn) {
     // Update tab buttons — dùng tham số thay vì event.target để gọi được từ code
-    document.querySelectorAll('#settingsModal .tab-btn').forEach(btn => {
+    document.querySelectorAll('#settingsPage .tab-btn').forEach(btn => {
         btn.classList.remove('active');
     });
-    const activeBtn = clickedBtn || document.querySelector(`#settingsModal .tab-btn[onclick*="'${tabName}'"]`);
+    const activeBtn = clickedBtn || document.querySelector(`#settingsPage .tab-btn[onclick*="'${tabName}'"]`);
     if (activeBtn) activeBtn.classList.add('active');
 
     // Update tab content
@@ -3095,12 +3496,11 @@ function filterByGroup(groupId) {
 }
 
 function openGroupManager() {
-    document.getElementById('groupManagerModal').style.display = 'flex';
-    renderGroupManagerList();
+    showGroupsPage();
 }
 
 function closeGroupManager() {
-    document.getElementById('groupManagerModal').style.display = 'none';
+    showProfilesPage();
 }
 
 function renderGroupManagerList() {

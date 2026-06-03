@@ -2173,16 +2173,19 @@ ipcMain.handle('bnc-login', async (_, { email, password }) => {
         }
     }
 
-    if (serverGroups.length > 0) {
-        await fs.writeJson(GROUPS_FILE, serverGroups);
-        console.log('[BNC_SYNC] Loaded', serverGroups.length, 'groups from server');
-    } else {
+    // Bidirectional group sync: merge server + local (server wins on conflict, local-only are uploaded)
+    {
         const localGroups = fs.existsSync(GROUPS_FILE) ? await fs.readJson(GROUPS_FILE) : [];
-        if (localGroups.length > 0) {
-            bncApiCall('POST', '/groups/bulk', { groups: localGroups })
-                .then(() => console.log('[BNC_SYNC] Uploaded', localGroups.length, 'local groups to server'))
+        const serverIds = new Set(serverGroups.map(g => g.id));
+        const localOnly = localGroups.filter(g => !serverIds.has(g.id));
+        const merged = [...serverGroups.map(g => ({...g, synced: true})), ...localOnly];
+        await fs.writeJson(GROUPS_FILE, merged);
+        if (localOnly.length > 0) {
+            bncApiCall('POST', '/groups/bulk', { groups: localOnly })
+                .then(() => console.log('[BNC_SYNC] Uploaded', localOnly.length, 'local-only group(s) to server'))
                 .catch(() => {});
         }
+        console.log('[BNC_SYNC] Groups merged: server=', serverGroups.length, 'localOnly=', localOnly.length);
     }
 
     return { success: true, customer: result.customer, slots, teams };
@@ -2320,11 +2323,11 @@ ipcMain.handle('bnc-kick-session', async (_, deviceId) => {
 });
 // ─── BNC Team / Workspace ────────────────────────────────────────────────────
 
-ipcMain.handle('bnc-team-invite', async (_, { email, permissions, allowedGroups, profileLimit, note }) => {
+ipcMain.handle('bnc-team-invite', async (_, { email, permissions, allowedGroups, allowedProfiles, profileLimit, note }) => {
     const auth = getSavedBncAuth();
     if (!auth?.accessToken) return { success: false, error: 'Chưa đăng nhập' };
     try {
-        const res = await bncApiCall('POST', '/team/invite', { email, permissions, allowedGroups, profileLimit, note });
+        const res = await bncApiCall('POST', '/team/invite', { email, permissions, allowedGroups, allowedProfiles, profileLimit, note });
         if (!res) return { success: false, error: 'Không thể kết nối server' };
         if (res._statusCode >= 400) return { success: false, error: res.message || 'Lỗi server' };
         return { success: true, member: res.member };
@@ -2340,11 +2343,11 @@ ipcMain.handle('bnc-team-get-members', async () => {
     } catch (e) { return { members: [] }; }
 });
 
-ipcMain.handle('bnc-team-update-member', async (_, { memberId, permissions, allowedGroups, profileLimit, note }) => {
+ipcMain.handle('bnc-team-update-member', async (_, { memberId, permissions, allowedGroups, allowedProfiles, profileLimit, note }) => {
     const auth = getSavedBncAuth();
     if (!auth?.accessToken) return { success: false, error: 'Chưa đăng nhập' };
     try {
-        const res = await bncApiCall('PUT', `/team/members/${memberId}`, { permissions, allowedGroups, profileLimit, note });
+        const res = await bncApiCall('PUT', `/team/members/${memberId}`, { permissions, allowedGroups, allowedProfiles, profileLimit, note });
         if (!res) return { success: false, error: 'Không thể kết nối server' };
         if (res._statusCode >= 400) return { success: false, error: res.message || 'Lỗi server' };
         return { success: true, member: res.member };
@@ -2682,20 +2685,42 @@ function readGroups() {
 ipcMain.handle('get-groups', () => readGroups());
 ipcMain.handle('save-group', async (event, data) => {
     const groups = readGroups();
-    const group = { id: uuidv4(), name: data.name, createdAt: Date.now() };
+    const group = { id: uuidv4(), name: data.name, createdAt: Date.now(), synced: false };
     groups.push(group);
     await fs.writeJson(GROUPS_FILE, groups);
-    // Sync to server (fire-and-forget)
-    bncApiCall('POST', '/groups', group).catch(() => {});
+    bncApiCall('POST', '/groups', group)
+        .then(async () => {
+            const gs = readGroups();
+            const idx = gs.findIndex(g => g.id === group.id);
+            if (idx > -1) { gs[idx].synced = true; await fs.writeJson(GROUPS_FILE, gs); }
+        })
+        .catch(() => {});
     return group;
 });
 ipcMain.handle('update-group', async (event, updated) => {
     const groups = readGroups();
     const idx = groups.findIndex(g => g.id === updated.id);
-    if (idx > -1) { groups[idx] = { ...groups[idx], ...updated }; await fs.writeJson(GROUPS_FILE, groups); }
-    // Sync to server (fire-and-forget)
-    if (idx > -1) bncApiCall('PUT', `/groups/${updated.id}`, { name: updated.name }).catch(() => {});
+    if (idx > -1) { groups[idx] = { ...groups[idx], ...updated, synced: false }; await fs.writeJson(GROUPS_FILE, groups); }
+    if (idx > -1) bncApiCall('PUT', `/groups/${updated.id}`, { name: updated.name })
+        .then(async () => {
+            const gs = readGroups(); const i = gs.findIndex(g => g.id === updated.id);
+            if (i > -1) { gs[i].synced = true; await fs.writeJson(GROUPS_FILE, gs); }
+        }).catch(() => {});
     return idx > -1;
+});
+ipcMain.handle('sync-group', async (event, id) => {
+    const groups = readGroups();
+    const group = groups.find(g => g.id === id);
+    if (!group) return false;
+    try {
+        await bncApiCall('PUT', `/groups/${id}`, { name: group.name });
+        const gs = readGroups();
+        const idx = gs.findIndex(g => g.id === id);
+        if (idx > -1) { gs[idx].synced = true; await fs.writeJson(GROUPS_FILE, gs); }
+        return true;
+    } catch (e) {
+        return false;
+    }
 });
 ipcMain.handle('delete-group', async (event, id) => {
     // Remove group and unassign all profiles in that group

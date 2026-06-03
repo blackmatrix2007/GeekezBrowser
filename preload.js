@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     updateGroup: (data) => ipcRenderer.invoke('update-group', data),
     deleteGroup: (id) => ipcRenderer.invoke('delete-group', id),
     assignProfileGroup: (profileId, groupId) => ipcRenderer.invoke('assign-profile-group', { profileId, groupId }),
+    syncGroup: (id) => ipcRenderer.invoke('sync-group', id),
     // License
     licenseGetStatus: () => ipcRenderer.invoke('license-get-status'),
     licenseActivate: (key) => ipcRenderer.invoke('license-activate', key),

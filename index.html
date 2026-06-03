@@ -1450,7 +1450,7 @@
                 <div id="dropPlansItem" onclick="openPlansModal()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
                     <span>💎</span> Mua Gói / Gia hạn
                 </div>
-                <div onclick="syncBncProfiles()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
+                <div id="dropSyncItem" onclick="syncBncProfiles()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
                     <span>🔄</span> Đồng bộ Profile
                 </div>
                 <div onclick="openBncPaymentHistory()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
@@ -1504,7 +1504,7 @@
     </div><!-- END profilesPage -->
 
     <!-- TEAM PAGE -->
-    <div id="teamPage" style="display:none;flex-direction:column;flex:1;overflow:hidden;margin:-15px -20px;padding:0;">
+    <div id="teamPage" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0;margin:-15px -20px;padding:0;">
     <div style="padding:20px 24px 16px;border-bottom:1px solid rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
         <div>
             <h2 style="margin:0;font-size:18px;font-weight:700;color:#e0e0e0;">Nhóm thành viên</h2>
@@ -1516,7 +1516,7 @@
         </div>
     </div>
     <!-- Member table -->
-    <div style="flex:1;overflow-y:auto;padding:0 24px 24px;">
+    <div style="flex:1;min-height:0;overflow-y:auto;padding:0 24px 24px;">
         <table style="width:100%;border-collapse:collapse;margin-top:4px;">
             <thead style="position:sticky;top:0;background:var(--bg-color,#0d1117);z-index:1;">
                 <tr style="border-bottom:1px solid rgba(255,255,255,0.08);">
@@ -1537,7 +1537,7 @@
     <!-- END TEAM PAGE -->
 
     <!-- GROUPS PAGE -->
-    <div id="groupsPage" style="display:none;flex-direction:column;flex:1;overflow:hidden;margin:-15px -20px;padding:0;">
+    <div id="groupsPage" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0;margin:-15px -20px;padding:0;">
         <div style="padding:20px 24px 16px;border-bottom:1px solid rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
             <div>
                 <h2 style="margin:0;font-size:18px;font-weight:700;color:var(--text-color);">Groups</h2>
@@ -1551,24 +1551,24 @@
         <div style="display:grid;grid-template-columns:1fr auto;align-items:center;padding:10px 28px;border-bottom:1px solid rgba(255,255,255,0.08);font-size:11px;color:#555;font-weight:700;text-transform:uppercase;letter-spacing:.6px;flex-shrink:0;">
             <span>Group Name</span><span>Actions</span>
         </div>
-        <div id="groupList" style="overflow-y:auto;flex:1;padding:0 24px;"></div>
+        <div id="groupList" style="overflow-y:auto;flex:1;min-height:0;padding:0 24px;"></div>
     </div>
     <!-- END GROUPS PAGE -->
 
     <!-- PLANS PAGE -->
-    <div id="plansPage" style="display:none;flex-direction:column;flex:1;overflow:hidden;margin:-15px -20px;padding:0;">
+    <div id="plansPage" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0;margin:-15px -20px;padding:0;">
         <div style="padding:20px 24px 16px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;">
             <h2 style="margin:0;font-size:18px;font-weight:700;color:var(--text-color);">💎 Mua Gói / Nạp Slots</h2>
             <div style="font-size:12px;color:#666;margin-top:2px;">Chọn gói để thêm slots profile</div>
         </div>
-        <div style="flex:1;overflow-y:auto;padding:20px 24px;">
+        <div style="flex:1;min-height:0;overflow-y:auto;padding:20px 24px;">
             <div id="bncPlansGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;max-width:900px;"></div>
         </div>
     </div>
     <!-- END PLANS PAGE -->
 
     <!-- SETTINGS PAGE -->
-    <div id="settingsPage" style="display:none;flex-direction:column;flex:1;overflow:hidden;margin:-15px -20px;padding:0;">
+    <div id="settingsPage" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0;margin:-15px -20px;padding:0;">
         <div style="padding:18px 24px 0;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;">
             <h2 style="margin:0 0 14px;font-size:18px;font-weight:700;color:var(--text-color);">⚙️ Cài đặt</h2>
             <div class="tab-header" id="settingsTabHeader" style="margin:0;">
@@ -1578,7 +1578,7 @@
                 <div class="tab-btn" id="licenseTabBtn" onclick="switchSettingsTab('license', this); loadBncDevices()">💻 Thiết bị</div>
             </div>
         </div>
-        <div id="settingsContent" style="flex:1;overflow-y:auto;padding:20px 24px;">
+        <div id="settingsContent" style="flex:1;min-height:0;overflow-y:auto;padding:20px 24px;">
             <!-- Extensions Tab -->
             <div id="settings-extensions" class="settings-section active">
                 <h3 style="margin-bottom:15px; color:var(--accent);" data-i18n="settingsExtTitle">Extension Management</h3>
@@ -2214,11 +2214,11 @@
                     <label style="font-size:13px;color:var(--text-secondary);padding-top:4px;">Vai trò</label>
                     <div>
                         <div style="display:flex;gap:20px;">
-                            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+                            <label style="display:none;">
                                 <input type="radio" name="inviteRole" value="admin" onchange="applyInviteRole('admin')">
                                 <span>Quản trị</span>
                             </label>
-                            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+                            <label style="display:none;">
                                 <input type="radio" name="inviteRole" value="manager" onchange="applyInviteRole('manager')">
                                 <span>Quản lý</span>
                             </label>
@@ -2298,11 +2298,11 @@
                     <label style="font-size:13px;color:var(--text-secondary);padding-top:4px;">Vai trò</label>
                     <div>
                         <div style="display:flex;gap:20px;">
-                            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+                            <label style="display:none;">
                                 <input type="radio" name="editRole" value="admin" onchange="applyEditRole('admin')">
                                 <span>Quản trị</span>
                             </label>
-                            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+                            <label style="display:none;">
                                 <input type="radio" name="editRole" value="manager" onchange="applyEditRole('manager')">
                                 <span>Quản lý</span>
                             </label>

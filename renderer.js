@@ -274,6 +274,7 @@ function _renderWorkspaceSelector(teams) {
     if (!teams || teams.length === 0) {
         bar.style.display = 'none';
         _applyWorkspacePermissions(null);
+        _renderSidebarWs([]);
         return;
     }
 
@@ -402,6 +403,9 @@ function _applyWorkspacePermissions(permissions) {
     if (navPlans) navPlans.style.display = '';
     const dropPlans = document.getElementById('dropPlansItem');
     if (dropPlans) dropPlans.style.display = '';
+    // "Đồng bộ Profile" — chỉ hiện ở own workspace (tránh upload nhầm profiles của người khác)
+    const dropSync = document.getElementById('dropSyncItem');
+    if (dropSync) dropSync.style.display = isOwn ? '' : 'none';
 
     // Lưu vào global để launch() và action menu kiểm tra
     window._activeWorkspacePerm = permissions;
@@ -888,9 +892,10 @@ function startPaymentPoll() {
                 clearInterval(_paymentPollTimer);
                 _paymentPollTimer = null;
 
-                // Tự đóng payment modal nếu đang mở
+                // Tự đóng payment modal và quay lại plans page
                 const paymentModal = document.getElementById('bncPaymentModal');
                 if (paymentModal) paymentModal.style.display = 'none';
+                showPlansPage();
 
                 const added = slots.totalGranted - knownGranted;
                 if (_bncAuth) {

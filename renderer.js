@@ -29,6 +29,7 @@ async function bncInit() {
             if (auth.activeWorkspace && auth.activeWorkspace !== 'own') {
                 await _switchWorkspace(auth.activeWorkspace);
             }
+            await ensureBncTermsAccepted();
         }
     } catch (_) {}
 
@@ -140,6 +141,7 @@ async function doBncLogin() {
             bncRenderUserInfo(_bncAuth);
             _renderWorkspaceSelector(_bncAuth.teams);
             await loadProfiles(); // Load profiles của account vừa login
+            await ensureBncTermsAccepted();
         } else {
             errEl.textContent = result.message || 'Đăng nhập thất bại';
             errEl.style.display = 'block';
@@ -150,6 +152,31 @@ async function doBncLogin() {
         errEl.style.display = 'block';
         btn.disabled = false; btn.textContent = 'Đăng nhập';
     }
+}
+
+async function ensureBncTermsAccepted() {
+    try {
+        const status = await window.electronAPI.bncTermsStatus();
+        if (status?.accepted) return;
+    } catch (_) {}
+    const overlay = document.getElementById('bncTermsOverlay');
+    const cb      = document.getElementById('bncTermsCheckbox');
+    const btn     = document.getElementById('bncTermsAcceptBtn');
+    if (cb)  cb.checked = false;
+    if (btn) btn.disabled = true;
+    if (overlay) overlay.style.display = 'flex';
+}
+
+async function bncAcceptTerms() {
+    try { await window.electronAPI.bncTermsAccept(); } catch (_) {}
+    const overlay = document.getElementById('bncTermsOverlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+async function bncDeclineTerms() {
+    const overlay = document.getElementById('bncTermsOverlay');
+    if (overlay) overlay.style.display = 'none';
+    await doBncLogout();
 }
 
 async function doBncLogout() {

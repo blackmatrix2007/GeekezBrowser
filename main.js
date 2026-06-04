@@ -97,7 +97,8 @@ const SKIPPED_UPDATE_FILE   = path.join(app.getPath('userData'), '.skipped_updat
 
 // ─── BNC Auth ────────────────────────────────────────────────────────────────
 const BNC_API       = 'https://yttool.vn/api/bnc';
-const BNC_AUTH_FILE = path.join(app.getPath('userData'), 'bnc_auth.json');
+const BNC_AUTH_FILE  = path.join(app.getPath('userData'), 'bnc_auth.json');
+const BNC_TERMS_FILE = path.join(app.getPath('userData'), 'bnc_terms.json');
 
 function saveBncAuth(data) {
     try { fs.writeJsonSync(BNC_AUTH_FILE, data); } catch (_) {}
@@ -2192,6 +2193,21 @@ ipcMain.handle('bnc-login', async (_, { email, password }) => {
     }
 
     return { success: true, customer: result.customer, slots, teams };
+});
+
+// Terms of Service: check / accept / decline
+ipcMain.handle('bnc-terms-status', async () => {
+    try {
+        if (fs.existsSync(BNC_TERMS_FILE)) {
+            const data = fs.readJsonSync(BNC_TERMS_FILE);
+            return { accepted: !!data?.acceptedAt, acceptedAt: data?.acceptedAt || null };
+        }
+    } catch (_) {}
+    return { accepted: false };
+});
+ipcMain.handle('bnc-terms-accept', async () => {
+    try { fs.writeJsonSync(BNC_TERMS_FILE, { acceptedAt: new Date().toISOString() }); return { success: true }; }
+    catch (e) { return { success: false, error: e.message }; }
 });
 
 // Đăng xuất: xóa token local

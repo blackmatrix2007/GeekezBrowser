@@ -53,6 +53,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // ─── BNC Auth ───────────────────────────────────────────────────────────
     bncLogin: (email, password) => ipcRenderer.invoke('bnc-login', { email, password }),
     bncLogout: () => ipcRenderer.invoke('bnc-logout'),
+    bncTermsStatus: () => ipcRenderer.invoke('bnc-terms-status'),
+    bncTermsAccept: () => ipcRenderer.invoke('bnc-terms-accept'),
     bncGetAuth: () => ipcRenderer.invoke('bnc-get-auth'),
     bncGetPlans: () => ipcRenderer.invoke('bnc-get-plans'),
     bncGetPaymentInfo: () => ipcRenderer.invoke('bnc-get-payment-info'),

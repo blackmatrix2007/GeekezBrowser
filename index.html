@@ -1206,6 +1206,25 @@
     </div>
 
     <!-- ═══ BNC LOGIN OVERLAY ═══════════════════════════════════════════════ -->
+    <!-- Terms of Service modal — blocks usage until accepted -->
+    <div id="bncTermsOverlay" style="display:none;position:fixed;inset:0;z-index:9995;background:rgba(0,0,0,0.85);align-items:center;justify-content:center;-webkit-app-region:no-drag;">
+        <div style="width:560px;max-width:92vw;background:#151b2d;border-radius:14px;padding:28px 30px;box-shadow:0 24px 80px rgba(0,0,0,0.7);border:1px solid rgba(0,224,255,0.12);">
+            <div style="font-size:18px;font-weight:700;color:#00e0ff;margin-bottom:14px;">Điều khoản sử dụng</div>
+            <div style="font-size:13px;line-height:1.7;color:#cfd2dc;max-height:50vh;overflow-y:auto;padding-right:6px;text-align:justify;">
+                <strong>Điều kiện sử dụng:</strong> Người dùng cam kết chỉ sử dụng BNCLogin cho các mục đích hợp pháp và không vi phạm điều khoản dịch vụ của bên thứ ba. Nghiêm cấm sử dụng phần mềm để: (a) tạo, mua bán, cho thuê tài khoản mạng xã hội trái phép; (b) gian lận thương mại điện tử; (c) phát tán thông tin sai sự thật, lừa đảo; (d) xâm phạm tài khoản của người khác; (e) bất kỳ hành vi nào vi phạm pháp luật Việt Nam, bao gồm Luật An ninh mạng 2018, Luật An toàn thông tin mạng 2015 và Bộ luật Hình sự. Người dùng tự chịu hoàn toàn trách nhiệm pháp lý nếu vi phạm.
+            </div>
+            <label style="display:flex;align-items:flex-start;gap:9px;margin-top:18px;font-size:13px;color:#e0e0e0;cursor:pointer;user-select:none;">
+                <input type="checkbox" id="bncTermsCheckbox" onchange="document.getElementById('bncTermsAcceptBtn').disabled = !this.checked;" style="margin-top:3px;width:16px;height:16px;cursor:pointer;accent-color:#00e0ff;">
+                <span>Tôi đã đọc, hiểu và đồng ý tuân thủ toàn bộ điều khoản nêu trên.</span>
+            </label>
+            <div style="display:flex;gap:10px;margin-top:18px;justify-content:flex-end;">
+                <button onclick="bncDeclineTerms()" style="padding:9px 18px;border-radius:8px;border:1px solid #444;background:transparent;color:#aaa;font-size:13px;cursor:pointer;">Từ chối &amp; Đăng xuất</button>
+                <button id="bncTermsAcceptBtn" onclick="bncAcceptTerms()" disabled style="padding:9px 22px;border-radius:8px;border:none;background:#00e0ff;color:#0d0d1a;font-size:13px;font-weight:700;cursor:pointer;opacity:1;">Đồng ý &amp; Tiếp tục</button>
+            </div>
+        </div>
+    </div>
+    <style>#bncTermsAcceptBtn:disabled{opacity:.4;cursor:not-allowed;}</style>
+
     <div id="bncLoginOverlay" style="display:none;position:fixed;inset:0;z-index:9990;background:#0d0d1a;align-items:center;justify-content:center;-webkit-app-region:drag;">
         <div style="-webkit-app-region:no-drag;width:380px;background:#151b2d;border-radius:16px;padding:36px 32px;box-shadow:0 24px 80px rgba(0,0,0,0.7);border:1px solid rgba(0,224,255,0.08);">
             <!-- Logo -->

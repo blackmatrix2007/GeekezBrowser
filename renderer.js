@@ -244,26 +244,29 @@ function _updatePlanPill(auth) {
 
     const slots = auth?.slots;
 
+    const canRunVal   = slots?.canRun    ?? 0;
+    const availableVal = slots?.available ?? 0;
+
     // Đồng bộ luôn dropdown text để pill và dropdown luôn nhất quán
     const planEl = document.getElementById('bncDropPlan');
     if (planEl) {
-        planEl.textContent = (slots && slots.totalGranted > 0)
-            ? `${slots.canRun ?? slots.available} / ${slots.totalGranted} slots`
+        planEl.textContent = (slots && canRunVal > 0)
+            ? `${availableVal}/${canRunVal} slot trống`
             : 'Chưa có slot';
     }
 
-    if (!slots || slots.totalGranted === 0) {
+    if (!slots || canRunVal === 0) {
         pill.style.display = 'none';
         return;
     }
 
-    pill.textContent = `${slots.canRun ?? slots.available} slot còn`;
+    pill.textContent = `${availableVal}/${canRunVal} slot`;
+    pill.title = `Còn trống ${availableVal} • Tối đa ${canRunVal} profile`;
     pill.style.display = 'block';
 
-    // Màu cảnh báo khi gần hết
-    const canRunVal = slots.canRun ?? slots.available;
-    const ratio = canRunVal / slots.totalGranted;
-    if (ratio <= 0.1 || canRunVal === 0) {
+    // Màu cảnh báo dựa trên available/canRun
+    const ratio = availableVal / canRunVal;
+    if (availableVal === 0) {
         pill.style.background = 'rgba(239,68,68,0.15)';
         pill.style.color = '#ef4444';
         pill.style.borderColor = 'rgba(239,68,68,0.4)';
@@ -289,6 +292,7 @@ async function bncLoadUserInfo() {
             if (auth.activeWorkspace && auth.activeWorkspace !== 'own') {
                 await _switchWorkspace(auth.activeWorkspace);
             }
+            await ensureBncTermsAccepted();
         }
     } catch (_) {}
 }

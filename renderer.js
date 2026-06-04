@@ -16,6 +16,12 @@ async function bncInit() {
         }
     });
 
+    // Auto-update teams khi heartbeat phát hiện thay đổi
+    window.electronAPI.onBncTeamsUpdated((teams) => {
+        if (_bncAuth) _bncAuth.teams = teams || [];
+        _renderWorkspaceSelector(_bncAuth?.teams || []);
+    });
+
     // Fallback: tự check nếu không nhận được event (reload / cache)
     try {
         const auth = await window.electronAPI.bncGetAuth();
@@ -151,6 +157,27 @@ async function doBncLogin() {
         errEl.textContent = 'Lỗi kết nối. Kiểm tra lại mạng.';
         errEl.style.display = 'block';
         btn.disabled = false; btn.textContent = 'Đăng nhập';
+    }
+}
+
+async function refreshBncTeams() {
+    document.getElementById('bncUserDropdown').style.display = 'none';
+    try {
+        const result = await window.electronAPI.bncRefreshTeams();
+        if (!result?.success) {
+            showBncToast('⚠ Không tải lại được workspace', 3000);
+            return;
+        }
+        if (_bncAuth) {
+            _bncAuth.teams = result.teams || [];
+            if (result.slots) _bncAuth.slots = result.slots;
+        }
+        _renderWorkspaceSelector(_bncAuth?.teams || []);
+        bncRenderUserInfo(_bncAuth);
+        const count = (result.teams || []).length;
+        showBncToast(`✓ Đã tải lại — ${count} workspace`, 2500);
+    } catch (e) {
+        showBncToast('⚠ Lỗi khi tải lại workspace', 3000);
     }
 }
 

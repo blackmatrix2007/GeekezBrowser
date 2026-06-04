@@ -1354,7 +1354,15 @@
 
         <!-- Sidebar workspace selector -->
         <div id="sidebarWsSection" style="display:none;padding:4px 8px 8px;-webkit-app-region:no-drag;">
-            <div style="font-size:10px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.8px;padding:6px 4px 4px;">Workspace</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 4px 6px;gap:8px;">
+                <span style="font-size:10px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.8px;">Workspace</span>
+                <button onclick="refreshBncTeams()" title="Tải lại danh sách workspace"
+                    style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;color:#00e0ff;background:rgba(0,224,255,0.12);border:1px solid rgba(0,224,255,0.35);font-size:11px;font-weight:600;padding:4px 10px;border-radius:6px;transition:all .15s;line-height:1;"
+                    onmouseover="this.style.background='rgba(0,224,255,0.22)';this.style.borderColor='rgba(0,224,255,0.6)';this.style.color='#5beaff';this.style.boxShadow='0 0 8px rgba(0,224,255,0.35)'"
+                    onmouseout="this.style.background='rgba(0,224,255,0.12)';this.style.borderColor='rgba(0,224,255,0.35)';this.style.color='#00e0ff';this.style.boxShadow='none'">
+                    <span style="font-size:13px;">↻</span><span>Tải lại</span>
+                </button>
+            </div>
             <div id="sbWsOwn" onclick="_switchWorkspace('own')" style="display:flex;align-items:center;gap:7px;padding:7px 8px;border-radius:7px;cursor:pointer;font-size:12px;color:#e0e0e0;transition:background .15s;" onmouseover="this.style.background='rgba(255,255,255,0.07)'" onmouseout="this.style.background=window._activeWorkspace==='own'?'rgba(0,224,255,0.08)':'transparent'">
                 <span style="width:7px;height:7px;border-radius:50%;background:#00e0ff;flex-shrink:0;"></span>
                 <span id="sbWsOwnName" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
@@ -1431,22 +1439,8 @@
             <div id="bncSubBadge" style="display:none;font-size:11px;padding:3px 8px;border-radius:20px;background:rgba(255,152,0,0.15);color:#ff9800;border:1px solid rgba(255,152,0,0.3);cursor:pointer;white-space:nowrap;" onclick="openPlansModal()">
                 ⚠ <span id="bncSubBadgeText">7 ngày</span>
             </div>
-            <!-- Workspace selector bar -->
-            <div id="workspaceBar" style="display:none;position:relative;-webkit-app-region:no-drag;">
-                <div id="wsCurrent" onclick="toggleWsDropdown()" style="display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;background:rgba(0,224,255,0.08);border:1px solid rgba(0,224,255,0.2);cursor:pointer;font-size:12px;font-weight:600;color:#00e0ff;white-space:nowrap;user-select:none;">
-                    <span id="wsCurrentDot" style="width:8px;height:8px;border-radius:50%;background:#00e0ff;flex-shrink:0;"></span>
-                    <span id="wsCurrentName">Workspace của tôi</span>
-                    <span style="font-size:9px;opacity:.7;">▼</span>
-                </div>
-                <div id="wsDropdown" style="display:none;position:absolute;top:calc(100% + 6px);right:0;min-width:220px;background:#1e2535;border:1px solid rgba(255,255,255,0.1);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.6);z-index:9300;overflow:hidden;-webkit-app-region:no-drag;">
-                    <div style="padding:8px 12px;font-size:10px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.8px;">Chọn Workspace</div>
-                    <div id="wsOwnItem" class="ws-item ws-active" onclick="_switchWorkspace('own')" style="padding:10px 14px;font-size:13px;color:#e0e0e0;cursor:pointer;display:flex;align-items:center;gap:9px;background:rgba(0,224,255,0.06);" onmouseover="this.style.background='rgba(0,224,255,0.1)'" onmouseout="this.style.background=window._activeWorkspace==='own'?'rgba(0,224,255,0.06)':'transparent'">
-                        <span style="width:8px;height:8px;border-radius:50%;background:#00e0ff;flex-shrink:0;"></span>
-                        <span>Workspace của tôi</span>
-                    </div>
-                    <div id="wsTeamList" style="-webkit-app-region:no-drag;"></div>
-                </div>
-            </div>
+            <!-- Workspace selector ở top bar đã được tháo — switch ở sidebar leftmenu -->
+            <div id="workspaceBar" style="display:none !important;"></div>
             <!-- Current plan pill -->
             <div id="bncPlanPill" onclick="toggleBncUserMenu()" style="display:none;font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;background:rgba(0,224,255,0.1);color:#00e0ff;border:1px solid rgba(0,224,255,0.25);cursor:pointer;white-space:nowrap;user-select:none;" title="Gói đang dùng"></div>
             <!-- Avatar button -->
@@ -1471,6 +1465,9 @@
                 </div>
                 <div id="dropSyncItem" onclick="syncBncProfiles()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
                     <span>🔄</span> Đồng bộ Profile
+                </div>
+                <div onclick="refreshBncTeams()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
+                    <span>↻</span> Tải lại Workspace
                 </div>
                 <div onclick="openBncPaymentHistory()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
                     <span>📋</span> Lịch sử giao dịch

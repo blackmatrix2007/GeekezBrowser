@@ -2058,7 +2058,10 @@ app.whenReady().then(async () => {
         // Cập nhật slots từ server + recompute isLocked cho profiles local
         if (result.slots) {
             const auth = getSavedBncAuth();
-            if (auth) saveBncAuth({ ...auth, slots: result.slots });
+            if (auth) saveBncAuth({ ...auth, slots: result.slots, teams: result.teams ?? auth.teams ?? [] });
+            if (mainWindow && !mainWindow.isDestroyed() && result.teams) {
+                mainWindow.webContents.send('bnc-teams-updated', result.teams);
+            }
             // Recompute isLocked: sort theo clientCreatedAt ASC, index < available = active
             try {
                 if (fs.existsSync(PROFILES_FILE)) {
@@ -2208,6 +2211,21 @@ ipcMain.handle('bnc-terms-status', async () => {
 ipcMain.handle('bnc-terms-accept', async () => {
     try { fs.writeJsonSync(BNC_TERMS_FILE, { acceptedAt: new Date().toISOString() }); return { success: true }; }
     catch (e) { return { success: false, error: e.message }; }
+});
+
+// Refresh teams + slots ngay lập tức (cho nút reload workspace)
+ipcMain.handle('bnc-refresh-teams', async () => {
+    const auth = getSavedBncAuth();
+    if (!auth?.accessToken) return { success: false, error: 'not_logged_in' };
+    try {
+        const res = await bncApiCall('GET', '/subscription');
+        if (!res || res._statusCode === 401) return { success: false, error: 'unauthorized' };
+        const teams = res.teams || [];
+        saveBncAuth({ ...auth, teams, slots: res.slots || auth.slots });
+        return { success: true, teams, slots: res.slots };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
 });
 
 // Đăng xuất: xóa token local

@@ -1330,6 +1330,145 @@ function applyWindowAUMID(chromePid, aumid) {
 
 let tray = null;
 
+// Generate a diagnostic report for "Chrome doesn't launch" cases on customer machines.
+// Writes to %TEMP%/bnc-diagnostic-{timestamp}.txt and opens with default text editor.
+// Customer screenshots/sends back. Targets the top failure causes on Windows:
+// missing VC++ runtime, AV blocking, non-ASCII path, corrupt binary, userDataDir lock.
+async function runChromeDiagnostic() {
+    const lines = [];
+    const log = (s) => lines.push(s);
+
+    log('===== BNC Chrome Launch Diagnostic =====');
+    log(`Time: ${new Date().toISOString()}`);
+    try { log(`App version: ${app.getVersion()}`); } catch (_) {}
+    log('');
+
+    // 1. System
+    log('--- System ---');
+    log(`Platform: ${process.platform} ${process.arch}`);
+    log(`OS: ${os.type()} ${os.release()}`);
+    log(`Hostname: ${os.hostname()}`);
+    const userInfo = os.userInfo();
+    log(`Username: ${userInfo.username}`);
+    log(`Home dir: ${userInfo.homedir}`);
+    const homeHasNonAscii = /[^\x00-\x7F]/.test(userInfo.homedir);
+    log(`Home dir ASCII-only: ${!homeHasNonAscii ? 'YES (ok)' : 'NO (✗ Chrome can fail to read path with Vietnamese diacritics)'}`);
+    log(`userData dir: ${app.getPath('userData')}`);
+    log('');
+
+    // 2. VC++ runtime DLLs (most common silent crash cause on Windows)
+    if (process.platform === 'win32') {
+        log('--- Visual C++ Runtime ---');
+        const sys32 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32');
+        for (const dll of ['vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll']) {
+            const dllPath = path.join(sys32, dll);
+            log(`${dll}: ${fs.existsSync(dllPath) ? 'FOUND' : '✗ MISSING — install vc_redist.x64.exe'}`);
+        }
+        log('');
+    }
+
+    // 3. Chrome binary discovery
+    log('--- Chrome binary ---');
+    let chromePath = null;
+    try { chromePath = getChromiumPath(); } catch (e) { log(`getChromiumPath() failed: ${e.message}`); }
+    log(`Resolved path: ${chromePath || '(none)'}`);
+    if (chromePath) {
+        log(`Exists: ${fs.existsSync(chromePath) ? 'YES' : '✗ NO'}`);
+        if (fs.existsSync(chromePath)) {
+            try {
+                const stat = fs.statSync(chromePath);
+                log(`Size: ${(stat.size / 1024 / 1024).toFixed(1)} MB`);
+                log(`Modified: ${stat.mtime.toISOString()}`);
+            } catch (_) {}
+        }
+    }
+    log('');
+
+    // 4. `chrome.exe --version` — fastest way to see if Chrome can execute at all
+    log('--- chrome --version test ---');
+    if (chromePath && fs.existsSync(chromePath)) {
+        try {
+            const out = execSync(`"${chromePath}" --version`, { timeout: 5000, windowsHide: true }).toString().trim();
+            log(`Output: ${out}`);
+            log('Result: PASS — Chrome binary can execute');
+        } catch (err) {
+            log(`Error code: ${err.code || err.status}`);
+            log(`stderr: ${(err.stderr?.toString() || '').slice(0, 800) || '(none)'}`);
+            log('Result: ✗ FAIL — Chrome cannot even print version');
+            log('Likely cause: missing VC++ runtime, AV blocking binary, corrupt download, non-ASCII path');
+        }
+    } else {
+        log('Skipped — binary not found');
+    }
+    log('');
+
+    // 5. Headless launch test with stderr capture (real-world simulation)
+    log('--- Headless launch test (8s, captures stderr) ---');
+    if (chromePath && fs.existsSync(chromePath)) {
+        const testUserDir = path.join(os.tmpdir(), `bnc-diag-${Date.now()}`);
+        try { fs.mkdirSync(testUserDir, { recursive: true }); } catch (_) {}
+        const testArgs = [
+            `--user-data-dir=${testUserDir}`,
+            '--no-sandbox', '--disable-gpu', '--headless=new',
+            '--enable-logging=stderr', '--v=1',
+            '--no-first-run', '--disable-extensions',
+            'https://www.google.com/generate_204'
+        ];
+        const stderrBuf = [];
+        let exitCode = null, exitSignal = null, spawnError = null;
+        await new Promise((resolve) => {
+            let resolved = false;
+            const done = () => { if (!resolved) { resolved = true; resolve(); } };
+            let p;
+            try {
+                p = spawn(chromePath, testArgs, { windowsHide: true });
+            } catch (e) {
+                spawnError = e; return done();
+            }
+            const timer = setTimeout(() => { try { p.kill('SIGKILL'); } catch (_) {} done(); }, 8000);
+            p.on('error', (e) => { spawnError = e; clearTimeout(timer); done(); });
+            if (p.stderr) p.stderr.on('data', (d) => { stderrBuf.push(d.toString()); });
+            p.on('exit', (code, sig) => { exitCode = code; exitSignal = sig; clearTimeout(timer); done(); });
+        });
+        log(`spawn error: ${spawnError ? `${spawnError.code || ''} ${spawnError.message}` : '(none)'}`);
+        log(`exit code: ${exitCode}, signal: ${exitSignal}`);
+        const stderr = stderrBuf.join('');
+        log(`stderr (last 2KB):`);
+        log('---');
+        log(stderr.slice(-2000) || '(empty — likely killed by AV before writing anything)');
+        log('---');
+        try { fs.rmSync(testUserDir, { recursive: true, force: true }); } catch (_) {}
+    } else {
+        log('Skipped — binary not found');
+    }
+    log('');
+
+    // 6. Hint table for common exit codes
+    log('--- Exit code reference ---');
+    log('-1073741515 (0xC0000135): missing VC++ Redistributable');
+    log('-1073741511 (0xC0000139): missing DLL (mojo_core.dll etc.)');
+    log('-1073741502 (0xC0000142): DLL init failed (often AV)');
+    log('1: userDataDir locked by another Chrome process');
+    log('null + SIGTERM/SIGKILL: process killed (AV, parent, OS)');
+    log('');
+
+    log('===== END =====');
+
+    const report = lines.join('\n');
+    const outPath = path.join(os.tmpdir(), `bnc-diagnostic-${Date.now()}.txt`);
+    try {
+        fs.writeFileSync(outPath, report, 'utf8');
+        shell.openPath(outPath); // opens with default text editor (Notepad on Windows)
+    } catch (e) {
+        console.error('[Diagnostic] write/open failed:', e);
+    }
+    return { path: outPath, report };
+}
+
+ipcMain.handle('run-chrome-diagnostic', async () => {
+    return runChromeDiagnostic();
+});
+
 function createTray(win) {
     const iconPath = path.join(__dirname, 'icon.png');
     const trayIcon = fs.existsSync(iconPath)
@@ -1339,6 +1478,8 @@ function createTray(win) {
     tray.setToolTip('BNC Browser');
     const contextMenu = Menu.buildFromTemplate([
         { label: 'Show', click: () => { win.show(); win.focus(); } },
+        { type: 'separator' },
+        { label: 'Chẩn đoán Chrome', click: () => runChromeDiagnostic().catch(e => console.error(e)) },
         { type: 'separator' },
         { label: 'Quit', click: () => { app.isQuiting = true; app.quit(); } }
     ]);
@@ -4014,10 +4155,12 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
 
         // 4. 构建启动参数（性能优化）
 
-        // Google domains that should bypass proxy — login/auth requires direct TLS
+        // Google domains that should bypass proxy — auth/login flows require direct TLS.
+        // YouTube domains intentionally NOT in bypass: video playback needs consistent IP
+        // between metadata signing and CDN fetch, otherwise googlevideo.com returns 403.
         const GOOGLE_BYPASS = [
             'accounts.google.com', '*.google.com', '*.googleapis.com',
-            '*.gstatic.com', 'accounts.youtube.com', '*.youtube.com'
+            '*.gstatic.com'
         ].join(';');
 
         const launchArgs = [
@@ -4153,14 +4296,38 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
         }
         launchArgs.push(`--user-agent=${spawnUA}`);
 
+        // Pre-flight: verify chrome binary actually exists & is reachable. spawn() on Windows
+        // returns successfully even for paths it can't execute (it surfaces the failure
+        // asynchronously as an 'error' event), so checking here gives a clearer error upfront.
+        if (!fs.existsSync(chromePath)) {
+            if (xrayProcess) await forceKill(xrayProcess.pid);
+            throw new Error(`Chrome binary not found: ${chromePath}`);
+        }
+
+        // Pipe stdio to a per-profile log so silent crashes on customer machines are diagnosable.
+        // Common Windows causes: missing VC++ Redistributable, AV killing the process,
+        // userDataDir lock, non-ASCII path, missing DLLs (mojo_core.dll, vulkan-1.dll).
+        const chromeLogPath = path.join(userDataDir, 'chrome-launch.log');
+        let chromeLogFd;
+        try { chromeLogFd = fs.openSync(chromeLogPath, 'a'); } catch (_) { chromeLogFd = 'ignore'; }
+
         const chromeProcess = spawn(chromePath, launchArgs, {
             env: env,
             detached: false,
-            stdio: 'ignore'
+            stdio: chromeLogFd === 'ignore' ? 'ignore' : ['ignore', chromeLogFd, chromeLogFd]
+        });
+
+        // Capture async spawn errors (ENOENT, EACCES, anti-virus blocking the executable, etc.)
+        chromeProcess.on('error', (spawnErr) => {
+            console.error(`[Launch][${profileId}] spawn error:`, spawnErr.code, spawnErr.message);
+            if (!sender.isDestroyed()) {
+                sender.send('profile-status', { id: profileId, status: 'stopped', error: `Spawn failed: ${spawnErr.code || ''} ${spawnErr.message}` });
+            }
         });
 
         if (!chromeProcess.pid) {
             if (xrayProcess) await forceKill(xrayProcess.pid);
+            if (chromeLogFd !== 'ignore') { try { fs.closeSync(chromeLogFd); } catch (_) {} }
             throw new Error('Failed to spawn Chrome process.');
         }
 
@@ -4168,7 +4335,8 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             xrayPid: xrayProcess ? xrayProcess.pid : null,
             xrayLocalPort: isDirect ? null : localPort,
             chromeProcess,
-            logFd: logFd
+            logFd: logFd,
+            startedAt: Date.now()
         };
         sender.send('profile-status', { id: profileId, status: 'running' });
         console.log(`[Launch] Chrome PID=${chromeProcess.pid}, mode=${profile.chromeBinaryMode || 'auto'}, binary=${path.basename(chromePath)}`);
@@ -4182,7 +4350,15 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             setTimeout(() => applyWindowAUMID(chromeProcess.pid, aumid), 8000);
         }
 
-        chromeProcess.on('exit', async () => {
+        chromeProcess.on('exit', async (code, signal) => {
+            const uptimeMs = Date.now() - (activeProcesses[profileId]?.startedAt || Date.now());
+            console.log(`[Launch][${profileId}] Chrome exited code=${code} signal=${signal} uptime=${uptimeMs}ms log=${chromeLogPath}`);
+            // < 5 s uptime is virtually always an instant crash on Windows. Flag it so the UI
+            // can surface a "Chrome failed to start" message instead of a silent "stopped".
+            if (uptimeMs < 5000 && !sender.isDestroyed()) {
+                sender.send('profile-status', { id: profileId, status: 'stopped', error: `Chrome crashed on launch (code=${code}). Check log: ${chromeLogPath}` });
+            }
+            if (chromeLogFd !== 'ignore') { try { fs.closeSync(chromeLogFd); } catch(_) {} }
             if (activeProcesses[profileId]) {
                 const { xrayPid, logFd: fd } = activeProcesses[profileId];
                 if (fd !== undefined) { try { fs.closeSync(fd); } catch(e) {} }

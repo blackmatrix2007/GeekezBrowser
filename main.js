@@ -1402,44 +1402,21 @@ async function runChromeDiagnostic() {
     }
     log('');
 
-    // 5. Headless launch test with stderr capture (real-world simulation)
-    log('--- Headless launch test (8s, captures stderr) ---');
-    if (chromePath && fs.existsSync(chromePath)) {
-        const testUserDir = path.join(os.tmpdir(), `bnc-diag-${Date.now()}`);
-        try { fs.mkdirSync(testUserDir, { recursive: true }); } catch (_) {}
-        const testArgs = [
-            `--user-data-dir=${testUserDir}`,
-            '--no-sandbox', '--disable-gpu', '--headless=new',
-            '--enable-logging=stderr', '--v=1',
-            '--no-first-run', '--disable-extensions',
-            'https://www.google.com/generate_204'
-        ];
-        const stderrBuf = [];
-        let exitCode = null, exitSignal = null, spawnError = null;
-        await new Promise((resolve) => {
-            let resolved = false;
-            const done = () => { if (!resolved) { resolved = true; resolve(); } };
-            let p;
-            try {
-                p = spawn(chromePath, testArgs, { windowsHide: true });
-            } catch (e) {
-                spawnError = e; return done();
-            }
-            const timer = setTimeout(() => { try { p.kill('SIGKILL'); } catch (_) {} done(); }, 8000);
-            p.on('error', (e) => { spawnError = e; clearTimeout(timer); done(); });
-            if (p.stderr) p.stderr.on('data', (d) => { stderrBuf.push(d.toString()); });
-            p.on('exit', (code, sig) => { exitCode = code; exitSignal = sig; clearTimeout(timer); done(); });
+    // 5. Network reachability to Google (timeout = Chrome hang on startup)
+    log('--- Network test ---');
+    const httpsGet = (url, timeoutMs) => new Promise((resolve) => {
+        const https = require('https');
+        const start = Date.now();
+        const req = https.get(url, (res) => {
+            res.on('data', () => {});
+            res.on('end', () => resolve({ ok: true, status: res.statusCode, ms: Date.now() - start }));
         });
-        log(`spawn error: ${spawnError ? `${spawnError.code || ''} ${spawnError.message}` : '(none)'}`);
-        log(`exit code: ${exitCode}, signal: ${exitSignal}`);
-        const stderr = stderrBuf.join('');
-        log(`stderr (last 2KB):`);
-        log('---');
-        log(stderr.slice(-2000) || '(empty — likely killed by AV before writing anything)');
-        log('---');
-        try { fs.rmSync(testUserDir, { recursive: true, force: true }); } catch (_) {}
-    } else {
-        log('Skipped — binary not found');
+        req.on('error', (e) => resolve({ ok: false, err: e.message, ms: Date.now() - start }));
+        req.setTimeout(timeoutMs, () => { req.destroy(); resolve({ ok: false, err: 'timeout', ms: Date.now() - start }); });
+    });
+    for (const url of ['https://www.google.com/generate_204', 'https://accounts.google.com/']) {
+        const r = await httpsGet(url, 5000);
+        log(`${url}: ${r.ok ? `OK ${r.status}` : `FAIL (${r.err})`} in ${r.ms}ms`);
     }
     log('');
 
@@ -1478,8 +1455,6 @@ function createTray(win) {
     tray.setToolTip('BNC Browser');
     const contextMenu = Menu.buildFromTemplate([
         { label: 'Show', click: () => { win.show(); win.focus(); } },
-        { type: 'separator' },
-        { label: 'Chẩn đoán Chrome', click: () => runChromeDiagnostic().catch(e => console.error(e)) },
         { type: 'separator' },
         { label: 'Quit', click: () => { app.isQuiting = true; app.quit(); } }
     ]);
@@ -4197,7 +4172,21 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             '--disable-renderer-backgrounding',
             '--disable-dev-shm-usage',           // 减少共享内存使用
             '--disk-cache-size=314572800',       // 300MB — realistic for real user
-            '--media-cache-size=104857600'       // 100MB — enough for YouTube buffering
+            '--media-cache-size=104857600',      // 100MB — enough for YouTube buffering
+            // Anti-hang on machines where Google services are unreachable / firewalled / DNS-throttled.
+            // Without these, Chrome 143 can block on startup waiting for Google component updates,
+            // GCM registration, or Safe Browsing — the window never paints. Seen on customer machines
+            // where chrome.exe --version itself times out due to GCM/component checks.
+            '--disable-breakpad',                 // skip crashpad init (avoids named-pipe deadlock)
+            '--disable-background-networking',    // GCM, component updates, captive portal probe
+            '--disable-component-update',         // no on-startup component fetch
+            '--disable-domain-reliability',       // no Google reliability beacon
+            '--disable-sync',                     // no chrome.google.com sync
+            '--disable-default-apps',
+            '--no-pings',                         // no <a ping=""> beacons
+            '--metrics-recording-only',           // no UMA upload
+            '--safebrowsing-disable-auto-update', // Safe Browsing list fetch can hang on bad networks
+            '--disable-features=OptimizationHints,Translate,MediaRouter,InterestFeedContentSuggestions'
         ];
 
         // 4b. Custom Chromium C++ patch flags (only when using custom/fingerprint chromium)

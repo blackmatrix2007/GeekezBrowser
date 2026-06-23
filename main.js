@@ -1456,6 +1456,8 @@ function createTray(win) {
     const contextMenu = Menu.buildFromTemplate([
         { label: 'Show', click: () => { win.show(); win.focus(); } },
         { type: 'separator' },
+        { label: 'Chẩn đoán Chrome', click: () => runChromeDiagnostic().catch(e => console.error(e)) },
+        { type: 'separator' },
         { label: 'Quit', click: () => { app.isQuiting = true; app.quit(); } }
     ]);
     tray.setContextMenu(contextMenu);

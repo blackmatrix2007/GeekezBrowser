@@ -4300,18 +4300,26 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             throw new Error(`Chrome binary not found: ${chromePath}`);
         }
 
-        // Pipe stdio to a per-profile log so silent crashes on customer machines are diagnosable.
-        // Common Windows causes: missing VC++ Redistributable, AV killing the process,
-        // userDataDir lock, non-ASCII path, missing DLLs (mojo_core.dll, vulkan-1.dll).
+        // Capture stderr via 'pipe' (not a file descriptor) so output reaches us even
+        // when Chrome dies mid-startup. On Windows, passing an fd to spawn() can drop
+        // bytes for GUI-subsystem children like Chrome — using a pipe + JS event handler
+        // is reliable everywhere.
         const chromeLogPath = path.join(userDataDir, 'chrome-launch.log');
-        let chromeLogFd;
-        try { chromeLogFd = fs.openSync(chromeLogPath, 'a'); } catch (_) { chromeLogFd = 'ignore'; }
+        let chromeLogStream = null;
+        try { chromeLogStream = fs.createWriteStream(chromeLogPath, { flags: 'w' }); } catch (_) {}
 
         const chromeProcess = spawn(chromePath, launchArgs, {
             env: env,
             detached: false,
-            stdio: chromeLogFd === 'ignore' ? 'ignore' : ['ignore', chromeLogFd, chromeLogFd]
+            stdio: ['ignore', 'pipe', 'pipe']
         });
+
+        // Forward chrome stdout/stderr to log file + Node console (truncated) for live debug.
+        const writeLog = (chunk) => {
+            try { if (chromeLogStream) chromeLogStream.write(chunk); } catch (_) {}
+        };
+        if (chromeProcess.stdout) chromeProcess.stdout.on('data', writeLog);
+        if (chromeProcess.stderr) chromeProcess.stderr.on('data', writeLog);
 
         // Capture async spawn errors (ENOENT, EACCES, anti-virus blocking the executable, etc.)
         chromeProcess.on('error', (spawnErr) => {
@@ -4323,7 +4331,7 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
 
         if (!chromeProcess.pid) {
             if (xrayProcess) await forceKill(xrayProcess.pid);
-            if (chromeLogFd !== 'ignore') { try { fs.closeSync(chromeLogFd); } catch (_) {} }
+            if (chromeLogStream) { try { chromeLogStream.end(); } catch (_) {} }
             throw new Error('Failed to spawn Chrome process.');
         }
 
@@ -4354,7 +4362,7 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             if (uptimeMs < 5000 && !sender.isDestroyed()) {
                 sender.send('profile-status', { id: profileId, status: 'stopped', error: `Chrome crashed on launch (code=${code}). Check log: ${chromeLogPath}` });
             }
-            if (chromeLogFd !== 'ignore') { try { fs.closeSync(chromeLogFd); } catch(_) {} }
+            if (chromeLogStream) { try { chromeLogStream.end(); } catch(_) {} }
             if (activeProcesses[profileId]) {
                 const { xrayPid, logFd: fd } = activeProcesses[profileId];
                 if (fd !== undefined) { try { fs.closeSync(fd); } catch(e) {} }

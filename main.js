@@ -4188,7 +4188,12 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             '--no-pings',                         // no <a ping=""> beacons
             '--metrics-recording-only',           // no UMA upload
             '--safebrowsing-disable-auto-update', // Safe Browsing list fetch can hang on bad networks
-            '--disable-features=OptimizationHints,Translate,MediaRouter,InterestFeedContentSuggestions'
+            '--disable-features=OptimizationHints,Translate,MediaRouter,InterestFeedContentSuggestions',
+            // Force Chrome to write stderr unbuffered so chrome-launch.log captures crashes.
+            // Without these, a hard crash on Windows leaves the log empty even when Chrome did
+            // print errors before dying.
+            '--enable-logging=stderr',
+            '--log-level=0'
         ];
 
         // 4b. Custom Chromium C++ patch flags (only when using custom/fingerprint chromium)

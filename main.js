@@ -4304,9 +4304,23 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
         // when Chrome dies mid-startup. On Windows, passing an fd to spawn() can drop
         // bytes for GUI-subsystem children like Chrome — using a pipe + JS event handler
         // is reliable everywhere.
+        // Note: createWriteStream surfaces ENOENT asynchronously via 'error', not via the
+        // sync constructor, so wrap in ensureDir + error listener to avoid crashing the
+        // launch flow if the directory is briefly missing or the disk is read-only.
         const chromeLogPath = path.join(userDataDir, 'chrome-launch.log');
         let chromeLogStream = null;
-        try { chromeLogStream = fs.createWriteStream(chromeLogPath, { flags: 'w' }); } catch (_) {}
+        try {
+            fs.ensureDirSync(userDataDir);
+            chromeLogStream = fs.createWriteStream(chromeLogPath, { flags: 'w' });
+            chromeLogStream.on('error', (e) => {
+                console.warn(`[Launch][${profileId}] chrome-launch.log write error:`, e.code, e.message);
+                try { chromeLogStream.destroy(); } catch (_) {}
+                chromeLogStream = null;
+            });
+        } catch (e) {
+            console.warn(`[Launch][${profileId}] could not open chrome-launch.log:`, e.code, e.message);
+            chromeLogStream = null;
+        }
 
         const chromeProcess = spawn(chromePath, launchArgs, {
             env: env,

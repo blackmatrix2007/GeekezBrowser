@@ -4132,12 +4132,14 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
 
         // 4. 构建启动参数（性能优化）
 
-        // Google domains that should bypass proxy — auth/login flows require direct TLS.
-        // YouTube domains intentionally NOT in bypass: video playback needs consistent IP
-        // between metadata signing and CDN fetch, otherwise googlevideo.com returns 403.
+        // Bypass proxy only for static CDN + Google APIs. Sign-in (accounts.google.com)
+        // and main Google services (*.google.com) go through the proxy so the location
+        // Google records is the proxy's, not the user's real IP. YouTube also goes through
+        // the proxy for video-playback IP consistency.
+        // Tradeoff: low-quality datacenter proxies may trigger captcha on Gmail login —
+        // recommend residential proxies for the strict-IP path.
         const GOOGLE_BYPASS = [
-            'accounts.google.com', '*.google.com', '*.googleapis.com',
-            '*.gstatic.com'
+            '*.googleapis.com', '*.gstatic.com'
         ].join(';');
 
         const launchArgs = [

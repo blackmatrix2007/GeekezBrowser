@@ -298,11 +298,17 @@ async function bncCheckVersion() {
     try {
         return await new Promise((resolve) => {
             const url = new URL(BNC_API + '/version');
+            const auth = getSavedBncAuth();
+            const headers = {
+                'x-app-version':  app.getVersion(),
+                'x-app-platform': process.platform,           // 'win32' | 'darwin'
+            };
+            if (auth?.email) headers['x-bnc-email'] = auth.email;
             const req = https.request({
                 hostname: url.hostname,
                 path: url.pathname,
                 method: 'GET',
-                headers: { 'x-app-version': app.getVersion() },
+                headers,
             }, (res) => {
                 let data = '';
                 res.on('data', c => data += c);

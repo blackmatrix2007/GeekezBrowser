@@ -1445,8 +1445,15 @@ function submitInputModal() {
 }
 
 // Auto-Detect Timezone/Location/Language from Proxy IP
-async function autoDetectFromProxy() {
-    const proxyText = document.getElementById('addProxy').value.trim();
+// mode: 'add' (Tạo Profile) hoặc 'edit' (Chỉnh sửa Profile).
+// Gọi trực tiếp từ addEventListener sẽ nhận Event object → coi như 'add'.
+async function autoDetectFromProxy(mode = 'add') {
+    if (mode && typeof mode === 'object') mode = 'add';
+    const ids = mode === 'edit'
+        ? { proxy: 'editProxy', btn: 'editAutoDetectBtn', tz: 'editTimezone', city: 'editCity', lang: 'editLanguage' }
+        : { proxy: 'addProxy',  btn: 'autoDetectBtn',     tz: 'addTimezone',  city: 'addCity',  lang: 'addLanguage'  };
+
+    const proxyText = document.getElementById(ids.proxy).value.trim();
     if (!proxyText) {
         showAlert('Please enter a proxy first');
         return;
@@ -1456,7 +1463,7 @@ async function autoDetectFromProxy() {
     const proxyStr = proxyText.split('\n')[0].trim();
 
     try {
-        const btn = document.getElementById('autoDetectBtn');
+        const btn = document.getElementById(ids.btn);
         const originalText = btn.textContent;
         btn.textContent = '🔄 Detecting...';
         btn.disabled = true;
@@ -1472,7 +1479,7 @@ async function autoDetectFromProxy() {
 
         // Auto-fill timezone
         if (geoData.timezone) {
-            document.getElementById('addTimezone').value = geoData.timezone;
+            document.getElementById(ids.tz).value = geoData.timezone;
         }
 
         // Auto-fill city/location
@@ -1482,16 +1489,16 @@ async function autoDetectFromProxy() {
                 geoData.city.toLowerCase().includes(c.name.toLowerCase())
             );
             if (cityData) {
-                document.getElementById('addCity').value = cityData.name;
+                document.getElementById(ids.city).value = cityData.name;
             } else {
                 console.warn(`City "${geoData.city}" not found in CITY_DATA, falling back to IP-based`);
-                document.getElementById('addCity').value = 'Auto (IP Based)';
+                document.getElementById(ids.city).value = 'Auto (IP Based)';
             }
         }
 
         // Auto-fill language
         if (geoData.language) {
-            const languageInput = document.getElementById('addLanguage');
+            const languageInput = document.getElementById(ids.lang);
             if (languageInput) {
                 const langName = getLanguageName(geoData.language);
                 languageInput.value = langName !== 'Auto (System Default)' ? langName : geoData.language;
@@ -1505,7 +1512,7 @@ async function autoDetectFromProxy() {
     } catch (error) {
         console.error('Auto-detect error:', error);
         showAlert('Error during auto-detection: ' + error.message);
-        const btn = document.getElementById('autoDetectBtn');
+        const btn = document.getElementById(ids.btn);
         btn.textContent = '🔍 Auto-Detect Location';
         btn.disabled = false;
     }
@@ -1564,6 +1571,12 @@ async function init() {
     const autoDetectBtn = document.getElementById('autoDetectBtn');
     if (autoDetectBtn) {
         autoDetectBtn.addEventListener('click', autoDetectFromProxy);
+    }
+
+    // Auto-Detect button trong modal Chỉnh sửa Profile
+    const editAutoDetectBtn = document.getElementById('editAutoDetectBtn');
+    if (editAutoDetectBtn) {
+        editAutoDetectBtn.addEventListener('click', () => autoDetectFromProxy('edit'));
     }
 
     // Auto-detect on blur event (optional, can be disabled by user)

@@ -4032,7 +4032,33 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
         let xrayProcess = null;
         let logFd = null;
         if (!isDirect) {
-            const config = generateXrayConfig(effectiveProxy, localPort, finalPreProxyConfig);
+            // Raw IP:PORT:USER:PASS format is ambiguous — commercial providers ship the
+            // same syntax for both HTTP and SOCKS5. Auto-detect on first launch and cache
+            // on the profile so subsequent launches skip the probe.
+            let rawProtocolHint = profile.rawProxyProtocol || null;
+            const isRawFormat = /^[^:\/]+:\d+(:[^:]+:[^:]+)?$/.test(effectiveProxy) && !effectiveProxy.includes('://');
+            if (isRawFormat && !rawProtocolHint) {
+                try {
+                    const { detectRawProxyProtocol } = require('./utils');
+                    const [host, port, user, pass] = effectiveProxy.split(':');
+                    const detected = await detectRawProxyProtocol(host, parseInt(port), user, pass);
+                    if (detected) {
+                        rawProtocolHint = detected;
+                        console.log(`[Proxy] Auto-detected ${detected.toUpperCase()} for ${host}:${port}`);
+                        // Persist so we don't re-probe every launch.
+                        try {
+                            const profiles = fs.readJsonSync(PROFILES_FILE, { throws: false }) || [];
+                            const idx = profiles.findIndex(x => x.id === profile.id);
+                            if (idx !== -1) { profiles[idx].rawProxyProtocol = detected; fs.writeJsonSync(PROFILES_FILE, profiles); }
+                        } catch (_) {}
+                    } else {
+                        console.warn(`[Proxy] Could not detect protocol for ${host}:${port} — falling back to SOCKS5`);
+                    }
+                } catch (e) {
+                    console.warn('[Proxy] Detect error:', e.message);
+                }
+            }
+            const config = generateXrayConfig(effectiveProxy, localPort, finalPreProxyConfig, rawProtocolHint);
             fs.writeJsonSync(xrayConfigPath, config);
             logFd = fs.openSync(xrayLogPath, 'a');
             xrayProcess = spawn(EFFECTIVE_BIN_PATH, ['-c', xrayConfigPath], { cwd: EFFECTIVE_BIN_DIR, env: { ...process.env, 'XRAY_LOCATION_ASSET': RESOURCES_BIN }, stdio: ['ignore', logFd, logFd], windowsHide: true });

@@ -24,7 +24,7 @@ function getProxyRemark(link) {
     return '';
 }
 
-function parseProxyLink(link, tag) {
+function parseProxyLink(link, tag, protocolHint) {
     let outbound = {
         tag: tag,
         sniffing: {
@@ -334,10 +334,15 @@ function parseProxyLink(link, tag) {
                 }]
             };
         } else if (link.includes(':') && !link.includes('://')) {
-            // Handle IP:Port:User:Pass format (e.g., 107.150.98.193:1536:user:pass)
+            // Handle IP:Port:User:Pass format (e.g., 107.150.98.193:1536:user:pass).
+            // Protocol can't be inferred from the string — commercial providers use both
+            // HTTP and SOCKS5 with the same syntax. Caller may pass a protocolHint
+            // ('http' | 'socks') via the second arg; default 'socks' preserves legacy
+            // behavior for anyone who was relying on it.
             const parts = link.split(':');
+            const protocol = protocolHint === 'http' ? 'http' : 'socks';
             if (parts.length === 4) {
-                outbound.protocol = "socks";
+                outbound.protocol = protocol;
                 outbound.settings = {
                     servers: [{
                         address: parts[0],
@@ -347,7 +352,7 @@ function parseProxyLink(link, tag) {
                 };
             } else if (parts.length === 2) {
                 // IP:Port without auth
-                outbound.protocol = "socks";
+                outbound.protocol = protocol;
                 outbound.settings = {
                     servers: [{
                         address: parts[0],
@@ -367,10 +372,69 @@ function parseProxyLink(link, tag) {
     return outbound;
 }
 
-function generateXrayConfig(mainProxyStr, localPort, preProxyConfig = null) {
+// Detect whether a raw IP:PORT:USER:PASS proxy speaks HTTP-CONNECT or SOCKS5.
+// Commercial providers ship both under the same syntax; guessing wrong causes
+// ERR_CONNECTION_RESET on every request because Xray's handshake never completes.
+// Returns 'http' | 'socks' | null (on network failure — caller falls back to socks).
+async function detectRawProxyProtocol(host, port, user, pass, timeoutMs = 3500) {
+    const net = require('net');
+    // 1. HTTP-CONNECT probe first — port 8000/8080/10xxx datacenter proxies are typically HTTP
+    const httpOk = await new Promise((resolve) => {
+        const sock = net.createConnection({ host, port });
+        const timer = setTimeout(() => { try { sock.destroy(); } catch(_){} resolve(false); }, timeoutMs);
+        sock.once('connect', () => {
+            const auth = (user || pass) ? `Proxy-Authorization: Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}\r\n` : '';
+            sock.write(`CONNECT www.google.com:443 HTTP/1.1\r\nHost: www.google.com:443\r\n${auth}\r\n`);
+        });
+        sock.once('data', (buf) => {
+            clearTimeout(timer);
+            try { sock.destroy(); } catch(_){}
+            const first = buf.toString('ascii', 0, Math.min(16, buf.length));
+            resolve(/^HTTP\/1\.[01] 2\d\d/.test(first));
+        });
+        sock.once('error', () => { clearTimeout(timer); resolve(false); });
+    });
+    if (httpOk) return 'http';
+
+    // 2. SOCKS5 handshake probe
+    const socksOk = await new Promise((resolve) => {
+        const sock = net.createConnection({ host, port });
+        const timer = setTimeout(() => { try { sock.destroy(); } catch(_){} resolve(false); }, timeoutMs);
+        let step = 0;
+        sock.once('connect', () => {
+            // greeting: ver=5, nmethods=2, methods=[no-auth, user/pass]
+            sock.write(Buffer.from([0x05, 0x02, 0x00, 0x02]));
+        });
+        sock.on('data', (buf) => {
+            if (step === 0) {
+                if (buf.length < 2 || buf[0] !== 0x05) { clearTimeout(timer); try { sock.destroy(); } catch(_){} return resolve(false); }
+                if (buf[1] === 0x00) { clearTimeout(timer); try { sock.destroy(); } catch(_){} return resolve(true); }
+                if (buf[1] === 0x02) {
+                    step = 1;
+                    const u = Buffer.from(user || ''); const p = Buffer.from(pass || '');
+                    sock.write(Buffer.concat([Buffer.from([0x01, u.length]), u, Buffer.from([p.length]), p]));
+                    return;
+                }
+                clearTimeout(timer); try { sock.destroy(); } catch(_){} return resolve(false);
+            }
+            if (step === 1) {
+                clearTimeout(timer); try { sock.destroy(); } catch(_){}
+                return resolve(buf.length >= 2 && buf[0] === 0x01 && buf[1] === 0x00);
+            }
+        });
+        sock.once('error', () => { clearTimeout(timer); resolve(false); });
+    });
+    if (socksOk) return 'socks';
+
+    return null;
+}
+
+function generateXrayConfig(mainProxyStr, localPort, preProxyConfig = null, mainProtocolHint = null) {
+    // mainProtocolHint is only meaningful for the raw IP:PORT:USER:PASS format —
+    // every other proxy syntax (vmess://, ss://, socks5://…) already encodes protocol.
     const outbounds = [];
     let mainOutbound;
-    try { mainOutbound = parseProxyLink(mainProxyStr, "proxy_main"); }
+    try { mainOutbound = parseProxyLink(mainProxyStr, "proxy_main", mainProtocolHint); }
     catch (e) { mainOutbound = { protocol: "freedom", tag: "proxy_main" }; }
 
     if (preProxyConfig && preProxyConfig.preProxies && preProxyConfig.preProxies.length > 0) {
@@ -396,4 +460,4 @@ function generateXrayConfig(mainProxyStr, localPort, preProxyConfig = null) {
     };
 }
 
-module.exports = { generateXrayConfig, parseProxyLink, getProxyRemark };
+module.exports = { generateXrayConfig, parseProxyLink, getProxyRemark, detectRawProxyProtocol };

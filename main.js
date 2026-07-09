@@ -4183,25 +4183,15 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             '--disable-dev-shm-usage',           // 减少共享内存使用
             '--disk-cache-size=314572800',       // 300MB — realistic for real user
             '--media-cache-size=104857600',      // 100MB — enough for YouTube buffering
-            // Anti-hang on machines where Google services are unreachable / firewalled / DNS-throttled.
-            // Without these, Chrome 143 can block on startup waiting for Google component updates,
-            // GCM registration, or Safe Browsing — the window never paints. Seen on customer machines
-            // where chrome.exe --version itself times out due to GCM/component checks.
-            '--disable-breakpad',                 // skip crashpad init (avoids named-pipe deadlock)
-            '--disable-background-networking',    // GCM, component updates, captive portal probe
-            '--disable-component-update',         // no on-startup component fetch
-            '--disable-domain-reliability',       // no Google reliability beacon
-            '--disable-sync',                     // no chrome.google.com sync
-            '--disable-default-apps',
-            '--no-pings',                         // no <a ping=""> beacons
-            '--metrics-recording-only',           // no UMA upload
-            '--safebrowsing-disable-auto-update', // Safe Browsing list fetch can hang on bad networks
-            '--disable-features=OptimizationHints,Translate,MediaRouter,InterestFeedContentSuggestions',
-            // Force Chrome to write stderr unbuffered so chrome-launch.log captures crashes.
-            // Without these, a hard crash on Windows leaves the log empty even when Chrome did
-            // print errors before dying.
-            '--enable-logging=stderr',
-            '--log-level=0'
+            // Keep only the two anti-hang flags actually required for the crashpad/GCM
+            // deadlock on some Windows machines. The wider "disable everything Google-y"
+            // set (metrics-recording-only, disable-sync, enable-logging, etc.) turned out to
+            // read as an automation signal — Google was flagging login even with a good
+            // proxy, while commercial anti-detect browsers using vanilla Chrome flags
+            // sailed through the same accounts. Stay closer to what a real user's Chrome
+            // sends.
+            '--disable-breakpad',                 // skip crashpad init (avoids named-pipe deadlock on Windows)
+            '--disable-component-update'          // no on-startup component fetch (network hang guard)
         ];
 
         // 4b. Custom Chromium C++ patch flags (only when using custom/fingerprint chromium)

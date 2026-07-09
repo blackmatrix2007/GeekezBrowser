@@ -4171,10 +4171,19 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
         // and *.google.com from this list — but that requires a good residential proxy.
         // Note: *.google.com only matches subdomains, not the apex 'google.com'.
         // gmail.com is a separate apex domain (redirects to mail.google.com) — needs its own entry.
+        // Vietnam locale Google (google.com.vn / accounts.google.com.vn) is where Google
+        // redirects the SetSID handoff when it sees a Vietnamese IP — must bypass or the
+        // sign-in never completes.
+        // YouTube domains are included so the browser stays usable even when the proxy
+        // itself is unreachable; the tradeoff is that video playback then leaks the
+        // real IP because googlevideo.com is fetched direct.
         const GOOGLE_BYPASS = [
             'google.com', '*.google.com', 'accounts.google.com',
+            'google.com.vn', '*.google.com.vn',
             'gmail.com',
-            '*.googleapis.com', '*.gstatic.com'
+            'youtube.com', '*.youtube.com', '*.ytimg.com',
+            'googlevideo.com', '*.googlevideo.com',
+            '*.googleapis.com', '*.gstatic.com', '*.googleusercontent.com'
         ].join(';');
 
         const launchArgs = [

@@ -4169,8 +4169,12 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
         // user's real IP instead of the proxy IP, because sign-in traffic goes direct.
         // For strict IP consistency (Google logs proxy IP), remove accounts.google.com
         // and *.google.com from this list — but that requires a good residential proxy.
+        // Note: *.google.com only matches subdomains, not the apex 'google.com'.
+        // gmail.com is a separate apex domain (redirects to mail.google.com) — needs its own entry.
         const GOOGLE_BYPASS = [
-            'accounts.google.com', '*.google.com', '*.googleapis.com', '*.gstatic.com'
+            'google.com', '*.google.com', 'accounts.google.com',
+            'gmail.com',
+            '*.googleapis.com', '*.gstatic.com'
         ].join(';');
 
         const launchArgs = [

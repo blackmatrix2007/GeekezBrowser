@@ -4164,14 +4164,13 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
 
         // 4. 构建启动参数（性能优化）
 
-        // Bypass proxy only for static CDN + Google APIs. Sign-in (accounts.google.com)
-        // and main Google services (*.google.com) go through the proxy so the location
-        // Google records is the proxy's, not the user's real IP. YouTube also goes through
-        // the proxy for video-playback IP consistency.
-        // Tradeoff: low-quality datacenter proxies may trigger captcha on Gmail login —
-        // recommend residential proxies for the strict-IP path.
+        // Bypass proxy for Google auth + main services so Gmail sign-in works with any
+        // proxy quality. Tradeoff: Google's Recent Security Activity will record the
+        // user's real IP instead of the proxy IP, because sign-in traffic goes direct.
+        // For strict IP consistency (Google logs proxy IP), remove accounts.google.com
+        // and *.google.com from this list — but that requires a good residential proxy.
         const GOOGLE_BYPASS = [
-            '*.googleapis.com', '*.gstatic.com'
+            'accounts.google.com', '*.google.com', '*.googleapis.com', '*.gstatic.com'
         ].join(';');
 
         const launchArgs = [

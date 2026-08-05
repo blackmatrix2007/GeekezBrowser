@@ -77,16 +77,21 @@
 
         .sidebar-logo {
             display: flex;
-            align-items: center;
-            gap: 6px;
-            padding: 14px 16px 20px 16px;
+            flex-direction: column;
+            gap: 2px;
+            padding: 14px 16px 16px 16px;
             -webkit-app-region: no-drag;
             cursor: default;
             user-select: none;
             font-family: 'Courier New', monospace;
-            transform: skewX(-10deg);
         }
 
+        .sidebar-logo-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transform: skewX(-10deg);
+        }
         .sidebar-logo .logo-svg { height: 26px; width: auto; }
         .sidebar-logo .logo-text {
             font-size: 22px;
@@ -107,6 +112,15 @@
             font-weight: normal;
             margin-left: 6px;
             transform: skewX(10deg);
+        }
+        .sidebar-logo .logo-tagline {
+            font-size: 9.5px;
+            font-weight: 600;
+            letter-spacing: 0.6px;
+            color: rgba(255,255,255,0.45);
+            font-family: Arial, sans-serif;
+            margin-left: 34px;
+            text-transform: uppercase;
         }
 
         .sidebar-section {
@@ -1009,6 +1023,7 @@
             background-color: var(--splash-bg);
             z-index: 9999;
             display: flex;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
             background-image: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 255, 0, 0.02) 3px);
@@ -1016,6 +1031,17 @@
 
         .glitch-wrapper {
             position: relative;
+        }
+
+        .splash-tagline {
+            margin-top: 8px;
+            font-family: 'Arial', sans-serif;
+            font-size: 15px;
+            font-weight: 600;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: var(--splash-color);
+            opacity: 0.6;
         }
 
         .glitch-text {
@@ -1203,6 +1229,7 @@
         <div class="glitch-wrapper">
             <div class="glitch-text" data-text="BNC">BNC</div>
         </div>
+        <div class="splash-tagline">Phần mềm quản lý kênh YouTube</div>
     </div>
 
     <!-- ═══ BNC LOGIN OVERLAY ═══════════════════════════════════════════════ -->
@@ -1228,18 +1255,21 @@
     <div id="bncLoginOverlay" style="display:none;position:fixed;inset:0;z-index:9990;background:#0d0d1a;align-items:center;justify-content:center;-webkit-app-region:drag;">
         <div style="-webkit-app-region:no-drag;width:380px;background:#151b2d;border-radius:16px;padding:36px 32px;box-shadow:0 24px 80px rgba(0,0,0,0.7);border:1px solid rgba(0,224,255,0.08);">
             <!-- Logo -->
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-                <svg viewBox="0 0 48 48" width="32" height="32" xmlns="http://www.w3.org/2000/svg">
-                    <defs><linearGradient id="lg2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#00e0ff;stop-opacity:1"/><stop offset="100%" style="stop-color:#0055ff;stop-opacity:1"/></linearGradient></defs>
-                    <rect x="2" y="2" width="44" height="44" rx="10" fill="url(#lg2)" opacity="0.15" stroke="url(#lg2)" stroke-width="2"/>
-                    <circle cx="24" cy="24" r="10" fill="none" stroke="url(#lg2)" stroke-width="3"/>
-                    <circle cx="24" cy="24" r="4" fill="url(#lg2)"/>
-                    <line x1="24" y1="6" x2="24" y2="14" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
-                    <line x1="24" y1="34" x2="24" y2="42" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
-                    <line x1="6" y1="24" x2="14" y2="24" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
-                    <line x1="34" y1="24" x2="42" y2="24" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
-                </svg>
-                <span style="font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.5px;font-family:'Courier New',monospace;">BNC <span style="color:#00e0ff;">Browser</span></span>
+            <div style="display:flex;flex-direction:column;gap:2px;margin-bottom:8px;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <svg viewBox="0 0 48 48" width="32" height="32" xmlns="http://www.w3.org/2000/svg">
+                        <defs><linearGradient id="lg2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#00e0ff;stop-opacity:1"/><stop offset="100%" style="stop-color:#0055ff;stop-opacity:1"/></linearGradient></defs>
+                        <rect x="2" y="2" width="44" height="44" rx="10" fill="url(#lg2)" opacity="0.15" stroke="url(#lg2)" stroke-width="2"/>
+                        <circle cx="24" cy="24" r="10" fill="none" stroke="url(#lg2)" stroke-width="3"/>
+                        <circle cx="24" cy="24" r="4" fill="url(#lg2)"/>
+                        <line x1="24" y1="6" x2="24" y2="14" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
+                        <line x1="24" y1="34" x2="24" y2="42" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
+                        <line x1="6" y1="24" x2="14" y2="24" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
+                        <line x1="34" y1="24" x2="42" y2="24" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
+                    </svg>
+                    <span style="font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.5px;font-family:'Courier New',monospace;">BNC <span style="color:#00e0ff;">Browser</span></span>
+                </div>
+                <div style="font-size:10px;font-weight:600;letter-spacing:0.6px;color:rgba(255,255,255,0.45);font-family:Arial,sans-serif;margin-left:42px;text-transform:uppercase;">Phần mềm quản lý kênh YouTube</div>
             </div>
             <!-- ── Login form ─────────────────────────────────────────── -->
             <div id="bncLoginForm">
@@ -1310,22 +1340,25 @@
     <!-- SIDEBAR -->
     <div class="sidebar">
         <div class="sidebar-logo">
-            <svg class="logo-svg" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-                <defs>
-                    <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" style="stop-color:#00e0ff;stop-opacity:1" />
-                        <stop offset="100%" style="stop-color:#0055ff;stop-opacity:1" />
-                    </linearGradient>
-                </defs>
-                <rect x="2" y="2" width="44" height="44" rx="10" fill="url(#logoGrad)" opacity="0.15" stroke="url(#logoGrad)" stroke-width="2"/>
-                <circle cx="24" cy="24" r="10" fill="none" stroke="url(#logoGrad)" stroke-width="3"/>
-                <circle cx="24" cy="24" r="4" fill="url(#logoGrad)"/>
-                <line x1="24" y1="6" x2="24" y2="14" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
-                <line x1="24" y1="34" x2="24" y2="42" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
-                <line x1="6" y1="24" x2="14" y2="24" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
-                <line x1="34" y1="24" x2="42" y2="24" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
-            </svg>
-            <div class="logo-text">Anti<span class="highlight">Detect</span><span class="ver" id="app-version"></span></div>
+            <div class="sidebar-logo-row">
+                <svg class="logo-svg" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#00e0ff;stop-opacity:1" />
+                            <stop offset="100%" style="stop-color:#0055ff;stop-opacity:1" />
+                        </linearGradient>
+                    </defs>
+                    <rect x="2" y="2" width="44" height="44" rx="10" fill="url(#logoGrad)" opacity="0.15" stroke="url(#logoGrad)" stroke-width="2"/>
+                    <circle cx="24" cy="24" r="10" fill="none" stroke="url(#logoGrad)" stroke-width="3"/>
+                    <circle cx="24" cy="24" r="4" fill="url(#logoGrad)"/>
+                    <line x1="24" y1="6" x2="24" y2="14" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
+                    <line x1="24" y1="34" x2="24" y2="42" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
+                    <line x1="6" y1="24" x2="14" y2="24" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
+                    <line x1="34" y1="24" x2="42" y2="24" stroke="#00e0ff" stroke-width="2.5" stroke-linecap="round"/>
+                </svg>
+                <div class="logo-text">Anti<span class="highlight">Detect</span><span class="ver" id="app-version"></span></div>
+            </div>
+            <div class="logo-tagline">Phần mềm quản lý kênh YouTube</div>
         </div>
 
         <div class="sidebar-section" data-i18n="navMain">MAIN</div>

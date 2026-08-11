@@ -1390,17 +1390,21 @@ async function runChromeDiagnostic() {
     }
     log('');
 
-    // 4. `chrome.exe --version` — fastest way to see if Chrome can execute at all
+    // 4. `chrome.exe --version` — fastest way to see if Chrome can execute at all.
+    // Must mirror the real launch flags (--no-sandbox, --disable-breakpad): without them
+    // this probe hits the OS sandbox broker and crashpad init, both of which real profile
+    // launches never touch, producing "Access is denied (0x5)" / crashpad pipe noise that
+    // has nothing to do with why an actual launch failed.
     log('--- chrome --version test ---');
     if (chromePath && fs.existsSync(chromePath)) {
         try {
-            const out = execSync(`"${chromePath}" --version`, { timeout: 5000, windowsHide: true }).toString().trim();
+            const out = execSync(`"${chromePath}" --version --no-sandbox --disable-breakpad`, { timeout: 5000, windowsHide: true }).toString().trim();
             log(`Output: ${out}`);
             log('Result: PASS — Chrome binary can execute');
         } catch (err) {
             log(`Error code: ${err.code || err.status}`);
             log(`stderr: ${(err.stderr?.toString() || '').slice(0, 800) || '(none)'}`);
-            log('Result: ✗ FAIL — Chrome cannot even print version');
+            log('Result: ✗ FAIL — Chrome cannot even print version (with the same flags real launches use)');
             log('Likely cause: missing VC++ runtime, AV blocking binary, corrupt download, non-ASCII path');
         }
     } else {

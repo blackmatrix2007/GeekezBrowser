@@ -651,7 +651,47 @@ function getInjectScript(fp, profileName, watermarkStyle, fpChromiumMode = false
                 });
             })();
 
-            // --- 16. Watermark UI ---
+            // --- 16. Battery API ---
+            // Fixed desktop values: always on AC power, full battery.
+            // navigator.getBattery() is not available in Workers, so no cross-context mismatch.
+            // Prevents laptop battery drain from leaking through as a fingerprinting signal.
+            try {
+                const _fakeBattery = {
+                    charging: true, chargingTime: 0,
+                    dischargingTime: Infinity, level: 1.0,
+                    onchargingchange: null, onchargingtimechange: null,
+                    ondischargingtimechange: null, onlevelchange: null,
+                    addEventListener: function() {},
+                    removeEventListener: function() {},
+                    dispatchEvent: function() { return true; }
+                };
+                const _fakeBatteryPromise = Promise.resolve(_fakeBattery);
+                Object.defineProperty(Navigator.prototype, 'getBattery', {
+                    value: makeNative(function getBattery() { return _fakeBatteryPromise; }, 'getBattery'),
+                    configurable: true, writable: true
+                });
+            } catch(e) {}
+
+            // --- 17. Network Information API ---
+            // Override values on the existing NetworkInformation object (keeps instanceof chain intact).
+            // Shows WiFi connection with typical home broadband values.
+            // Prevents cellular/slow-connection detection that could contradict a desktop persona.
+            try {
+                if (navigator.connection) {
+                    const _connSeed = fp.noiseSeed || 12345;
+                    const _downlink = 8 + ((_connSeed >>> 5) % 12); // 8-20 Mbps
+                    const _rtt = 30 + ((_connSeed >>> 13) % 40);    // 30-70ms
+                    Object.defineProperties(navigator.connection, {
+                        effectiveType: { get: function() { return '4g'; },       configurable: true },
+                        type:          { get: function() { return 'wifi'; },      configurable: true },
+                        downlink:      { get: function() { return _downlink; },   configurable: true },
+                        rtt:           { get: function() { return _rtt; },        configurable: true },
+                        saveData:      { get: function() { return false; },       configurable: true }
+                    });
+                }
+            } catch(e) {}
+
+            // --- 18. Watermark UI ---
             const watermarkStyle = '${style}';
             function createWatermark() {
                 try {

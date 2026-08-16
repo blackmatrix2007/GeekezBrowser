@@ -3956,6 +3956,117 @@ ipcMain.handle('export-data', async (e, type) => {
     return false;
 });
 
+// ─── Cloud session sync (cookies) ──────────────────────────────────────────
+// Lets a customer open the same logged-in profile (Gmail/YouTube still signed
+// in) on a different machine without re-authenticating. Cookies are pushed to
+// the server after a profile closes and pulled before the next launch, on
+// whichever machine is used. Encryption happens server-side only — this
+// client only ever sends/receives plaintext cookie JSON over TLS.
+//
+// Both directions are strictly best-effort: any failure (offline, not logged
+// into BNC, server error) must never block using a profile. A user who never
+// touches the cloud pays zero cost — bncApiCall() short-circuits to null
+// when there's no saved auth token.
+
+// Pull a newer cookie snapshot from the server (if one exists) and inject it
+// into this profile's browser_data via a throwaway headless Chrome + CDP,
+// before the real windowed launch. Returns the snapshot's server timestamp
+// (ms) if one was applied, otherwise null.
+async function pullAndApplyProfileSession(profileId, userDataDir, chromePath, localLastSyncedAt) {
+    try {
+        const auth = getSavedBncAuth();
+        if (!auth?.accessToken) return null;
+
+        const res = await bncApiCall('GET', `/profiles/${profileId}/session`);
+        if (!res || !res.found) return null;
+
+        const serverUpdatedAt = new Date(res.updatedAt).getTime();
+        if (localLastSyncedAt && serverUpdatedAt <= localLastSyncedAt) return null; // already up to date
+        if (!Array.isArray(res.cookies) || res.cookies.length === 0) return serverUpdatedAt;
+
+        const browser = await puppeteer.launch({
+            headless: 'new', executablePath: chromePath, userDataDir,
+            args: ['--no-first-run', '--disable-extensions', '--disable-sync', '--disable-gpu'],
+            defaultViewport: null, ignoreDefaultArgs: ['--enable-automation'],
+        });
+        try {
+            const page = (await browser.pages())[0] || await browser.newPage();
+            const client = await page.createCDPSession();
+            let applied = 0;
+            for (const cookie of res.cookies) {
+                try {
+                    const params = {
+                        name: cookie.name, value: cookie.value,
+                        domain: cookie.domain, path: cookie.path,
+                        secure: cookie.secure, httpOnly: cookie.httpOnly,
+                        sameSite: cookie.sameSite || 'Lax',
+                    };
+                    if (cookie.expires > 0) params.expires = cookie.expires;
+                    await client.send('Network.setCookie', params);
+                    applied++;
+                } catch (_) {}
+            }
+            console.log(`[SessionSync] Pulled & applied ${applied}/${res.cookies.length} cookies for ${profileId} (from device ${res.deviceId || '?'})`);
+        } finally {
+            await browser.close();
+            // Match the 1000ms buffer used elsewhere (import-full-backup) after closing a
+            // headless Chrome on the same userDataDir — Chrome's SingletonLock file needs a
+            // moment to clear on Windows before the real windowed Chrome spawns on it, or the
+            // new process instantly exits thinking another instance already owns the profile.
+            await new Promise(r => setTimeout(r, 1000));
+        }
+        return serverUpdatedAt;
+    } catch (e) {
+        console.warn(`[SessionSync] pull failed for ${profileId}:`, e.message);
+        return null;
+    }
+}
+
+// Push this profile's current cookies to the server. Fire-and-forget from the
+// caller — runs its own throwaway headless Chrome the same way the existing
+// full-backup export does.
+async function pushProfileSessionToServer(profileId, userDataDir, chromePath) {
+    try {
+        const auth = getSavedBncAuth();
+        if (!auth?.accessToken) return;
+
+        // Small buffer after the real Chrome process exit so the OS/AV fully releases
+        // browser_data file locks before we spin up a second (headless) Chrome on it.
+        await new Promise(r => setTimeout(r, 500));
+
+        const browser = await puppeteer.launch({
+            headless: 'new', executablePath: chromePath, userDataDir,
+            args: ['--no-first-run', '--disable-extensions', '--disable-sync', '--disable-gpu'],
+            defaultViewport: null, ignoreDefaultArgs: ['--enable-automation'],
+        });
+        let cookies = [];
+        try {
+            const page = (await browser.pages())[0] || await browser.newPage();
+            const client = await page.createCDPSession();
+            const result = await client.send('Network.getAllCookies');
+            cookies = result.cookies || [];
+        } finally {
+            await browser.close();
+        }
+        if (cookies.length === 0) return;
+
+        const res = await bncApiCall('PUT', `/profiles/${profileId}/session`, { cookies, deviceId: getDeviceId() });
+        if (res && res.cookieCount !== undefined) {
+            console.log(`[SessionSync] Pushed ${res.cookieCount} cookies for ${profileId}`);
+            try {
+                const profiles = await fs.readJson(PROFILES_FILE);
+                const idx = profiles.findIndex(p => p.id === profileId);
+                if (idx !== -1) {
+                    profiles[idx]._sessionSyncedAt = Date.now();
+                    await writeProfilesAtomic(profiles);
+                }
+            } catch (_) {}
+        }
+    } catch (e) {
+        console.warn(`[SessionSync] push failed for ${profileId}:`, e.message);
+    }
+}
+
 // --- 核心启动逻辑 ---
 ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
     const sender = event.sender;
@@ -4344,6 +4455,20 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
         // when Chrome dies mid-startup. On Windows, passing an fd to spawn() can drop
         // bytes for GUI-subsystem children like Chrome — using a pipe + JS event handler
         // is reliable everywhere.
+        // Pull a newer cloud session (cookies) before launching, if the server has one —
+        // carries login state over from another device. Best-effort: never blocks launch
+        // on failure, and costs nothing for customers not logged into BNC cloud sync.
+        try {
+            const newSyncedAt = await pullAndApplyProfileSession(profileId, userDataDir, chromePath, profile._sessionSyncedAt);
+            if (newSyncedAt) {
+                const profiles = await fs.readJson(PROFILES_FILE);
+                const idx = profiles.findIndex(p => p.id === profileId);
+                if (idx !== -1) { profiles[idx]._sessionSyncedAt = newSyncedAt; await writeProfilesAtomic(profiles); }
+            }
+        } catch (e) {
+            console.warn(`[SessionSync] pre-launch pull error for ${profileId}:`, e.message);
+        }
+
         // Note: createWriteStream surfaces ENOENT asynchronously via 'error', not via the
         // sync constructor, so wrap in ensureDir + error listener to avoid crashing the
         // launch flow if the directory is briefly missing or the disk is read-only.
@@ -4411,12 +4536,36 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
         chromeProcess.on('exit', async (code, signal) => {
             const uptimeMs = Date.now() - (activeProcesses[profileId]?.startedAt || Date.now());
             console.log(`[Launch][${profileId}] Chrome exited code=${code} signal=${signal} uptime=${uptimeMs}ms log=${chromeLogPath}`);
+            const isCrash = uptimeMs < 5000;
             // < 5 s uptime is virtually always an instant crash on Windows. Flag it so the UI
             // can surface a "Chrome failed to start" message instead of a silent "stopped".
-            if (uptimeMs < 5000 && !sender.isDestroyed()) {
+            if (isCrash && !sender.isDestroyed()) {
                 sender.send('profile-status', { id: profileId, status: 'stopped', error: `Chrome crashed on launch (code=${code}). Check log: ${chromeLogPath}` });
             }
-            if (chromeLogStream) { try { chromeLogStream.end(); } catch(_) {} }
+
+            // Auto-submit a crash report so support can diagnose "Chrome won't open" without
+            // asking the customer to dig through file paths. Fire-and-forget, reads whatever
+            // chrome-launch.log captured before this process died.
+            if (isCrash) {
+                const reportAfterLog = () => {
+                    let logExcerpt = '';
+                    try { logExcerpt = fs.readFileSync(chromeLogPath, 'utf8'); } catch (_) {}
+                    bncApiCall('POST', '/crash-report', {
+                        profileId, deviceId: getDeviceId(), deviceName: os.hostname(),
+                        appVersion: app.getVersion(), platform: process.platform, osRelease: os.release(),
+                        chromeBinary: path.basename(chromePath), exitCode: code, exitSignal: signal,
+                        uptimeMs, logExcerpt,
+                    }).catch(() => {});
+                };
+                if (chromeLogStream) { chromeLogStream.end(reportAfterLog); } else { reportAfterLog(); }
+            } else {
+                if (chromeLogStream) { try { chromeLogStream.end(); } catch(_) {} }
+                // Real session (not an instant crash) — push cookies to cloud so this
+                // profile can be reopened logged-in on another machine. Fire-and-forget,
+                // runs its own throwaway headless Chrome; never blocks the UI.
+                pushProfileSessionToServer(profileId, userDataDir, chromePath).catch(() => {});
+            }
+
             if (activeProcesses[profileId]) {
                 const { xrayPid, logFd: fd } = activeProcesses[profileId];
                 if (fd !== undefined) { try { fs.closeSync(fd); } catch(e) {} }

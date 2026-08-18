@@ -4067,6 +4067,53 @@ async function pushProfileSessionToServer(profileId, userDataDir, chromePath) {
     }
 }
 
+// Repair a profile whose browser_data appears corrupted (repeated instant-crash on launch).
+// Backs up (not deletes outright) the current browser_data — a wrong diagnosis or an
+// unrelated crash streak shouldn't destroy real data — then clears the crash streak so the
+// next launch gets a clean slate. If this profile ever pushed cookies to the cloud, the
+// pre-launch pull in launch-profile will restore the login session automatically.
+ipcMain.handle('repair-profile', async (_event, profileId) => {
+    try {
+        const profileDir = path.join(DATA_PATH, profileId);
+        const userDataDir = path.join(profileDir, 'browser_data');
+
+        if (fs.existsSync(userDataDir)) {
+            const backupDir = path.join(profileDir, `browser_data_broken_${Date.now()}`);
+            try {
+                await fs.move(userDataDir, backupDir);
+                console.log(`[Repair][${profileId}] Backed up browser_data → ${backupDir}`);
+            } catch (moveErr) {
+                console.warn(`[Repair][${profileId}] backup move failed (${moveErr.message}), removing instead`);
+                await fs.remove(userDataDir).catch(() => {});
+            }
+        }
+
+        // Prune old repair backups (>14 days) so disk usage doesn't creep up over time.
+        try {
+            const entries = await fs.readdir(profileDir);
+            const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+            for (const entry of entries) {
+                const m = entry.match(/^browser_data_broken_(\d+)$/);
+                if (m && parseInt(m[1]) < cutoff) {
+                    await fs.remove(path.join(profileDir, entry)).catch(() => {});
+                }
+            }
+        } catch (_) {}
+
+        const profiles = await fs.readJson(PROFILES_FILE);
+        const idx = profiles.findIndex(p => p.id === profileId);
+        if (idx !== -1) {
+            profiles[idx]._consecutiveCrashes = 0;
+            await writeProfilesAtomic(profiles);
+        }
+
+        return { success: true };
+    } catch (e) {
+        console.error(`[Repair][${profileId}] failed:`, e);
+        return { success: false, error: e.message };
+    }
+});
+
 // --- 核心启动逻辑 ---
 ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
     const sender = event.sender;
@@ -4558,12 +4605,40 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
                     }).catch(() => {});
                 };
                 if (chromeLogStream) { chromeLogStream.end(reportAfterLog); } else { reportAfterLog(); }
+
+                // Track consecutive instant-crashes. A repeated pattern (>=2 in a row) usually
+                // means corrupted browser_data (bad cache/profile files from an abrupt previous
+                // shutdown), not a one-off fluke — confirmed by manually reproducing this on a
+                // customer machine: deleting browser_data and relaunching fixed it immediately.
+                // Offer a one-click repair instead of making support walk through it by hand
+                // every time.
+                try {
+                    const profiles = await fs.readJson(PROFILES_FILE);
+                    const idx = profiles.findIndex(p => p.id === profileId);
+                    if (idx !== -1) {
+                        const streak = (profiles[idx]._consecutiveCrashes || 0) + 1;
+                        profiles[idx]._consecutiveCrashes = streak;
+                        await writeProfilesAtomic(profiles);
+                        if (streak >= 2 && !sender.isDestroyed()) {
+                            sender.send('profile-repair-suggested', { id: profileId, name: profile.name, streak });
+                        }
+                    }
+                } catch (_) {}
             } else {
                 if (chromeLogStream) { try { chromeLogStream.end(); } catch(_) {} }
                 // Real session (not an instant crash) — push cookies to cloud so this
                 // profile can be reopened logged-in on another machine. Fire-and-forget,
                 // runs its own throwaway headless Chrome; never blocks the UI.
                 pushProfileSessionToServer(profileId, userDataDir, chromePath).catch(() => {});
+                // A normal launch means browser_data is fine — clear any crash streak.
+                try {
+                    const profiles = await fs.readJson(PROFILES_FILE);
+                    const idx = profiles.findIndex(p => p.id === profileId);
+                    if (idx !== -1 && profiles[idx]._consecutiveCrashes) {
+                        profiles[idx]._consecutiveCrashes = 0;
+                        await writeProfilesAtomic(profiles);
+                    }
+                } catch (_) {}
             }
 
             if (activeProcesses[profileId]) {

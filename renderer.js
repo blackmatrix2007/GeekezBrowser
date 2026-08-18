@@ -1537,6 +1537,23 @@ async function init() {
         loadProfiles();
     });
 
+    // Repeated instant-crash on launch (>=2 in a row) usually means corrupted browser_data —
+    // offer a one-click repair (backup + reset, then relaunch through the normal flow).
+    window.electronAPI.onProfileRepairSuggested(({ id, name, streak }) => {
+        showConfirm(
+            `Profile "${name}" không mở lên được ${streak} lần liên tiếp.\n\nCó thể do dữ liệu trình duyệt (cache/profile Chrome) bị hỏng. Sửa bằng cách reset dữ liệu?\n\nNếu profile này đã từng đồng bộ cloud, phiên đăng nhập sẽ được khôi phục tự động sau khi mở lại.`,
+            async () => {
+                const res = await window.electronAPI.repairProfile(id);
+                if (res?.success) {
+                    showAlert('Đã sửa xong, đang mở lại profile...');
+                    launch(id);
+                } else {
+                    showAlert('Sửa lỗi thất bại: ' + (res?.error || 'Lỗi không xác định'));
+                }
+            }
+        );
+    });
+
     // API event listeners for remote refresh and launch
     window.electronAPI.onRefreshProfiles(() => {
         console.log('API triggered profile refresh');

@@ -2208,6 +2208,28 @@ app.whenReady().then(async () => {
                 mainWindow.webContents.send('bnc-slots-updated', result.slots);
             }
         }
+        // Hiển thị thông báo mới từ server (Electron OS notification)
+        if (result.notifications && result.notifications.length > 0) {
+            try {
+                const seenFile = path.join(app.getPath('userData'), 'bnc_seen_notif.json');
+                const seen = new Set(fs.existsSync(seenFile) ? fs.readJsonSync(seenFile) : []);
+                const newNotifs = result.notifications.filter(n => !seen.has(n.id));
+                for (const n of newNotifs) {
+                    new Notification({ title: n.title, body: n.body }).show();
+                    seen.add(n.id);
+                }
+                if (newNotifs.length > 0) {
+                    fs.writeJsonSync(seenFile, [...seen].slice(-500));
+                    // Mark đã đọc trên server (fire-and-forget)
+                    bncApiCall('PUT', '/notifications/read', { ids: newNotifs.map(n => n.id) });
+                }
+                // Gửi sang renderer để hiển thị badge + list
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('bnc-notifications-updated', result.notifications);
+                }
+            } catch (_) {}
+        }
+
         // Check version mới
         const r = await bncCheckVersion();
         if (r) checkAndNotifyUpdate(r);

@@ -4,6 +4,7 @@
 // BNC AUTH UI
 // ════════════════════════════════════════════════════════════════════════════
 let _bncAuth = null; // { email, customerId, slots: { totalGranted, slotsUsed, slotsBilled, available, canRun } }
+let _bncNotifications = [];
 
 async function bncInit() {
     // Nhận trạng thái từ main process (gửi sau access check)
@@ -74,6 +75,12 @@ async function bncInit() {
                 loadProfiles();
             }
         }
+    });
+
+    // Nhận notifications từ heartbeat (main.js push mỗi 5 phút)
+    window.electronAPI.onBncNotificationsUpdated((notifs) => {
+        _bncNotifications = notifs || [];
+        _renderNotifBadge();
     });
 
     // Startup sync: main.js đã fetch profiles mới từ server → reload UI
@@ -902,6 +909,12 @@ async function openPaymentModal(planId, price, planName) {
         const fmt  = (n) => new Intl.NumberFormat('vi-VN').format(n);
         const qrUrl = `https://img.vietqr.io/image/${info.bankAcqId}-${info.bankAccountNo}-compact2.png?amount=${price}&addInfo=${encodeURIComponent(info.transferContent)}&accountName=${encodeURIComponent(info.bankAccountName)}`;
 
+        const deviceInfo = info.deviceAddOn || {};
+        const deviceQrUrl = deviceInfo.transferContent
+            ? `https://img.vietqr.io/image/${info.bankAcqId}-${info.bankAccountNo}-compact2.png?amount=${deviceInfo.pricePerDevice}&addInfo=${encodeURIComponent(deviceInfo.transferContent)}&accountName=${encodeURIComponent(info.bankAccountName)}`
+            : null;
+        const bankName = info.bankAccountNo?.startsWith('10') ? 'Vietinbank' : 'Ngân hàng';
+
         content.innerHTML = `
             <div style="margin-bottom:14px;">
                 <div style="font-size:13px;color:#aaa;margin-bottom:4px;">Gói đã chọn</div>
@@ -909,13 +922,23 @@ async function openPaymentModal(planId, price, planName) {
             </div>
             <img src="${qrUrl}" alt="QR" style="width:200px;height:200px;border-radius:10px;margin-bottom:14px;background:#fff;" onerror="this.style.display='none'">
             <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:14px;text-align:left;font-size:13px;line-height:1.8;color:#ccc;margin-bottom:4px;">
-                <div><span style="color:#888;">Ngân hàng:</span> <strong style="color:#fff;">Vietinbank</strong></div>
+                <div><span style="color:#888;">Ngân hàng:</span> <strong style="color:#fff;">${bankName}</strong></div>
                 <div><span style="color:#888;">Số TK:</span> <strong style="color:#00e0ff;">${info.bankAccountNo}</strong></div>
                 <div><span style="color:#888;">Chủ TK:</span> <strong style="color:#fff;">${info.bankAccountName}</strong></div>
                 <div><span style="color:#888;">Số tiền:</span> <strong style="color:#fff;">${fmt(price)}đ</strong></div>
                 <div><span style="color:#888;">Nội dung:</span> <strong style="color:#ff9800;font-family:monospace;font-size:14px;">${info.transferContent}</strong></div>
             </div>
             <div style="font-size:11px;color:#666;margin-top:10px;">Hệ thống tự động gia hạn sau khi nhận được chuyển khoản (thường trong vài phút)</div>
+            ${deviceQrUrl ? `
+            <div style="margin-top:18px;border-top:1px solid rgba(255,255,255,0.07);padding-top:16px;">
+                <div style="font-size:13px;font-weight:600;color:#e0e0e0;margin-bottom:10px;">➕ Thêm thiết bị (+${fmt(deviceInfo.pricePerDevice)}đ/máy)</div>
+                <img src="${deviceQrUrl}" alt="QR thiết bị" style="width:160px;height:160px;border-radius:10px;margin-bottom:10px;background:#fff;" onerror="this.style.display='none'">
+                <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:10px 14px;text-align:left;font-size:12px;line-height:1.8;color:#ccc;">
+                    <div><span style="color:#888;">Số tiền:</span> <strong style="color:#fff;">${fmt(deviceInfo.pricePerDevice)}đ</strong></div>
+                    <div><span style="color:#888;">Nội dung:</span> <strong style="color:#ff9800;font-family:monospace;">${deviceInfo.transferContent}</strong></div>
+                    <div style="margin-top:4px;font-size:11px;color:#555;">${deviceInfo.note || 'D2 = +2 thiết bị, v.v.'}</div>
+                </div>
+            </div>` : ''}
             <button onclick="closePaymentModal(true)" style="margin-top:14px;padding:8px 20px;border-radius:8px;border:1px solid #444;background:transparent;color:#aaa;font-size:13px;cursor:pointer;">← Quay lại</button>
         `;
     } catch (e) {
@@ -4044,3 +4067,68 @@ async function askDataPathAfterActivation() {
     });
 }
 
+
+// ─── Notification Panel ──────────────────────────────────────────────────────
+function _renderNotifBadge() {
+    const badge = document.getElementById('bncNotifBadge');
+    if (!badge) return;
+    const unread = _bncNotifications.filter(n => !n.isRead).length;
+    if (unread > 0) {
+        badge.textContent = unread > 99 ? '99+' : String(unread);
+        badge.style.display = 'block';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+function _renderNotifList() {
+    const list = document.getElementById('bncNotifList');
+    if (!list) return;
+    if (_bncNotifications.length === 0) {
+        list.innerHTML = '<div style="padding:24px 16px;text-align:center;color:#555;font-size:13px;">Chưa có thông báo</div>';
+        return;
+    }
+    list.innerHTML = _bncNotifications.map(n => {
+        const dt = new Date(n.createdAt).toLocaleString('vi-VN', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+        return `<div style="padding:10px 16px;border-bottom:1px solid rgba(255,255,255,0.05);${!n.isRead ? 'background:rgba(0,224,255,0.04);' : ''}">
+            <div style="font-size:13px;font-weight:${!n.isRead ? '600' : '400'};color:${!n.isRead ? '#e0e0e0' : '#aaa'};">${n.title}</div>
+            <div style="font-size:12px;color:#888;margin-top:3px;line-height:1.5;">${n.body}</div>
+            <div style="font-size:10px;color:#555;margin-top:5px;">${dt}</div>
+        </div>`;
+    }).join('');
+}
+
+function toggleNotifPanel() {
+    const panel = document.getElementById('bncNotifPanel');
+    const btn   = document.getElementById('bncBellBtn');
+    if (!panel || !btn) return;
+    if (panel.style.display === 'none') {
+        const rect = btn.getBoundingClientRect();
+        panel.style.top  = (rect.bottom + 6) + 'px';
+        panel.style.right = (window.innerWidth - rect.right - 4) + 'px';
+        panel.style.left = 'auto';
+        panel.style.display = 'block';
+        _renderNotifList();
+        // Đóng dropdown user nếu đang mở
+        const ud = document.getElementById('bncUserDropdown');
+        if (ud) ud.style.display = 'none';
+    } else {
+        panel.style.display = 'none';
+    }
+}
+
+// Đóng panel khi click ra ngoài
+document.addEventListener('click', (e) => {
+    const panel = document.getElementById('bncNotifPanel');
+    const btn   = document.getElementById('bncBellBtn');
+    if (panel && btn && !panel.contains(e.target) && !btn.contains(e.target)) {
+        panel.style.display = 'none';
+    }
+}, true);
+
+async function markAllNotifsRead() {
+    _bncNotifications.forEach(n => { n.isRead = true; });
+    _renderNotifBadge();
+    _renderNotifList();
+    try { await window.electronAPI.bncMarkNotificationsRead([]); } catch (_) {}
+}

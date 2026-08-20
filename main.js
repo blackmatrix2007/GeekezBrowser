@@ -2220,10 +2220,8 @@ app.whenReady().then(async () => {
                 }
                 if (newNotifs.length > 0) {
                     fs.writeJsonSync(seenFile, [...seen].slice(-500));
-                    // Mark đã đọc trên server (fire-and-forget)
-                    bncApiCall('PUT', '/notifications/read', { ids: newNotifs.map(n => n.id) });
                 }
-                // Gửi sang renderer để hiển thị badge + list
+                // Gửi sang renderer để hiển thị badge + list (kể cả đã seen qua OS notification)
                 if (mainWindow && !mainWindow.isDestroyed()) {
                     mainWindow.webContents.send('bnc-notifications-updated', result.notifications);
                 }
@@ -2428,6 +2426,11 @@ ipcMain.handle('bnc-get-plans', async () => {
             req.end();
         });
     } catch (_) { return []; }
+});
+
+// Mark notifications đã đọc trên server
+ipcMain.handle('bnc-mark-notifications-read', async (_, ids) => {
+    return await bncApiCall('PUT', '/notifications/read', { ids: ids || [] });
 });
 
 // Thông tin thanh toán (bank)

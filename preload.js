@@ -68,6 +68,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onProfileSyncStatus: (cb) => ipcRenderer.on('profile-sync-status', (_, data) => cb(data)),
     onBncSlotsUpdated: (cb) => ipcRenderer.on('bnc-slots-updated', (_, data) => cb(data)),
     onBncProfilesReloaded: (cb) => ipcRenderer.on('bnc-profiles-reloaded', () => cb()),
+    onBncNotificationsUpdated: (cb) => ipcRenderer.on('bnc-notifications-updated', (_, data) => cb(data)),
+    bncMarkNotificationsRead: (ids) => ipcRenderer.invoke('bnc-mark-notifications-read', ids),
     // ─── Team / Workspace ────────────────────────────────────────────────────
     teamInvite: (data) => ipcRenderer.invoke('bnc-team-invite', data),
     teamGetMembers: () => ipcRenderer.invoke('bnc-team-get-members'),

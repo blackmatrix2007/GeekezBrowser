@@ -1477,6 +1477,19 @@
             <div id="workspaceBar" style="display:none !important;"></div>
             <!-- Current plan pill -->
             <div id="bncPlanPill" onclick="toggleBncUserMenu()" style="display:none;font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;background:rgba(0,224,255,0.1);color:#00e0ff;border:1px solid rgba(0,224,255,0.25);cursor:pointer;white-space:nowrap;user-select:none;" title="Gói đang dùng"></div>
+            <!-- Notification bell -->
+            <div id="bncBellBtn" onclick="toggleNotifPanel()" style="position:relative;width:30px;height:30px;display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:50%;color:#888;font-size:16px;flex-shrink:0;-webkit-app-region:no-drag;" title="Thông báo" onmouseover="this.style.color='#ccc'" onmouseout="this.style.color='#888'">
+                🔔
+                <span id="bncNotifBadge" style="display:none;position:absolute;top:0;right:0;min-width:16px;height:16px;border-radius:8px;background:#f44336;color:#fff;font-size:9px;font-weight:700;text-align:center;line-height:16px;padding:0 3px;">0</span>
+            </div>
+            <!-- Notification panel -->
+            <div id="bncNotifPanel" style="display:none;position:fixed;width:320px;max-height:420px;overflow-y:auto;background:#1e2535;border:1px solid rgba(255,255,255,0.1);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,0.6);z-index:9200;-webkit-app-region:no-drag;">
+                <div style="padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.07);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:#1e2535;z-index:1;">
+                    <span style="font-size:13px;font-weight:600;color:#e0e0e0;">Thông báo</span>
+                    <span onclick="markAllNotifsRead()" style="font-size:11px;color:#00e0ff;cursor:pointer;padding:2px 6px;border-radius:4px;" onmouseover="this.style.background='rgba(0,224,255,0.1)'" onmouseout="this.style.background='transparent'">Đọc tất cả</span>
+                </div>
+                <div id="bncNotifList"></div>
+            </div>
             <!-- Avatar button -->
             <div id="bncAvatarBtn" onclick="toggleBncUserMenu()" style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#00e0ff,#0055ff);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;cursor:pointer;user-select:none;flex-shrink:0;" title="Tài khoản">
                 <span id="bncAvatarInitial">?</span>

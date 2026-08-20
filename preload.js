@@ -70,6 +70,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onBncProfilesReloaded: (cb) => ipcRenderer.on('bnc-profiles-reloaded', () => cb()),
     onBncNotificationsUpdated: (cb) => ipcRenderer.on('bnc-notifications-updated', (_, data) => cb(data)),
     bncMarkNotificationsRead: (ids) => ipcRenderer.invoke('bnc-mark-notifications-read', ids),
+    // Auto-updater events
+    onUpdateDownloading: (cb) => ipcRenderer.on('update-downloading', (_, data) => cb(data)),
+    onUpdateProgress:    (cb) => ipcRenderer.on('update-progress',    (_, data) => cb(data)),
+    onUpdateReady:       (cb) => ipcRenderer.on('update-ready',       (_, data) => cb(data)),
+    installAppUpdate:    ()   => ipcRenderer.invoke('install-app-update'),
     // ─── Team / Workspace ────────────────────────────────────────────────────
     teamInvite: (data) => ipcRenderer.invoke('bnc-team-invite', data),
     teamGetMembers: () => ipcRenderer.invoke('bnc-team-get-members'),

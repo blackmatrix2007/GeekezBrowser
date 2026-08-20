@@ -77,6 +77,33 @@ async function bncInit() {
         }
     });
 
+    // ── Auto-updater events ───────────────────────────────────────────────────
+    window.electronAPI.onUpdateDownloading(({ version }) => {
+        const bar = document.getElementById('updateBar');
+        const txt = document.getElementById('updateBarText');
+        const prog = document.getElementById('updateProgressWrap');
+        if (bar) bar.style.display = 'flex';
+        if (txt) txt.textContent = `Đang tải v${version}...`;
+        if (prog) prog.style.display = 'block';
+    });
+    window.electronAPI.onUpdateProgress(({ percent }) => {
+        const p = document.getElementById('updateProgressBar');
+        const t = document.getElementById('updateBarText');
+        if (p) p.style.width = percent + '%';
+        if (t) t.textContent = `Đang tải... ${percent}%`;
+    });
+    window.electronAPI.onUpdateReady(({ version }) => {
+        const bar  = document.getElementById('updateBar');
+        const txt  = document.getElementById('updateBarText');
+        const prog = document.getElementById('updateProgressWrap');
+        const btn  = document.getElementById('updateInstallBtn');
+        if (bar)  bar.style.display = 'flex';
+        if (txt)  txt.textContent = `v${version} sẵn sàng`;
+        if (prog) prog.style.display = 'none';
+        if (btn)  btn.style.display = 'inline-block';
+        showBncToast(`🎉 BNC Browser v${version} đã sẵn sàng cài đặt`, 8000);
+    });
+
     // Nhận notifications từ heartbeat (main.js push mỗi 5 phút)
     window.electronAPI.onBncNotificationsUpdated((notifs) => {
         _bncNotifications = notifs || [];
@@ -4131,4 +4158,9 @@ async function markAllNotifsRead() {
     _renderNotifBadge();
     _renderNotifList();
     try { await window.electronAPI.bncMarkNotificationsRead([]); } catch (_) {}
+}
+
+// ─── Trigger install from UI ─────────────────────────────────────────────────
+async function triggerInstallUpdate() {
+    try { await window.electronAPI.installAppUpdate(); } catch (_) {}
 }

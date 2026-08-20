@@ -1475,6 +1475,14 @@
             </div>
             <!-- Workspace selector ở top bar đã được tháo — switch ở sidebar leftmenu -->
             <div id="workspaceBar" style="display:none !important;"></div>
+            <!-- Update status bar (ẩn mặc định, hiện khi có update) -->
+            <div id="updateBar" style="display:none;align-items:center;gap:8px;padding:3px 10px;border-radius:20px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.35);font-size:11px;color:#a5b4fc;white-space:nowrap;cursor:default;">
+                <span id="updateBarText">Đang tải bản mới...</span>
+                <div id="updateProgressWrap" style="display:none;width:60px;height:4px;background:rgba(255,255,255,0.1);border-radius:2px;">
+                    <div id="updateProgressBar" style="height:4px;background:#6366f1;border-radius:2px;width:0%;transition:width 0.3s;"></div>
+                </div>
+                <button id="updateInstallBtn" onclick="triggerInstallUpdate()" style="display:none;padding:2px 8px;border-radius:10px;border:1px solid #6366f1;background:rgba(99,102,241,0.2);color:#a5b4fc;font-size:11px;cursor:pointer;">Cài ngay</button>
+            </div>
             <!-- Current plan pill -->
             <div id="bncPlanPill" onclick="toggleBncUserMenu()" style="display:none;font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;background:rgba(0,224,255,0.1);color:#00e0ff;border:1px solid rgba(0,224,255,0.25);cursor:pointer;white-space:nowrap;user-select:none;" title="Gói đang dùng"></div>
             <!-- Notification bell -->

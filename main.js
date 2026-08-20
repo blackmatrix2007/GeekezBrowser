@@ -450,48 +450,88 @@ function showBncLoginDialog(access) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─── Update Check ────────────────────────────────────────────────────────────
-let updateShownThisSession = false;
+// ─── Auto Updater — electron-updater, generic provider yttool.vn/updates ─────
+const { autoUpdater } = require('electron-updater');
 
-// Kiểm tra version từ yttool.vn và hiện dialog nếu có bản mới — chỉ hiện 1 lần/session
-async function checkAndNotifyUpdate(versionResult) {
-    if (updateShownThisSession || !versionResult?.version) return;
+function setupAutoUpdater() {
+    autoUpdater.autoDownload    = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.logger          = null; // tắt log verbose của electron-updater
 
-    const current = app.getVersion();
-    const latest = versionResult.version;
-    const isOutdated = latest.localeCompare(current, undefined, { numeric: true, sensitivity: 'base' }) > 0;
-    debugLog('UPDATE_CHECK', { current, latest, isOutdated });
-    if (!isOutdated) return;
-
-    const forceUpdate = versionResult.forceUpdate === true;
-
-    if (!forceUpdate) {
-        try {
-            const skipped = fs.existsSync(SKIPPED_UPDATE_FILE)
-                ? fs.readFileSync(SKIPPED_UPDATE_FILE, 'utf8').trim() : null;
-            if (skipped === latest) return;
-        } catch (_) {}
-    }
-
-    updateShownThisSession = true;
-    const downloadUrl = versionResult.downloadUrl || 'https://yttool.vn';
-    const notes = versionResult.releaseNotes ? `\n\n${versionResult.releaseNotes}` : '';
-    const buttons = forceUpdate ? ['Tải ngay'] : ['Tải ngay', 'Bỏ qua phiên bản này'];
-
-    const { response } = await dialog.showMessageBox({
-        type: 'info',
-        title: `Có phiên bản mới — v${latest}`,
-        message: `BNC Browser ${latest} đã sẵn sàng`,
-        detail: `Bạn đang dùng v${current}. Tải phiên bản mới để có trải nghiệm tốt hơn.${notes}`,
-        buttons, defaultId: 0, cancelId: forceUpdate ? 0 : 1, noLink: true,
+    autoUpdater.on('update-available', (info) => {
+        console.log(`[UPDATE] Bản mới: v${info.version} — đang tải ngầm...`);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('update-downloading', { version: info.version });
+        }
     });
 
-    if (response === 0) {
-        shell.openExternal(downloadUrl);
-        if (forceUpdate) setTimeout(() => app.quit(), 1500);
-    } else if (!forceUpdate && response === 1) {
-        try { fs.writeFileSync(SKIPPED_UPDATE_FILE, latest, 'utf8'); } catch (_) {}
-        setTimeout(() => { updateShownThisSession = false; }, 60 * 60 * 1000);
-    }
+    autoUpdater.on('download-progress', (progress) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('update-progress', { percent: Math.round(progress.percent) });
+        }
+    });
+
+    autoUpdater.on('update-downloaded', async (info) => {
+        console.log(`[UPDATE] Đã tải xong v${info.version}`);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('update-ready', { version: info.version });
+        }
+        // Lấy forceUpdate + releaseNotes từ BNC server
+        const versionResult = await bncCheckVersion().catch(() => null);
+        const forceUpdate   = versionResult?.forceUpdate === true;
+        const notes         = versionResult?.releaseNotes || info.releaseNotes || '';
+        const noteText      = notes ? `\n\n${notes}` : '';
+
+        if (forceUpdate) {
+            await dialog.showMessageBox({
+                type: 'warning',
+                title: 'Cập nhật bắt buộc',
+                message: `BNC Browser v${info.version} yêu cầu cập nhật bắt buộc`,
+                detail: `Ứng dụng sẽ tự động khởi động lại ngay bây giờ.${noteText}`,
+                buttons: ['Cài ngay'],
+            });
+            autoUpdater.quitAndInstall(false, true);
+            return;
+        }
+
+        const { response } = await dialog.showMessageBox({
+            type: 'info',
+            title: `Cập nhật sẵn sàng — v${info.version}`,
+            message: `BNC Browser ${info.version} đã tải về thành công`,
+            detail: `Click "Cài & Khởi động lại" để áp dụng.${noteText}`,
+            buttons: ['Cài & Khởi động lại', 'Để sau'],
+            defaultId: 0, cancelId: 1,
+        });
+        if (response === 0) autoUpdater.quitAndInstall(false, true);
+    });
+
+    autoUpdater.on('error', (err) => {
+        console.error('[UPDATE] electron-updater error:', err.message);
+        // Fallback: mở browser để tải tay
+        bncCheckVersion().then(v => { if (v) _checkVersionFallback(v); }).catch(() => {});
+    });
+}
+
+// Fallback khi electron-updater không hoạt động — mở browser
+async function _checkVersionFallback(versionResult) {
+    if (!versionResult?.version) return;
+    const current    = app.getVersion();
+    const isOutdated = versionResult.version.localeCompare(current, undefined, { numeric: true, sensitivity: 'base' }) > 0;
+    if (!isOutdated) return;
+    const notes = versionResult.releaseNotes ? `\n\n${versionResult.releaseNotes}` : '';
+    const { response } = await dialog.showMessageBox({
+        type: 'info',
+        title: `Có phiên bản mới — v${versionResult.version}`,
+        message: `BNC Browser ${versionResult.version} đã sẵn sàng`,
+        detail: `Bạn đang dùng v${current}.${notes}`,
+        buttons: ['Tải ngay', 'Để sau'], defaultId: 0, cancelId: 1,
+    });
+    if (response === 0) shell.openExternal(versionResult.downloadUrl || 'https://yttool.vn');
+}
+
+// Tương thích ngược — giữ hàm cũ để không break các call site còn lại
+function checkAndNotifyUpdate(versionResult) {
+    return _checkVersionFallback(versionResult);
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2117,12 +2157,19 @@ app.whenReady().then(async () => {
         console.error('Failed to auto-start Internal Guard Server:', e);
     }
 
-    // ── BNC Subscription Check + Update Check ──────────────────────────────────
+    // ── Auto Updater ────────────────────────────────────────────────────────────
+    setupAutoUpdater();
+    // Check ngay khi khởi động (sau khi mainWindow đã sẵn sàng)
+    setTimeout(() => { autoUpdater.checkForUpdates().catch(() => {}); }, 5000);
+    // Check lại mỗi 4 giờ
+    setInterval(() => { autoUpdater.checkForUpdates().catch(() => {}); }, 4 * 60 * 60 * 1000);
+
+    // ── BNC Subscription Check ──────────────────────────────────────────────────
     const [bncAccess, versionResult] = await Promise.all([
         bncCheckAccess(),
         bncCheckVersion(),
     ]);
-    if (versionResult) checkAndNotifyUpdate(versionResult);
+    // bncCheckVersion chỉ dùng để lấy releaseNotes/forceUpdate, electron-updater lo phần download/install
 
     debugLog('BNC_STARTUP', { allowed: bncAccess.allowed, reason: bncAccess.reason, offlineMode: bncAccess.offlineMode || false });
 
@@ -2426,6 +2473,11 @@ ipcMain.handle('bnc-get-plans', async () => {
             req.end();
         });
     } catch (_) { return []; }
+});
+
+// Trigger install update từ renderer (user click "Cài ngay" trong UI)
+ipcMain.handle('install-app-update', () => {
+    autoUpdater.quitAndInstall(false, true);
 });
 
 // Mark notifications đã đọc trên server

@@ -90,7 +90,6 @@ _Updated: 2026-05-06_
 |---------|-------------|
 | `get-settings`, `save-settings` | App settings (JSON file) |
 | `get-chrome-path`, `select-chrome-binary` | Chrome binary selection |
-| `check-fingerprint-chromium`, `download-fingerprint-chromium` | FP Chromium management |
 | `check-chrome-for-testing`, `download-chrome-for-testing` | CfT management |
 
 ### Misc

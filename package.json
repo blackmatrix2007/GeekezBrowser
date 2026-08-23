@@ -8,22 +8,27 @@
     "start": "electron .",
     "postinstall": "node setup.js",
     "build:win": "electron-builder --win",
+    "build:win:publish": "dotenv -e .env -- electron-builder --win --publish always",
     "build:mac": "electron-builder --mac",
+    "build:mac:publish": "dotenv -e .env -- electron-builder --mac --publish always",
     "build:macarm": "electron-builder --mac --arm64",
     "build:macintel": "electron-builder --mac --x64",
     "build:macall": "electron-builder --mac --arm64 --x64",
+    "build:macall:publish": "dotenv -e .env -- electron-builder --mac --arm64 --x64 --publish always",
     "build:linux": "electron-builder --linux"
   },
   "build": {
     "appId": "com.geekez.browser.slot",
     "productName": "BNC",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "afterPack": "./build/afterPack.js",
     "publish": {
-      "provider": "generic",
-      "url": "https://yttool.vn/updates"
+      "provider": "github",
+      "owner": "vietnamairlineit-byte",
+      "repo": "bnc-release"
     },
     "directories": {
-      "output": "dist"
+      "output": "/tmp/bnc-dist"
     },
     "files": [
       "**/*",
@@ -81,7 +86,7 @@
       "include": "build/installer.nsh"
     },
     "mac": {
-      "target": "dmg",
+      "target": ["dmg", "zip"],
       "icon": "icon.icns"
     },
     "dmg": {
@@ -131,6 +136,7 @@
     "uuid": "^9.0.1"
   },
   "devDependencies": {
+    "dotenv-cli": "^11.0.0",
     "electron": "^39.0.0",
     "electron-builder": "^24.13.3"
   },

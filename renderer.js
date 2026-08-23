@@ -10,7 +10,7 @@ async function bncInit() {
     // Nhận trạng thái từ main process (gửi sau access check)
     window.electronAPI.onBncAuthState(async (state) => {
         if (!state.isLoggedIn) {
-            showBncLoginOverlay();
+            showBncLoginOverlay(state.reason);
         } else {
             hideBncLoginOverlay();
             await bncLoadUserInfo();
@@ -136,12 +136,23 @@ async function bncInit() {
     });
 }
 
-function showBncLoginOverlay() {
+function showBncLoginOverlay(reason) {
     const overlay = document.getElementById('bncLoginOverlay');
-    if (overlay) {
-        overlay.style.display = 'flex';
-        setTimeout(() => document.getElementById('bncEmailInput')?.focus(), 300);
+    if (!overlay) return;
+    overlay.style.display = 'flex';
+    const notice = document.getElementById('bncLoginNotice');
+    if (notice) {
+        if (reason === 'device_kicked') {
+            notice.textContent = 'Thiết bị khác vừa đăng nhập vào tài khoản của bạn. Vui lòng đăng nhập lại.';
+            notice.style.cssText = 'display:block;margin-bottom:16px;padding:10px 14px;border-radius:8px;font-size:13px;font-weight:500;background:rgba(255,180,0,0.12);border:1px solid rgba(255,180,0,0.35);color:#ffb400;';
+        } else if (reason === 'token_invalid') {
+            notice.textContent = 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
+            notice.style.cssText = 'display:block;margin-bottom:16px;padding:10px 14px;border-radius:8px;font-size:13px;font-weight:500;background:rgba(0,224,255,0.08);border:1px solid rgba(0,224,255,0.2);color:#00e0ff;';
+        } else {
+            notice.style.display = 'none';
+        }
     }
+    setTimeout(() => document.getElementById('bncEmailInput')?.focus(), 300);
 }
 
 function hideBncLoginOverlay() {
@@ -941,6 +952,7 @@ async function openPaymentModal(planId, price, planName) {
             ? `https://img.vietqr.io/image/${info.bankAcqId}-${info.bankAccountNo}-compact2.png?amount=${deviceInfo.pricePerDevice}&addInfo=${encodeURIComponent(deviceInfo.transferContent)}&accountName=${encodeURIComponent(info.bankAccountName)}`
             : null;
         const bankName = info.bankAccountNo?.startsWith('10') ? 'Vietinbank' : 'Ngân hàng';
+        const ls = info.lemonSqueezy || {};
 
         content.innerHTML = `
             <div style="margin-bottom:14px;">
@@ -966,8 +978,23 @@ async function openPaymentModal(planId, price, planName) {
                     <div style="margin-top:4px;font-size:11px;color:#555;">${deviceInfo.note || 'D2 = +2 thiết bị, v.v.'}</div>
                 </div>
             </div>` : ''}
+            ${(ls.monthly?.url || ls.annual?.url) ? `
+            <div style="margin-top:18px;border-top:1px solid rgba(255,255,255,0.07);padding-top:16px;">
+                <div style="font-size:13px;font-weight:600;color:#e0e0e0;margin-bottom:10px;">🌍 Hoặc thanh toán quốc tế (thẻ/PayPal)</div>
+                <div style="display:flex;gap:8px;justify-content:center;">
+                    ${ls.monthly?.url ? `<button data-ls-plan="monthly" style="padding:8px 16px;border-radius:8px;border:1px solid #00e0ff;background:rgba(0,224,255,0.1);color:#00e0ff;font-size:13px;cursor:pointer;">$${ls.monthly.price}/tháng</button>` : ''}
+                    ${ls.annual?.url ? `<button data-ls-plan="annual" style="padding:8px 16px;border-radius:8px;border:1px solid #00e0ff;background:rgba(0,224,255,0.1);color:#00e0ff;font-size:13px;cursor:pointer;">$${ls.annual.price}/năm</button>` : ''}
+                </div>
+                <div style="font-size:11px;color:#666;margin-top:8px;">Mở trình duyệt để thanh toán an toàn — hệ thống tự động kích hoạt sau khi xác nhận</div>
+            </div>` : ''}
             <button onclick="closePaymentModal(true)" style="margin-top:14px;padding:8px 20px;border-radius:8px;border:1px solid #444;background:transparent;color:#aaa;font-size:13px;cursor:pointer;">← Quay lại</button>
         `;
+
+        // Mở trình duyệt hệ thống (không nhúng webview trong app) khi bấm nút quốc tế
+        content.querySelectorAll('[data-ls-plan]').forEach(btn => {
+            const url = ls[btn.dataset.lsPlan]?.url;
+            if (url) btn.addEventListener('click', () => window.electronAPI.invoke('open-url', url));
+        });
     } catch (e) {
         content.innerHTML = `<div style="color:#f44336;padding:20px 0;">Lỗi tải thông tin thanh toán.<br><button onclick="closePaymentModal(true)" style="margin-top:12px;padding:8px 20px;border-radius:8px;border:1px solid #444;background:transparent;color:#aaa;font-size:13px;cursor:pointer;">← Quay lại</button></div>`;
     }
@@ -979,13 +1006,15 @@ function closePaymentModal(backToPlans) {
     if (backToPlans) showPlansPage(); else showProfilesPage();
 }
 
-// Poll server sau khi thanh toán — tối đa 3 phút, mỗi 5 giây
-// Phát hiện thanh toán bằng cách so sánh totalGranted tăng lên
+// Poll server sau khi thanh toán — tối đa 5 phút, mỗi 5 giây
+// Phát hiện thanh toán bằng: totalGranted tăng HOẶC canRun lên 9999 HOẶC có sub mới
 let _paymentPollTimer = null;
 function startPaymentPoll() {
     const knownGranted = _bncAuth?.slots?.totalGranted || 0;
+    const knownCanRun  = _bncAuth?.slots?.canRun ?? 0;
+    const pollStartMs  = Date.now();
     let attempts = 0;
-    const MAX = 36; // 36 × 5s = 3 phút
+    const MAX = 60; // 60 × 5s = 5 phút
 
     // Hiện toast báo đang chờ
     showBncToast('⏳ Đang chờ xác nhận thanh toán...', 0);
@@ -996,7 +1025,9 @@ function startPaymentPoll() {
         try {
             const result = await window.electronAPI.bncGetSubscriptions();
             const slots = result.slots || null;
-            if (slots && slots.totalGranted > knownGranted) {
+            const hasNewSub  = (result.latestSubMs || 0) > pollStartMs;
+            const justGotSub = slots && (slots.canRun >= 9999) && (knownCanRun < 9999);
+            if (slots && (slots.totalGranted > knownGranted || hasNewSub || justGotSub)) {
                 clearInterval(_paymentPollTimer);
                 _paymentPollTimer = null;
 

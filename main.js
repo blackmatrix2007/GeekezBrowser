@@ -93,7 +93,6 @@ async function writeProfilesAtomic(profiles) {
 
 // ─── Update Check ────────────────────────────────────────────────────────────
 const DATA_PATH_CONFIRMED   = path.join(app.getPath('userData'), '.data_path_confirmed');
-const SKIPPED_UPDATE_FILE   = path.join(app.getPath('userData'), '.skipped_update_version');
 
 // ─── BNC Auth ────────────────────────────────────────────────────────────────
 const BNC_API       = 'https://yttool.vn/api/bnc';
@@ -167,9 +166,8 @@ async function bncLogin(email, password) {
 }
 
 // Ping server để verify token + lấy slots mới nhất — trả về { slots, _statusCode } hoặc null
-async function bncPingServer() {
-    const auth = getSavedBncAuth();
-    if (!auth || !auth.accessToken) return null;
+// Gọi /subscription một lần với token cụ thể (không retry)
+async function _bncPingOnce(accessToken) {
     try {
         return await new Promise((resolve) => {
             const url = new URL(BNC_API + '/subscription');
@@ -178,7 +176,7 @@ async function bncPingServer() {
                 path: url.pathname,
                 method: 'GET',
                 headers: {
-                    'Authorization': 'Bearer ' + auth.accessToken,
+                    'Authorization': 'Bearer ' + accessToken,
                     'x-device-id': getDeviceId(),
                     'x-app-version': app.getVersion(),
                 },
@@ -193,6 +191,53 @@ async function bncPingServer() {
             req.setTimeout(8000, () => { req.destroy(); resolve(null); });
             req.end();
         });
+    } catch (_) { return null; }
+}
+
+// Đổi refreshToken lấy accessToken mới — không cần auth header
+async function bncRefreshToken() {
+    const auth = getSavedBncAuth();
+    if (!auth?.refreshToken) return null;
+    try {
+        const bodyStr = JSON.stringify({ refreshToken: auth.refreshToken, deviceId: getDeviceId() });
+        return await new Promise((resolve) => {
+            const url = new URL(BNC_API + '/refresh');
+            const req = https.request({
+                hostname: url.hostname,
+                path: url.pathname,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(bodyStr) },
+            }, (res) => {
+                let data = '';
+                res.on('data', c => data += c);
+                res.on('end', () => {
+                    try { resolve({ ...JSON.parse(data), _statusCode: res.statusCode }); } catch (_) { resolve(null); }
+                });
+            });
+            req.on('error', () => resolve(null));
+            req.setTimeout(8000, () => { req.destroy(); resolve(null); });
+            req.write(bodyStr);
+            req.end();
+        });
+    } catch (_) { return null; }
+}
+
+async function bncPingServer() {
+    const auth = getSavedBncAuth();
+    if (!auth || !auth.accessToken) return null;
+    try {
+        let result = await _bncPingOnce(auth.accessToken);
+
+        // Token hết hạn → thử refresh tự động
+        if (result && (result._statusCode === 401 || result._statusCode === 403)) {
+            const refreshed = await bncRefreshToken();
+            if (refreshed?._statusCode === 200 && refreshed.accessToken) {
+                saveBncAuth({ ...auth, accessToken: refreshed.accessToken, refreshToken: refreshed.refreshToken, savedAt: new Date().toISOString() });
+                result = await _bncPingOnce(refreshed.accessToken);
+            }
+        }
+
+        return result;
     } catch (_) { return null; }
 }
 
@@ -240,9 +285,10 @@ async function bncCheckAccess() {
 
     const result = await bncPingServer();
 
-    if (result && result._statusCode === 401) {
+    if (result && (result._statusCode === 401 || result._statusCode === 403)) {
         try { fs.removeSync(BNC_AUTH_FILE); } catch (_) {}
-        return { allowed: false, reason: 'token_invalid' };
+        const reason = result.reason === 'device_kicked' ? 'device_kicked' : 'token_invalid';
+        return { allowed: false, reason };
     }
 
     if (!result) {
@@ -456,6 +502,7 @@ const { autoUpdater } = require('electron-updater');
 function setupAutoUpdater() {
     autoUpdater.autoDownload    = true;
     autoUpdater.autoInstallOnAppQuit = true;
+
     autoUpdater.logger          = null; // tắt log verbose của electron-updater
 
     autoUpdater.on('update-available', (info) => {
@@ -490,7 +537,7 @@ function setupAutoUpdater() {
                 detail: `Ứng dụng sẽ tự động khởi động lại ngay bây giờ.${noteText}`,
                 buttons: ['Cài ngay'],
             });
-            autoUpdater.quitAndInstall(false, true);
+            app.quit();
             return;
         }
 
@@ -502,7 +549,7 @@ function setupAutoUpdater() {
             buttons: ['Cài & Khởi động lại', 'Để sau'],
             defaultId: 0, cancelId: 1,
         });
-        if (response === 0) autoUpdater.quitAndInstall(false, true);
+        if (response === 0) app.quit();
     });
 
     autoUpdater.on('error', (err) => {
@@ -953,7 +1000,7 @@ async function handleApiRequest(method, pathname, body, params) {
 }
 
 // API Server IPC handlers
-ipcMain.handle('start-api-server', async (e, { port }) => {
+ipcMain.handle('start-api-server', async (_, { port }) => {
     if (apiServerRunning) {
         return { success: false, error: 'API server already running' };
     }
@@ -2220,7 +2267,7 @@ app.whenReady().then(async () => {
     setInterval(async () => {
         const result = await bncPingServer();
         if (!result) return; // offline
-        if (result._statusCode === 401) {
+        if (result._statusCode === 401 || result._statusCode === 403) {
             try { fs.removeSync(BNC_AUTH_FILE); } catch (_) {}
             dialog.showMessageBox({
                 type: 'warning',
@@ -2350,7 +2397,9 @@ ipcMain.handle('bnc-login', async (_, { email, password }) => {
     const slots = result.slots || { totalGranted: 0, slotsUsed: 0, available: 0 };
     const teams = result.teams || [];
     saveBncAuth({
-        accessToken: result.accessToken, email, customerId, slots,
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken || null,
+        email, customerId, slots,
         teams,
         activeWorkspace: 'own',
         savedAt: new Date().toISOString(),
@@ -2451,9 +2500,16 @@ ipcMain.handle('bnc-get-auth', async () => {
 ipcMain.handle('bnc-get-subscriptions', async () => {
     const result = await bncPingServer();
     const auth = getSavedBncAuth();
-    const freshSlots = result?._statusCode !== 401 ? result?.slots : null;
+    const freshSlots = (result?._statusCode === 401 || result?._statusCode === 403) ? null : result?.slots;
     if (freshSlots && auth) saveBncAuth({ ...auth, slots: freshSlots });
-    return { slots: freshSlots || auth?.slots || { totalGranted: 0, slotsUsed: 0, available: 0 } };
+    // Trả thêm latestSubMs để renderer phát hiện sub mới tạo sau khi modal mở
+    const latestSubMs = result?.subscriptions?.length
+        ? Math.max(...result.subscriptions.map(s => new Date(s.startDate || s.start_date || 0).getTime()))
+        : (result?.subscription?.startDate ? new Date(result.subscription.startDate).getTime() : 0);
+    return {
+        slots: freshSlots || auth?.slots || { totalGranted: 0, slotsUsed: 0, available: 0 },
+        latestSubMs: latestSubMs || 0,
+    };
 });
 
 // Danh sách plans
@@ -2477,7 +2533,7 @@ ipcMain.handle('bnc-get-plans', async () => {
 
 // Trigger install update từ renderer (user click "Cài ngay" trong UI)
 ipcMain.handle('install-app-update', () => {
-    autoUpdater.quitAndInstall(false, true);
+    app.quit();
 });
 
 // Mark notifications đã đọc trên server
@@ -2485,15 +2541,23 @@ ipcMain.handle('bnc-mark-notifications-read', async (_, ids) => {
     return await bncApiCall('PUT', '/notifications/read', { ids: ids || [] });
 });
 
-// Thông tin thanh toán (bank)
+// Thông tin thanh toán (bank + Lemon Squeezy — link quốc tế lấy từ server vì
+// cần backend gắn customerId vào custom_data cho webhook nhận diện đúng người mua)
 ipcMain.handle('bnc-get-payment-info', async () => {
     const auth = getSavedBncAuth();
-    return {
+    const info = {
         bankAcqId: '970415',
         bankAccountNo: '102876221138',
         bankAccountName: 'NGO VAN PHUC',
         transferContent: auth?.customerId ? `BNC${auth.customerId}` : 'BNC',
     };
+    try {
+        const remote = await bncApiCall('GET', '/payment-info');
+        if (remote?._statusCode === 200 && remote.lemonSqueezy) {
+            info.lemonSqueezy = remote.lemonSqueezy;
+        }
+    } catch (_) { /* QR ngân hàng vẫn hiển thị bình thường nếu backend lỗi */ }
+    return info;
 });
 // ─── BNC Sync Profiles (manual / debug) ──────────────────────────────────────
 ipcMain.handle('bnc-sync-profiles', async () => {
@@ -3426,7 +3490,7 @@ ipcMain.handle('add-user-extension', async (e, extPath) => {
     }
     return true;
 });
-ipcMain.handle('remove-user-extension', async (e, extPath) => {
+ipcMain.handle('remove-user-extension', async (_, extPath) => {
     if (!fs.existsSync(SETTINGS_FILE)) return true;
     const settings = await fs.readJson(SETTINGS_FILE);
     if (settings.userExtensions) {
@@ -3440,7 +3504,7 @@ ipcMain.handle('get-user-extensions', async () => {
     const settings = await fs.readJson(SETTINGS_FILE);
     return settings.userExtensions || [];
 });
-ipcMain.handle('open-url', async (e, url) => { await shell.openExternal(url); });
+ipcMain.handle('open-url', async (_, url) => { await shell.openExternal(url); });
 
 // --- 自定义数据目录 ---
 ipcMain.handle('get-data-path-info', async () => {
@@ -3459,7 +3523,7 @@ ipcMain.handle('select-data-directory', async () => {
     return filePaths && filePaths.length > 0 ? filePaths[0] : null;
 });
 
-ipcMain.handle('set-data-directory', async (e, { newPath, migrate }) => {
+ipcMain.handle('set-data-directory', async (_, { newPath, migrate }) => {
     try {
         // 验证路径
         if (!newPath) {
@@ -3654,7 +3718,7 @@ ipcMain.handle('get-export-profiles', async () => {
 });
 
 // 导出选定环境 (精简版，不含浏览器数据)
-ipcMain.handle('export-selected-data', async (e, { type, profileIds }) => {
+ipcMain.handle('export-selected-data', async (_, { type, profileIds }) => {
     const allProfiles = fs.existsSync(PROFILES_FILE) ? await fs.readJson(PROFILES_FILE) : [];
     const settings = fs.existsSync(SETTINGS_FILE) ? await fs.readJson(SETTINGS_FILE) : { preProxies: [], subscriptions: [] };
 
@@ -3693,7 +3757,7 @@ ipcMain.handle('export-selected-data', async (e, { type, profileIds }) => {
 });
 
 // 完整备份 (v2 跨平台方案 - 含浏览器数据，加密)
-ipcMain.handle('export-full-backup', async (e, { profileIds, password }) => {
+ipcMain.handle('export-full-backup', async (_, { profileIds, password }) => {
     try {
         const allProfiles = fs.existsSync(PROFILES_FILE) ? await fs.readJson(PROFILES_FILE) : [];
         const settings = fs.existsSync(SETTINGS_FILE) ? await fs.readJson(SETTINGS_FILE) : { preProxies: [], subscriptions: [] };
@@ -3804,7 +3868,7 @@ ipcMain.handle('export-full-backup', async (e, { profileIds, password }) => {
 });
 
 // 导入完整备份 (支持 v1 旧格式 + v2 跨平台格式)
-ipcMain.handle('import-full-backup', async (e, { password }) => {
+ipcMain.handle('import-full-backup', async (_, { password }) => {
     try {
         const { filePaths } = await dialog.showOpenDialog({
             properties: ['openFile'],
@@ -4003,7 +4067,7 @@ ipcMain.handle('import-data', async () => {
 });
 
 // 保留旧的 export-data 用于向后兼容 (deprecated)
-ipcMain.handle('export-data', async (e, type) => {
+ipcMain.handle('export-data', async (_, type) => {
     const profiles = fs.existsSync(PROFILES_FILE) ? await fs.readJson(PROFILES_FILE) : [];
     const settings = fs.existsSync(SETTINGS_FILE) ? await fs.readJson(SETTINGS_FILE) : { preProxies: [], subscriptions: [] };
 
@@ -4762,7 +4826,6 @@ app.on('before-quit', () => {
 // Helpers (Same)
 function fetchJson(url) { return new Promise((resolve, reject) => { const req = https.get(url, { headers: { 'User-Agent': 'BNC-Browser' } }, (res) => { let data = ''; res.on('data', c => data += c); res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } }); }); req.on('error', reject); }); }
 function getLocalXrayVersion() { return new Promise((resolve) => { if (!fs.existsSync(BIN_PATH)) return resolve('v0.0.0'); try { const proc = spawn(BIN_PATH, ['-version']); let output = ''; proc.stdout.on('data', d => output += d.toString()); proc.on('close', () => { const match = output.match(/Xray\s+v?(\d+\.\d+\.\d+)/i); resolve(match ? (match[1].startsWith('v') ? match[1] : 'v' + match[1]) : 'v0.0.0'); }); proc.on('error', () => resolve('v0.0.0')); } catch (e) { resolve('v0.0.0'); } }); }
-function compareVersions(v1, v2) { const p1 = v1.split('.').map(Number); const p2 = v2.split('.').map(Number); for (let i = 0; i < 3; i++) { if ((p1[i] || 0) > (p2[i] || 0)) return 1; if ((p1[i] || 0) < (p2[i] || 0)) return -1; } return 0; }
 function downloadFile(url, dest) { return new Promise((resolve, reject) => { const file = fs.createWriteStream(dest); https.get(url, (response) => { if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) { downloadFile(response.headers.location, dest).then(resolve).catch(reject); return; } response.pipe(file); file.on('finish', () => file.close(resolve)); }).on('error', (err) => { fs.unlink(dest, () => { }); reject(err); }); }); }
 function extractZip(zipPath, destDir) {
     return new Promise((resolve, reject) => {

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, screen, shell, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, screen, shell, Tray, Menu, nativeImage, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs-extra');
 const { runVerify } = require('./verify');

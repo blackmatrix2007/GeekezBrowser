@@ -562,12 +562,13 @@ async function showPlansPage() {
                 <span style="font-size:11px;color:#667;">/lần</span>
             </div>
             <div style="font-size:11px;color:#888;flex:1;">
-                <div style="margin-bottom:4px;">✓ +${p.maxProfiles} slots profile</div>
-                <div>✓ Tất cả tính năng</div>
+                <div style="margin-bottom:4px;">✓ ${p.maxProfiles >= 9999 ? 'Không giới hạn hồ sơ' : p.maxProfiles + ' hồ sơ'}</div>
+                <div style="margin-bottom:4px;">✓ ${p.maxDevices} thiết bị đăng nhập</div>
+                <div>✓ Windows &amp; macOS</div>
             </div>
             <button data-btn="select-plan"
                 style="padding:9px 0;border-radius:8px;border:none;background:linear-gradient(135deg,#00e0ff,#0055ff);color:#fff;font-size:13px;font-weight:700;cursor:pointer;width:100%;pointer-events:none;">
-                Mua slots
+                Chọn gói
             </button>
         </div>`).join('');
     grid.onclick = (e) => {

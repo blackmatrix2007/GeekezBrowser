@@ -235,11 +235,26 @@ async function ensureBncTermsAccepted() {
     const cb      = document.getElementById('bncTermsCheckbox');
     const btn     = document.getElementById('bncTermsAcceptBtn');
     if (cb)  cb.checked = false;
-    if (btn) btn.disabled = true;
+    if (btn) btn.classList.add('terms-btn-locked');
     if (overlay) overlay.style.display = 'flex';
 }
 
 async function bncAcceptTerms() {
+    const cb = document.getElementById('bncTermsCheckbox');
+    if (!cb?.checked) {
+        // Customer reported "can't click anything to close this" — they were clicking this
+        // button without having checked the box above it. Since the button is intentionally
+        // always clickable now (see index.html comment), draw attention to what's actually
+        // missing instead of doing nothing silently.
+        const label = document.getElementById('bncTermsCheckLabel');
+        if (label) {
+            label.classList.remove('bnc-terms-nudge');
+            void label.offsetWidth; // restart animation if triggered twice in a row
+            label.classList.add('bnc-terms-nudge');
+            setTimeout(() => label.classList.remove('bnc-terms-nudge'), 900);
+        }
+        return;
+    }
     try { await window.electronAPI.bncTermsAccept(); } catch (_) {}
     const overlay = document.getElementById('bncTermsOverlay');
     if (overlay) overlay.style.display = 'none';

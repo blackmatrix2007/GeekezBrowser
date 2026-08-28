@@ -2553,12 +2553,24 @@ ipcMain.handle('bnc-get-payment-info', async () => {
     };
     try {
         const remote = await bncApiCall('GET', '/payment-info');
-        if (remote?._statusCode === 200 && remote.lemonSqueezy) {
-            info.lemonSqueezy = remote.lemonSqueezy;
+        if (remote?._statusCode === 200) {
+            if (remote.lemonSqueezy) info.lemonSqueezy = remote.lemonSqueezy;
+            if (remote.stripe) info.stripe = remote.stripe;
         }
     } catch (_) { /* QR ngân hàng vẫn hiển thị bình thường nếu backend lỗi */ }
     return info;
 });
+// Tạo Stripe Checkout Session — gọi server, trả { url } để renderer mở bằng shell.openExternal
+ipcMain.handle('bnc-stripe-create-checkout', async (_, plan) => {
+    try {
+        const result = await bncApiCall('POST', '/stripe/create-checkout-session', { plan });
+        if (result?._statusCode === 200 && result.url) return { url: result.url };
+        return { error: result?.message || 'Không tạo được phiên thanh toán' };
+    } catch (e) {
+        return { error: e.message };
+    }
+});
+
 // ─── BNC Sync Profiles (manual / debug) ──────────────────────────────────────
 ipcMain.handle('bnc-sync-profiles', async () => {
     const auth = getSavedBncAuth();

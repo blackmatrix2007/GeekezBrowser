@@ -969,6 +969,7 @@ async function openPaymentModal(planId, price, planName) {
             : null;
         const bankName = info.bankAccountNo?.startsWith('10') ? 'Vietinbank' : 'Ngân hàng';
         const ls = info.lemonSqueezy || {};
+        const stripeInfo = (info.stripe?.available) ? info.stripe : null;
 
         content.innerHTML = `
             <div style="margin-bottom:14px;">
@@ -994,12 +995,14 @@ async function openPaymentModal(planId, price, planName) {
                     <div style="margin-top:4px;font-size:11px;color:#555;">${deviceInfo.note || 'D2 = +2 thiết bị, v.v.'}</div>
                 </div>
             </div>` : ''}
-            ${(ls.monthly?.url || ls.annual?.url) ? `
+            ${(ls.monthly?.url || ls.annual?.url || stripeInfo) ? `
             <div style="margin-top:18px;border-top:1px solid rgba(255,255,255,0.07);padding-top:16px;">
                 <div style="font-size:13px;font-weight:600;color:#e0e0e0;margin-bottom:10px;">🌍 Hoặc thanh toán quốc tế (thẻ/PayPal)</div>
-                <div style="display:flex;gap:8px;justify-content:center;">
-                    ${ls.monthly?.url ? `<button data-ls-plan="monthly" style="padding:8px 16px;border-radius:8px;border:1px solid #00e0ff;background:rgba(0,224,255,0.1);color:#00e0ff;font-size:13px;cursor:pointer;">$${ls.monthly.price}/tháng</button>` : ''}
-                    ${ls.annual?.url ? `<button data-ls-plan="annual" style="padding:8px 16px;border-radius:8px;border:1px solid #00e0ff;background:rgba(0,224,255,0.1);color:#00e0ff;font-size:13px;cursor:pointer;">$${ls.annual.price}/năm</button>` : ''}
+                <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+                    ${ls.monthly?.url ? `<button data-ls-plan="monthly" style="padding:8px 16px;border-radius:8px;border:1px solid #00e0ff;background:rgba(0,224,255,0.1);color:#00e0ff;font-size:13px;cursor:pointer;">$${ls.monthly.price}/tháng (LS)</button>` : ''}
+                    ${ls.annual?.url ? `<button data-ls-plan="annual" style="padding:8px 16px;border-radius:8px;border:1px solid #00e0ff;background:rgba(0,224,255,0.1);color:#00e0ff;font-size:13px;cursor:pointer;">$${ls.annual.price}/năm (LS)</button>` : ''}
+                    ${stripeInfo?.monthly ? `<button data-stripe-plan="monthly" style="padding:8px 16px;border-radius:8px;border:1px solid #7c5cff;background:rgba(124,92,255,0.1);color:#b09cff;font-size:13px;cursor:pointer;">$${stripeInfo.monthly.price}/tháng (Stripe)</button>` : ''}
+                    ${stripeInfo?.annual ? `<button data-stripe-plan="annual" style="padding:8px 16px;border-radius:8px;border:1px solid #7c5cff;background:rgba(124,92,255,0.1);color:#b09cff;font-size:13px;cursor:pointer;">$${stripeInfo.annual.price}/năm (Stripe)</button>` : ''}
                 </div>
                 <div style="font-size:11px;color:#666;margin-top:8px;">Mở trình duyệt để thanh toán an toàn — hệ thống tự động kích hoạt sau khi xác nhận</div>
             </div>` : ''}
@@ -1010,6 +1013,25 @@ async function openPaymentModal(planId, price, planName) {
         content.querySelectorAll('[data-ls-plan]').forEach(btn => {
             const url = ls[btn.dataset.lsPlan]?.url;
             if (url) btn.addEventListener('click', () => window.electronAPI.invoke('open-url', url));
+        });
+        content.querySelectorAll('[data-stripe-plan]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                btn.disabled = true;
+                btn.textContent = 'Đang tạo link...';
+                try {
+                    const result = await window.electronAPI.bncStripeCreateCheckout(btn.dataset.stripePlan);
+                    if (result?.url) {
+                        window.electronAPI.invoke('open-url', result.url);
+                        startPaymentPoll();
+                    } else {
+                        showBncToast('❌ ' + (result?.error || 'Không tạo được link thanh toán'), 4000);
+                        btn.disabled = false;
+                        btn.textContent = btn.dataset.stripePlan === 'annual' ? `$${stripeInfo.annual.price}/năm (Stripe)` : `$${stripeInfo.monthly.price}/tháng (Stripe)`;
+                    }
+                } catch (_) {
+                    btn.disabled = false;
+                }
+            });
         });
     } catch (e) {
         content.innerHTML = `<div style="color:#f44336;padding:20px 0;">Lỗi tải thông tin thanh toán.<br><button onclick="closePaymentModal(true)" style="margin-top:12px;padding:8px 20px;border-radius:8px;border:1px solid #444;background:transparent;color:#aaa;font-size:13px;cursor:pointer;">← Quay lại</button></div>`;

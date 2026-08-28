@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onUpdateProgress:    (cb) => ipcRenderer.on('update-progress',    (_, data) => cb(data)),
     onUpdateReady:       (cb) => ipcRenderer.on('update-ready',       (_, data) => cb(data)),
     installAppUpdate:    ()   => ipcRenderer.invoke('install-app-update'),
+    bncStripeCreateCheckout: (plan) => ipcRenderer.invoke('bnc-stripe-create-checkout', plan),
     // ─── Team / Workspace ────────────────────────────────────────────────────
     teamInvite: (data) => ipcRenderer.invoke('bnc-team-invite', data),
     teamGetMembers: () => ipcRenderer.invoke('bnc-team-get-members'),

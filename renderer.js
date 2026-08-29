@@ -1770,14 +1770,10 @@ async function checkUpdates() {
             return;
         }
 
-        const xrayRes = await window.electronAPI.invoke('check-xray-update');
-        if (xrayRes.update) {
-            showAlert(`${t('xrayUpdateFound')} (v${xrayRes.remote})`); // Shows OK button
-            const success = await window.electronAPI.invoke('download-xray-update', xrayRes.downloadUrl);
-            if (success) showAlert(t('updateDownloaded'));
-            else showAlert(t('updateError'));
-            return;
-        }
+        // Xray update chạy ngầm, không thông báo cho user
+        window.electronAPI.invoke('check-xray-update').then(xrayRes => {
+            if (xrayRes.update) window.electronAPI.invoke('download-xray-update', xrayRes.downloadUrl);
+        }).catch(() => {});
 
         // No Update -> Show Alert with OK button
         showAlert(t('noUpdate'));

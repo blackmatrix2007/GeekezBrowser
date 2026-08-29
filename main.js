@@ -530,26 +530,47 @@ function setupAutoUpdater() {
         const noteText      = notes ? `\n\n${notes}` : '';
 
         if (forceUpdate) {
+            const plainNotesForce = noteText.replace(/<[^>]+>/g, '').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&').trim();
             await dialog.showMessageBox({
                 type: 'warning',
                 title: 'Cập nhật bắt buộc',
                 message: `BNC Browser v${info.version} yêu cầu cập nhật bắt buộc`,
-                detail: `Ứng dụng sẽ tự động khởi động lại ngay bây giờ.${noteText}`,
+                detail: `Ứng dụng sẽ tự động khởi động lại ngay bây giờ.${plainNotesForce ? '\n\n' + plainNotesForce : ''}`,
                 buttons: ['Cài ngay'],
             });
-            app.quit();
+            const kills = Object.values(activeProcesses).map(async p => {
+                try { await forceKill(p.xrayPid); } catch (_) {}
+                try { if (p.chromeProcess?.pid) await forceKill(p.chromeProcess.pid); } catch (_) {}
+            });
+            await Promise.all(kills);
+            activeProcesses = {};
+            await new Promise(r => setTimeout(r, 600));
+            autoUpdater.quitAndInstall(false, true);
             return;
         }
+
+        // Strip HTML tags khỏi notes (native dialog chỉ hiển thị plain text)
+        const plainNotes = noteText.replace(/<[^>]+>/g, '').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&').trim();
 
         const { response } = await dialog.showMessageBox({
             type: 'info',
             title: `Cập nhật sẵn sàng — v${info.version}`,
             message: `BNC Browser ${info.version} đã tải về thành công`,
-            detail: `Click "Cài & Khởi động lại" để áp dụng.${noteText}`,
+            detail: `Click "Cài & Khởi động lại" để áp dụng.${plainNotes ? '\n\n' + plainNotes : ''}`,
             buttons: ['Cài & Khởi động lại', 'Để sau'],
             defaultId: 0, cancelId: 1,
         });
-        if (response === 0) app.quit();
+        if (response === 0) {
+            // Kill tất cả child processes trước khi cài — tránh NSIS "Failed to uninstall" (file bị lock)
+            const kills = Object.values(activeProcesses).map(async p => {
+                try { await forceKill(p.xrayPid); } catch (_) {}
+                try { if (p.chromeProcess?.pid) await forceKill(p.chromeProcess.pid); } catch (_) {}
+            });
+            await Promise.all(kills);
+            activeProcesses = {};
+            await new Promise(r => setTimeout(r, 600)); // cho OS release file lock
+            autoUpdater.quitAndInstall(false, true);
+        }
     });
 
     autoUpdater.on('error', (err) => {
@@ -2208,8 +2229,6 @@ app.whenReady().then(async () => {
     setupAutoUpdater();
     // Check ngay khi khởi động (sau khi mainWindow đã sẵn sàng)
     setTimeout(() => { autoUpdater.checkForUpdates().catch(() => {}); }, 5000);
-    // Check lại mỗi 4 giờ
-    setInterval(() => { autoUpdater.checkForUpdates().catch(() => {}); }, 4 * 60 * 60 * 1000);
 
     // ── BNC Subscription Check ──────────────────────────────────────────────────
     const [bncAccess, versionResult] = await Promise.all([
@@ -2322,9 +2341,10 @@ app.whenReady().then(async () => {
             } catch (_) {}
         }
 
-        // Check version mới
+        // Check version mới (yttool + GitHub electron-updater)
         const r = await bncCheckVersion();
         if (r) checkAndNotifyUpdate(r);
+        autoUpdater.checkForUpdates().catch(() => {});
     }, 5 * 60 * 1000);
 
     // Auto-start public API server if enabled

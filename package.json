@@ -1,6 +1,6 @@
 {
   "name": "geekez-browser",
-  "version": "1.6.5",
+  "version": "1.6.6",
   "description": "Stealthy Anti-Detect Browser for E-Commerce",
   "main": "main.js",
   "author": "EchoHS",
@@ -86,7 +86,10 @@
       "include": "build/installer.nsh"
     },
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "icon.icns"
     },
     "dmg": {

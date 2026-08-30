@@ -1537,7 +1537,13 @@ function setTheme(themeName) {
 
 // Show Alert (supports loading state)
 function showAlert(msg, showBtn = true) {
-    document.getElementById('alertMsg').innerText = msg;
+    const msgEl = document.getElementById('alertMsg');
+    // Reset styling that openNotifDetail() sets for its own use — otherwise a
+    // normal showAlert() call after viewing a notification inherits its
+    // left-aligned/pre-wrap style.
+    msgEl.style.whiteSpace = '';
+    msgEl.style.textAlign = '';
+    msgEl.innerText = msg;
     const btn = document.getElementById('alertBtn');
     if (btn) btn.style.display = showBtn ? 'block' : 'none';
     document.getElementById('alertModal').style.display = 'flex';
@@ -2195,7 +2201,7 @@ async function loadProfiles() {
                 <div class="actions" style="${isLocked ? 'pointer-events:auto;' : ''}">
                     ${isLocked
                         ? `<button class="no-drag" disabled style="opacity:0.4;cursor:not-allowed;" onclick="event.stopPropagation();showConfirm('Profile bị khóa do hết slot.\\n\\nMua thêm gói để mở khóa?',()=>openPlansModal())">${t('launch')}</button>`
-                        : `<button onclick="launch('${p.id}')" class="no-drag">${t('launch')}</button>`
+                        : `<button onclick="launch('${p.id}', this)" class="no-drag">${t('launch')}</button>`
                     }
                     ${(() => { const wp = window._activeWorkspacePerm?.profile || null;
                         const canEdit   = !wp || wp.editProxy !== false || wp.editFingerprint !== false || wp.editNote !== false;
@@ -2343,7 +2349,27 @@ async function saveNewProfile() {
     }
 }
 
-async function launch(id) {
+// Chrome + xray mất vài giây để khởi động — không có phản hồi gì trên nút
+// khiến người dùng tưởng chưa bấm được, dễ bấm lại nhiều lần liên tiếp
+// (từng thấy log nhiều lệnh launch chồng lên nhau cho cùng 1 profile).
+// Disable + hiện spinner ngay khi bấm để rõ ràng "đang xử lý".
+function _setLaunchBtnLoading(btn, isLoading) {
+    if (!btn) return;
+    if (isLoading) {
+        if (btn.dataset.origHtml === undefined) btn.dataset.origHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.style.opacity = '0.7';
+        btn.style.cursor = 'default';
+        btn.innerHTML = '<span style="display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,0.4);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;"></span>';
+    } else {
+        btn.disabled = false;
+        btn.style.opacity = '';
+        btn.style.cursor = '';
+        if (btn.dataset.origHtml !== undefined) btn.innerHTML = btn.dataset.origHtml;
+    }
+}
+
+async function launch(id, btnEl) {
     const ws = _bncAuth?.activeWorkspace || 'own';
     // Kiểm tra isLocked từ profile data
     const profiles = await window.electronAPI.getProfiles();
@@ -2358,11 +2384,13 @@ async function launch(id) {
         showConfirm('Bạn đã hết slot — không thể mở profile.\n\nMua thêm gói để tiếp tục sử dụng?', () => openPlansModal());
         return;
     }
+    _setLaunchBtnLoading(btnEl, true);
     try {
         const watermarkStyle = localStorage.getItem('geekez_watermark_style') || 'enhanced';
         const msg = await window.electronAPI.launchProfile(id, watermarkStyle);
         if (msg && msg.includes(':')) showAlert(msg);
     } catch (e) { showAlert('Error: ' + e.message); }
+    finally { _setLaunchBtnLoading(btnEl, false); }
 }
 
 function remove(id) {
@@ -4182,12 +4210,33 @@ function _renderNotifList() {
     }
     list.innerHTML = _bncNotifications.map(n => {
         const dt = new Date(n.createdAt).toLocaleString('vi-VN', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
-        return `<div style="padding:10px 16px;border-bottom:1px solid rgba(255,255,255,0.05);${!n.isRead ? 'background:rgba(0,224,255,0.04);' : ''}">
+        return `<div onclick="openNotifDetail('${n.id}')" style="padding:10px 16px;border-bottom:1px solid rgba(255,255,255,0.05);cursor:pointer;${!n.isRead ? 'background:rgba(0,224,255,0.04);' : ''}">
             <div style="font-size:13px;font-weight:${!n.isRead ? '600' : '400'};color:${!n.isRead ? '#e0e0e0' : '#aaa'};">${n.title}</div>
-            <div style="font-size:12px;color:#888;margin-top:3px;line-height:1.5;">${n.body}</div>
+            <div style="font-size:12px;color:#888;margin-top:3px;line-height:1.5;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${n.body}</div>
             <div style="font-size:10px;color:#555;margin-top:5px;">${dt}</div>
         </div>`;
     }).join('');
+}
+
+// Bấm vào 1 thông báo trong dropdown (dropdown quá bé để đọc hết) → mở modal lớn
+// hiện đầy đủ nội dung, đồng thời đánh dấu đã đọc riêng thông báo đó.
+function openNotifDetail(id) {
+    const n = _bncNotifications.find(x => String(x.id) === String(id));
+    if (!n) return;
+    const dt = new Date(n.createdAt).toLocaleString('vi-VN', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+    document.getElementById('bncNotifPanel').style.display = 'none';
+    const msgEl = document.getElementById('alertMsg');
+    msgEl.style.whiteSpace = 'pre-wrap';
+    msgEl.style.textAlign = 'left';
+    msgEl.innerHTML = `<strong style="display:block;margin-bottom:8px;">${n.title}</strong>${n.body}<div style="margin-top:10px;font-size:11px;color:#888;">${dt}</div>`;
+    const btn = document.getElementById('alertBtn');
+    if (btn) btn.style.display = 'block';
+    document.getElementById('alertModal').style.display = 'flex';
+    if (!n.isRead) {
+        n.isRead = true;
+        _renderNotifBadge();
+        window.electronAPI.bncMarkNotificationsRead([n.id]).catch(() => {});
+    }
 }
 
 function toggleNotifPanel() {

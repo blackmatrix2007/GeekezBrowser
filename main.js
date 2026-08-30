@@ -85,10 +85,21 @@ const SETTINGS_FILE = path.join(DATA_PATH, 'settings.json');
 fs.ensureDirSync(DATA_PATH);
 fs.ensureDirSync(TRASH_PATH);
 
+// Two concurrent callers (e.g. repairing 2 profiles seconds apart) previously
+// raced on the SAME fixed "profiles.json.tmp" path: whichever finished first
+// renamed it away, so the second caller's rename hit ENOENT — sometimes
+// wiping profiles.json in the process. Serialize writes through a queue AND
+// give each call its own temp filename so overlapping calls can't collide.
+let _writeProfilesQueue = Promise.resolve();
 async function writeProfilesAtomic(profiles) {
-    const tmp = PROFILES_FILE + '.tmp';
-    await fs.writeJson(tmp, profiles);
-    await fs.move(tmp, PROFILES_FILE, { overwrite: true });
+    const previous = _writeProfilesQueue.catch(() => {}); // don't let a prior failure block later writes
+    const run = previous.then(async () => {
+        const tmp = `${PROFILES_FILE}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+        await fs.writeJson(tmp, profiles);
+        await fs.move(tmp, PROFILES_FILE, { overwrite: true });
+    });
+    _writeProfilesQueue = run;
+    return run;
 }
 
 // ─── Update Check ────────────────────────────────────────────────────────────
@@ -498,6 +509,7 @@ function showBncLoginDialog(access) {
 // ─── Update Check ────────────────────────────────────────────────────────────
 // ─── Auto Updater — electron-updater, generic provider yttool.vn/updates ─────
 const { autoUpdater } = require('electron-updater');
+let updatePromptShownForVersion = null;
 
 function setupAutoUpdater() {
     autoUpdater.autoDownload    = true;
@@ -519,6 +531,12 @@ function setupAutoUpdater() {
     });
 
     autoUpdater.on('update-downloaded', async (info) => {
+        // Heartbeat mỗi 5 phút gọi checkForUpdates() lại — nếu không guard, dialog
+        // "Cập nhật sẵn sàng" sẽ hiện lại liên tục mỗi 5 phút kể cả khi user đã
+        // chọn "Để sau". Chỉ hỏi 1 lần cho mỗi version trong phiên chạy hiện tại.
+        if (updatePromptShownForVersion === info.version) return;
+        updatePromptShownForVersion = info.version;
+
         console.log(`[UPDATE] Đã tải xong v${info.version}`);
         if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('update-ready', { version: info.version });
@@ -545,7 +563,13 @@ function setupAutoUpdater() {
             await Promise.all(kills);
             activeProcesses = {};
             await new Promise(r => setTimeout(r, 600));
-            autoUpdater.quitAndInstall(false, true);
+            // app.quit() + autoInstallOnAppQuit (not quitAndInstall) — quitAndInstall spawns
+            // the installer synchronously BEFORE this process quits, so the installer's own
+            // app-running check races against BNC.exe still being alive ("cannot be closed").
+            // autoInstallOnAppQuit runs the silent install only after this process has fully
+            // exited, avoiding that race. See fa2f75d.
+            app.isQuiting = true;
+            app.quit();
             return;
         }
 
@@ -569,7 +593,8 @@ function setupAutoUpdater() {
             await Promise.all(kills);
             activeProcesses = {};
             await new Promise(r => setTimeout(r, 600)); // cho OS release file lock
-            autoUpdater.quitAndInstall(false, true);
+            app.isQuiting = true;
+            app.quit();
         }
     });
 

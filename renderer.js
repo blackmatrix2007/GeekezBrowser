@@ -1846,7 +1846,9 @@ async function checkUpdates() {
         document.getElementById('alertModal').style.display = 'none';
 
         if (appRes.update) {
-            showUpdateConfirm(appRes.remote, appRes.url, appRes.notes, appRes.skipable !== false);
+            // electron-updater đã bắt đầu download nền trong check-app-update IPC handler.
+            // Không mở browser — hiện toast và chờ update-downloaded event kích hoạt thanh cập nhật.
+            showBncToast(`🔄 Đang tải bản cập nhật v${appRes.remote}... Thanh cài đặt sẽ xuất hiện khi xong.`, 6000);
             return;
         }
 
@@ -1883,8 +1885,8 @@ async function checkUpdatesSilent() {
 
             const btn = document.getElementById('btnUpdate');
             if (btn) btn.classList.add('has-update');
-
-            showUpdateConfirm(appRes.remote, appRes.url, appRes.notes, skipable);
+            // electron-updater đang download nền → không mở browser, chỉ badge nút update
+            // Thanh "Cài & Khởi động lại" sẽ tự hiện khi update-downloaded event fire
             return;
         }
         const xrayRes = await window.electronAPI.invoke('check-xray-update');

@@ -532,7 +532,7 @@ function _applyWorkspacePermissions(permissions) {
 // ── Team Members UI ──────────────────────────────────────────────────────────
 let _teamMembers = [];
 
-const _ALL_PAGES = ['profilesPage', 'teamPage', 'groupsPage', 'plansPage', 'settingsPage'];
+const _ALL_PAGES = ['profilesPage', 'teamPage', 'groupsPage', 'plansPage', 'notificationsPage', 'settingsPage'];
 function _switchPage(activePageId, activeNavId) {
     document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
     document.getElementById(activeNavId)?.classList.add('active');
@@ -547,6 +547,80 @@ function _switchPage(activePageId, activeNavId) {
 async function showTeamPage() {
     _switchPage('teamPage', 'nav-team');
     await refreshTeamMembers();
+}
+
+// ─── Notifications full-page ─────────────────────────────────────────────────
+let _notifPage = 1;
+const _NOTIF_PER_PAGE = 20;
+
+async function showNotificationsPage() {
+    _switchPage('notificationsPage', 'nav-notifications');
+    _notifPage = 1;
+    await _loadNotifPage();
+}
+
+async function _loadNotifPage() {
+    const list  = document.getElementById('notifPageList');
+    const pager = document.getElementById('notifPagePager');
+    if (!list) return;
+    list.innerHTML = '<div style="text-align:center;color:#555;padding:40px 0;">Đang tải...</div>';
+
+    try {
+        const data = await window.electronAPI.bncFetchNotificationsPage(_notifPage, _NOTIF_PER_PAGE);
+        const notifs = data?.notifications || [];
+        const total  = data?.total || 0;
+        const totalPages = Math.max(1, Math.ceil(total / _NOTIF_PER_PAGE));
+
+        if (notifs.length === 0) {
+            list.innerHTML = '<div style="text-align:center;color:#555;padding:60px 0;font-size:14px;">Chưa có thông báo nào</div>';
+            pager.innerHTML = '';
+            return;
+        }
+
+        list.innerHTML = notifs.map(n => {
+            const dt = new Date(n.createdAt).toLocaleString('vi-VN', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+            const unread = !n.isRead;
+            return `<div style="padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.05);cursor:pointer;border-radius:8px;margin-bottom:4px;${unread ? 'background:rgba(0,224,255,0.05);' : ''}"
+                         onclick="_openNotifFromPage('${n.id}', this)">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                    ${unread ? '<span style="width:7px;height:7px;border-radius:50%;background:#00e0ff;flex-shrink:0;display:inline-block;"></span>' : '<span style="width:7px;height:7px;flex-shrink:0;display:inline-block;"></span>'}
+                    <span style="font-size:13px;font-weight:${unread ? '600' : '400'};color:${unread ? '#e0e0e0' : '#aaa'};">${n.title}</span>
+                    <span style="font-size:11px;color:#555;margin-left:auto;white-space:nowrap;">${dt}</span>
+                </div>
+                <div style="font-size:12px;color:#888;line-height:1.6;padding-left:15px;">${n.body}</div>
+            </div>`;
+        }).join('');
+
+        pager.innerHTML = `
+            <button onclick="_notifPageGo(${_notifPage - 1})" ${_notifPage <= 1 ? 'disabled' : ''}
+                style="padding:4px 14px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#aaa;border-radius:6px;cursor:pointer;">‹ Trước</button>
+            <span style="color:#666;">Trang ${_notifPage} / ${totalPages} &nbsp;(${total} thông báo)</span>
+            <button onclick="_notifPageGo(${_notifPage + 1})" ${_notifPage >= totalPages ? 'disabled' : ''}
+                style="padding:4px 14px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#aaa;border-radius:6px;cursor:pointer;">Sau ›</button>`;
+    } catch (_) {
+        list.innerHTML = '<div style="text-align:center;color:#e05;padding:40px 0;">Lỗi tải thông báo</div>';
+    }
+}
+
+async function _notifPageGo(page) {
+    _notifPage = page;
+    await _loadNotifPage();
+    document.getElementById('notifPageList')?.scrollTo(0, 0);
+}
+
+function _openNotifFromPage(id, el) {
+    // Đánh dấu đã đọc ngay trên UI
+    const dot = el.querySelector('span[style*="background:#00e0ff"]');
+    if (dot) {
+        dot.style.background = 'transparent';
+        el.style.background = '';
+        const titleEl = el.querySelector('span:nth-child(2)');
+        if (titleEl) { titleEl.style.fontWeight = '400'; titleEl.style.color = '#aaa'; }
+        window.electronAPI.bncMarkNotificationsRead([Number(id)]).catch(() => {});
+        // Sync vào _bncNotifications nếu có
+        const n = _bncNotifications.find(x => String(x.id) === String(id));
+        if (n) { n.isRead = true; _renderNotifBadge(); }
+    }
 }
 
 function showProfilesPage() {

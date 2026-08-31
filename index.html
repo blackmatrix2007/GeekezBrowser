@@ -1401,6 +1401,10 @@
             <span>Thành Viên</span>
         </div>
 
+        <div class="sidebar-item" id="nav-notifications" onclick="showNotificationsPage()">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <span>Thông Báo</span>
+        </div>
         <div class="sidebar-item" id="nav-plans" onclick="showPlansPage()">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
             <span>Mua Gói</span>
@@ -1514,7 +1518,10 @@
             <div id="bncNotifPanel" style="display:none;position:fixed;width:320px;max-height:420px;overflow-y:auto;background:#1e2535;border:1px solid rgba(255,255,255,0.1);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,0.6);z-index:9200;-webkit-app-region:no-drag;">
                 <div style="padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.07);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:#1e2535;z-index:1;">
                     <span style="font-size:13px;font-weight:600;color:#e0e0e0;">Thông báo</span>
-                    <span onclick="markAllNotifsRead()" style="font-size:11px;color:#00e0ff;cursor:pointer;padding:2px 6px;border-radius:4px;" onmouseover="this.style.background='rgba(0,224,255,0.1)'" onmouseout="this.style.background='transparent'">Đọc tất cả</span>
+                    <div style="display:flex;gap:10px;align-items:center;">
+                        <span onclick="markAllNotifsRead()" style="font-size:11px;color:#00e0ff;cursor:pointer;padding:2px 6px;border-radius:4px;" onmouseover="this.style.background='rgba(0,224,255,0.1)'" onmouseout="this.style.background='transparent'">Đọc tất cả</span>
+                        <span onclick="document.getElementById('bncNotifPanel').style.display='none';showNotificationsPage();" style="font-size:11px;color:#aaa;cursor:pointer;padding:2px 6px;border-radius:4px;" onmouseover="this.style.background='rgba(255,255,255,0.07)'" onmouseout="this.style.background='transparent'">Xem tất cả →</span>
+                    </div>
                 </div>
                 <div id="bncNotifList"></div>
             </div>
@@ -1657,6 +1664,19 @@
         </div>
     </div>
     <!-- END PLANS PAGE -->
+
+    <!-- NOTIFICATIONS PAGE -->
+    <div id="notificationsPage" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0;margin:-15px -20px;padding:0;">
+        <div style="padding:20px 24px 14px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;display:flex;align-items:center;gap:12px;">
+            <h2 style="margin:0;font-size:18px;font-weight:700;color:var(--text-color);flex:1;">🔔 Thông báo</h2>
+            <button onclick="markAllNotifsRead();_loadNotifPage()" style="font-size:12px;background:none;border:1px solid rgba(255,255,255,0.15);color:#aaa;padding:4px 12px;border-radius:6px;cursor:pointer;">Đọc tất cả</button>
+        </div>
+        <div style="flex:1;min-height:0;overflow-y:auto;padding:12px 24px 24px;" id="notifPageList">
+            <div style="text-align:center;color:#555;padding:40px 0;">Đang tải...</div>
+        </div>
+        <div id="notifPagePager" style="flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:10px;padding:10px 24px;border-top:1px solid rgba(255,255,255,0.06);font-size:13px;color:#888;"></div>
+    </div>
+    <!-- END NOTIFICATIONS PAGE -->
 
     <!-- SETTINGS PAGE -->
     <div id="settingsPage" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0;margin:-15px -20px;padding:0;">

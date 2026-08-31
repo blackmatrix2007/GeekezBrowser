@@ -1833,8 +1833,6 @@ async function checkSubscriptionUpdates() {
 
 async function checkUpdates() {
     const btn = document.getElementById('btnUpdate');
-    btn.style.transition = 'transform 1s';
-    btn.style.transform = 'rotate(360deg)';
 
     // Show "Checking..." without button
     showAlert(t('checkingUpdate'), false);
@@ -1863,9 +1861,7 @@ async function checkUpdates() {
         // Clear badge if no update found after manual check
         btn.classList.remove('has-update');
     } catch (e) {
-        showAlert(t('updateError') + " " + e.message);
-    } finally {
-        setTimeout(() => { btn.style.transform = 'none'; }, 1000);
+        showAlert(t('updateError') + ' ' + e.message);
     }
 }
 

@@ -2653,6 +2653,12 @@ ipcMain.handle('bnc-mark-notifications-read', async (_, ids) => {
     return await bncApiCall('PUT', '/notifications/read', { ids: ids || [] });
 });
 
+// Fetch notifications on-demand (khi user mở chuông, không đợi heartbeat 5 phút)
+ipcMain.handle('bnc-fetch-notifications', async () => {
+    const result = await bncApiCall('GET', '/notifications?limit=20');
+    return result?.notifications || [];
+});
+
 // Thông tin thanh toán (bank + Lemon Squeezy — link quốc tế lấy từ server vì
 // cần backend gắn customerId vào custom_data cho webhook nhận diện đúng người mua)
 ipcMain.handle('bnc-get-payment-info', async () => {

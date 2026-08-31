@@ -70,6 +70,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onBncProfilesReloaded: (cb) => ipcRenderer.on('bnc-profiles-reloaded', () => cb()),
     onBncNotificationsUpdated: (cb) => ipcRenderer.on('bnc-notifications-updated', (_, data) => cb(data)),
     bncMarkNotificationsRead: (ids) => ipcRenderer.invoke('bnc-mark-notifications-read', ids),
+    bncFetchNotifications:    ()    => ipcRenderer.invoke('bnc-fetch-notifications'),
     // Auto-updater events
     onUpdateDownloading: (cb) => ipcRenderer.on('update-downloading', (_, data) => cb(data)),
     onUpdateProgress:    (cb) => ipcRenderer.on('update-progress',    (_, data) => cb(data)),

@@ -4250,6 +4250,16 @@ function toggleNotifPanel() {
         panel.style.left = 'auto';
         panel.style.display = 'block';
         _renderNotifList();
+        // Fetch mới từ server — không đợi heartbeat 5 phút
+        window.electronAPI.bncFetchNotifications().then(notifs => {
+            if (Array.isArray(notifs) && notifs.length >= 0) {
+                // Giữ trạng thái isRead local cho notif đã đọc trong session này
+                const readLocally = new Set(_bncNotifications.filter(n => n.isRead).map(n => n.id));
+                _bncNotifications = notifs.map(n => ({ ...n, isRead: n.isRead || readLocally.has(n.id) }));
+                _renderNotifBadge();
+                if (panel.style.display !== 'none') _renderNotifList();
+            }
+        }).catch(() => {});
         // Đóng dropdown user nếu đang mở
         const ud = document.getElementById('bncUserDropdown');
         if (ud) ud.style.display = 'none';

@@ -2884,6 +2884,8 @@ ipcMain.handle('renderer-debug-log', (_, tag, data) => {
 // ─── Check update — gọi yttool.vn/api/bnc/version ────────────────────────────
 ipcMain.handle('check-app-update', async () => {
     const v = await bncCheckVersion();
+    // Trigger electron-updater check GitHub song song (events xử lý qua update-downloaded)
+    autoUpdater.checkForUpdates().catch(() => {});
     if (!v?.version) return { update: false };
     const current = app.getVersion();
     const isOutdated = v.version.localeCompare(current, undefined, { numeric: true, sensitivity: 'base' }) > 0;

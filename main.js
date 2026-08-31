@@ -513,9 +513,22 @@ let updatePromptShownForVersion = null;
 
 function setupAutoUpdater() {
     autoUpdater.autoDownload    = true;
-    autoUpdater.autoInstallOnAppQuit = true;
+    // Mac: shell script handles install — disabling autoInstallOnAppQuit prevents Squirrel.Mac
+    // from staging the update and blocking the next startup (unsigned app → Squirrel install fails)
+    autoUpdater.autoInstallOnAppQuit = process.platform !== 'darwin';
 
-    autoUpdater.logger          = null; // tắt log verbose của electron-updater
+    // Unsigned Mac build — skip signature verification so the extracted zip can replace the app
+    if (process.platform === 'darwin') {
+        autoUpdater.verifyUpdateCodeSignature = () => Promise.resolve(undefined);
+    }
+
+    // Route electron-updater logs to debug log file (was null — silent)
+    autoUpdater.logger = {
+        info:  (msg) => debugLog('UPDATER', { level: 'info',  msg: String(msg) }),
+        warn:  (msg) => debugLog('UPDATER', { level: 'warn',  msg: String(msg) }),
+        error: (msg) => debugLog('UPDATER', { level: 'error', msg: String(msg) }),
+        debug: () => {},
+    };
 
     autoUpdater.on('update-available', (info) => {
         console.log(`[UPDATE] Bản mới: v${info.version} — đang tải ngầm...`);
@@ -549,13 +562,16 @@ function setupAutoUpdater() {
 
         if (forceUpdate) {
             const plainNotesForce = noteText.replace(/<[^>]+>/g, '').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&').trim();
-            await dialog.showMessageBox({
-                type: 'warning',
-                title: 'Cập nhật bắt buộc',
-                message: `BNC Browser v${info.version} yêu cầu cập nhật bắt buộc`,
-                detail: `Ứng dụng sẽ tự động khởi động lại ngay bây giờ.${plainNotesForce ? '\n\n' + plainNotesForce : ''}`,
-                buttons: ['Cài ngay'],
-            });
+            if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.focus(); }
+            try {
+                await dialog.showMessageBox(mainWindow, {
+                    type: 'warning',
+                    title: 'Cập nhật bắt buộc',
+                    message: `BNC Browser v${info.version} yêu cầu cập nhật bắt buộc`,
+                    detail: `Ứng dụng sẽ tự động khởi động lại ngay bây giờ.${plainNotesForce ? '\n\n' + plainNotesForce : ''}`,
+                    buttons: ['Cài ngay'],
+                });
+            } catch (_) { /* timeout — install anyway */ }
             const kills = Object.values(activeProcesses).map(async p => {
                 try { await forceKill(p.xrayPid); } catch (_) {}
                 try { if (p.chromeProcess?.pid) await forceKill(p.chromeProcess.pid); } catch (_) {}
@@ -563,27 +579,54 @@ function setupAutoUpdater() {
             await Promise.all(kills);
             activeProcesses = {};
             await new Promise(r => setTimeout(r, 600));
-            // app.quit() + autoInstallOnAppQuit (not quitAndInstall) — quitAndInstall spawns
-            // the installer synchronously BEFORE this process quits, so the installer's own
-            // app-running check races against BNC.exe still being alive ("cannot be closed").
-            // autoInstallOnAppQuit runs the silent install only after this process has fully
-            // exited, avoiding that race. See fa2f75d.
             app.isQuiting = true;
-            app.quit();
+            if (process.platform === 'darwin') {
+                const pending2 = path.join(os.homedir(), 'Library', 'Caches', 'geekez-browser-updater', 'pending');
+                const zipPath2 = path.join(pending2, `BNC-${info.version}-mac-arm64.zip`);
+                const tmpDir2  = path.join(os.tmpdir(), `bnc-apply-${info.version}`);
+                const script2  = [
+                    '#!/bin/bash', 'sleep 3',
+                    `rm -rf "${tmpDir2}"`, `mkdir -p "${tmpDir2}"`,
+                    `ditto -x -k "${zipPath2}" "${tmpDir2}"`,
+                    `rm -rf /Applications/BNC.app`,
+                    `ditto "${tmpDir2}/BNC.app" /Applications/BNC.app`,
+                    `open /Applications/BNC.app`,
+                ].join('\n');
+                const sp2 = path.join(os.tmpdir(), 'bnc-update-force.sh');
+                fs.writeFileSync(sp2, script2, { mode: 0o755 });
+                spawn('bash', [sp2], { detached: true, stdio: 'ignore' }).unref();
+                app.quit();
+            } else {
+                app.quit();
+            }
             return;
         }
 
         // Strip HTML tags khỏi notes (native dialog chỉ hiển thị plain text)
         const plainNotes = noteText.replace(/<[^>]+>/g, '').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&').trim();
 
-        const { response } = await dialog.showMessageBox({
-            type: 'info',
-            title: `Cập nhật sẵn sàng — v${info.version}`,
-            message: `BNC Browser ${info.version} đã tải về thành công`,
-            detail: `Click "Cài & Khởi động lại" để áp dụng.${plainNotes ? '\n\n' + plainNotes : ''}`,
-            buttons: ['Cài & Khởi động lại', 'Để sau'],
-            defaultId: 0, cancelId: 1,
-        });
+        // Focus window trước khi show dialog — tránh macOS timeout dialog khi app ở background
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.show();
+            mainWindow.focus();
+        }
+
+        let response = 1; // default: "Để sau"
+        try {
+            const result = await dialog.showMessageBox(mainWindow, {
+                type: 'info',
+                title: `Cập nhật sẵn sàng — v${info.version}`,
+                message: `BNC Browser ${info.version} đã tải về thành công`,
+                detail: `Click "Cài & Khởi động lại" để áp dụng.${plainNotes ? '\n\n' + plainNotes : ''}`,
+                buttons: ['Cài & Khởi động lại', 'Để sau'],
+                defaultId: 0, cancelId: 1,
+            });
+            response = result.response;
+        } catch (dlgErr) {
+            // Dialog bị timeout (macOS dismiss khi app mất focus) — bỏ qua, user có thể dùng nút trong UI
+            debugLog('UPDATER', { level: 'warn', msg: `showMessageBox timed out: ${dlgErr.message}` });
+        }
+
         if (response === 0) {
             // Kill tất cả child processes trước khi cài — tránh NSIS "Failed to uninstall" (file bị lock)
             const kills = Object.values(activeProcesses).map(async p => {
@@ -594,7 +637,31 @@ function setupAutoUpdater() {
             activeProcesses = {};
             await new Promise(r => setTimeout(r, 600)); // cho OS release file lock
             app.isQuiting = true;
-            app.quit();
+            if (process.platform === 'darwin') {
+                // Mac: Squirrel.Mac (dùng bởi quitAndInstall) yêu cầu code signing → không apply được.
+                // Dùng shell script detached: extract zip → ditto replace app → open lại.
+                const pending = path.join(os.homedir(), 'Library', 'Caches', 'geekez-browser-updater', 'pending');
+                const zipPath = path.join(pending, `BNC-${info.version}-mac-arm64.zip`);
+                const tmpDir  = path.join(os.tmpdir(), `bnc-apply-${info.version}`);
+                const script  = [
+                    '#!/bin/bash',
+                    'sleep 3',
+                    `rm -rf "${tmpDir}"`,
+                    `mkdir -p "${tmpDir}"`,
+                    `ditto -x -k "${zipPath}" "${tmpDir}"`,
+                    `rm -rf /Applications/BNC.app`,
+                    `ditto "${tmpDir}/BNC.app" /Applications/BNC.app`,
+                    `open /Applications/BNC.app`,
+                ].join('\n');
+                const scriptPath = path.join(os.tmpdir(), 'bnc-update.sh');
+                fs.writeFileSync(scriptPath, script, { mode: 0o755 });
+                debugLog('UPDATER', { level: 'info', msg: `Spawning update script: ${scriptPath}` });
+                spawn('bash', [scriptPath], { detached: true, stdio: 'ignore' }).unref();
+                app.quit();
+            } else {
+                // Win: dùng app.quit để NSIS installer chạy sau khi process thoát hoàn toàn
+                app.quit();
+            }
         }
     });
 

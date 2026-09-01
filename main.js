@@ -531,19 +531,44 @@ let updatePromptShownForVersion = null;
 // copy step — racing against AV/filesystem still settling the just-written files —
 // which caused the app to see its own fresh install as "a new update" and silently
 // reinstall itself in a loop (fixed by disabling runAfterFinish in package.json).
-// This does the same job from our side instead, with a real delay: a plain
-// `cmd.exe /c ping ... && start` (a standard, ordinary batch-file delay pattern),
-// NOT schtasks + a hidden PowerShell window — that combination was previously
-// flagged by Kaspersky as "PDM:Trojan.Win32.Generic" (it resembles a dropper's
-// persistence mechanism) and was removed for that reason. `ping` is used instead of
-// `timeout` because `timeout` refuses to run without a real attached console, which
-// a detached/stdio:'ignore' child does not have.
-function scheduleWinRelaunch(delaySeconds = 20) {
+//
+// This does the same job from our side instead — NOT via schtasks + a hidden
+// PowerShell window; that combination was previously flagged by Kaspersky as
+// "PDM:Trojan.Win32.Generic" (it resembles a dropper's persistence mechanism) and
+// was removed for that reason. Only plain cmd.exe/tasklist/findstr are used here.
+//
+// A first version used a flat `ping`-based delay (chosen because `timeout` refuses
+// to run without a real attached console). A fixed 20s delay still lost the same
+// race once — the relaunched app read a not-yet-fully-written install and briefly
+// re-triggered the exact reinstall loop this was meant to avoid. Polling for the
+// installer's own process to actually disappear (rather than guessing how long
+// that takes) is what actually closes the race; the ping fallback below only
+// covers the case where detection itself somehow fails.
+function scheduleWinRelaunch(maxWaitSeconds = 60) {
     if (process.platform !== 'win32') return;
     try {
         const exePath = process.execPath;
-        const cmd = `ping -n ${delaySeconds + 1} 127.0.0.1 >nul && start "" "${exePath}"`;
-        spawn('cmd.exe', ['/c', cmd], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+        const iterations = Math.max(1, Math.round(maxWaitSeconds / 2));
+        const bat = [
+            '@echo off',
+            'setlocal enabledelayedexpansion',
+            `set "COUNT=0"`,
+            ':wait_loop',
+            'tasklist /FI "IMAGENAME eq BNC-*.exe" 2>nul | findstr /I "BNC-" >nul',
+            'if %ERRORLEVEL%==0 (',
+            `  set /a COUNT+=1`,
+            `  if !COUNT! GEQ ${iterations} goto :launch`,
+            '  ping -n 3 127.0.0.1 >nul',
+            '  goto :wait_loop',
+            ')',
+            ':launch',
+            'ping -n 3 127.0.0.1 >nul',
+            `start "" "${exePath}"`,
+            'del "%~f0"',
+        ].join('\r\n');
+        const batPath = path.join(os.tmpdir(), `bnc-relaunch-${Date.now()}.bat`);
+        fs.writeFileSync(batPath, bat);
+        spawn('cmd.exe', ['/c', batPath], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
     } catch (e) {
         debugLog('UPDATER', { level: 'warn', msg: `scheduleWinRelaunch failed: ${e.message}` });
     }

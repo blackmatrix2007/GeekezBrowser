@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, screen, shell, Tray, Menu, nativeImage, Notification, powerMonitor } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, screen, shell, Tray, Menu, nativeImage, Notification, powerMonitor, crashReporter } = require('electron');
 const path = require('path');
 const fs = require('fs-extra');
 const { runVerify } = require('./verify');
@@ -31,6 +31,25 @@ const initSqlJs = require('sql.js');
     }
 }
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Native crash dumps (Crashpad), local-only — no data leaves the machine.
+// The "Application Popup"/Windows Event Log crashes seen repeatedly (always ending
+// in the same low 12 bits, e.g. 0x...0304, across different processes/boots — a
+// strong ASLR signature of the same instruction in the same DLL) only gave us a
+// bare instruction address with no symbol or stack trace. A real minidump here is
+// the only way to actually identify which module/function is at fault instead of
+// continuing to guess (GPU driver, AV, etc.).
+try {
+    const crashDumpsDir = path.join(app.getPath('userData'), 'CrashDumps');
+    app.setPath('crashDumps', crashDumpsDir);
+    crashReporter.start({
+        productName: 'BNC',
+        companyName: 'GeekEZ',
+        submitURL: 'https://example.invalid/crash-report', // never contacted — uploadToServer is false
+        uploadToServer: false,
+        compress: true,
+    });
+} catch (e) { /* non-fatal — app still starts without crash dumps */ }
 
 // Hardware acceleration enabled for better UI performance
 // Only disable if GPU compatibility issues occur

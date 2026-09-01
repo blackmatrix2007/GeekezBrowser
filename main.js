@@ -542,8 +542,14 @@ let updatePromptShownForVersion = null;
 // race once — the relaunched app read a not-yet-fully-written install and briefly
 // re-triggered the exact reinstall loop this was meant to avoid. Polling for the
 // installer's own process to actually disappear (rather than guessing how long
-// that takes) is what actually closes the race; the ping fallback below only
-// covers the case where detection itself somehow fails.
+// that takes) is what actually closes the race.
+//
+// `ping` was then found to itself be unreliable as a delay primitive on at least
+// one real machine — confirmed via multiple `ping -n 21 127.0.0.1` helper processes
+// still alive HOURS after being spawned (should finish in ~20s), almost certainly
+// something intercepting/dropping loopback ICMP. `choice /t N /d Y` is a pure
+// console-timer wait with no network dependency, so it doesn't share that failure
+// mode, and — unlike `timeout` — still works without a real attached console.
 function scheduleWinRelaunch(maxWaitSeconds = 60) {
     if (process.platform !== 'win32') return;
     try {
@@ -558,11 +564,11 @@ function scheduleWinRelaunch(maxWaitSeconds = 60) {
             'if %ERRORLEVEL%==0 (',
             `  set /a COUNT+=1`,
             `  if !COUNT! GEQ ${iterations} goto :launch`,
-            '  ping -n 3 127.0.0.1 >nul',
+            '  choice /c y /t 2 /d y >nul',
             '  goto :wait_loop',
             ')',
             ':launch',
-            'ping -n 3 127.0.0.1 >nul',
+            'choice /c y /t 3 /d y >nul',
             `start "" "${exePath}"`,
             'del "%~f0"',
         ].join('\r\n');

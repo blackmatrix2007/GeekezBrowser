@@ -83,6 +83,7 @@
       "createStartMenuShortcut": true,
       "allowElevation": true,
       "warningsAsErrors": false,
+      "runAfterFinish": false,
       "include": "build/installer.nsh"
     },
     "mac": {

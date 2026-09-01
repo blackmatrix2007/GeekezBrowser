@@ -34,6 +34,21 @@ const initSqlJs = require('sql.js');
 
 // Hardware acceleration enabled for better UI performance
 // Only disable if GPU compatibility issues occur
+//
+// Diagnostic evidence pointed here: two "Application Error" crashes (Windows Event
+// Log, source "Application Popup") hit the SAME absolute instruction address across
+// two unrelated processes (BNC and a plain Chrome window) on this machine, with AV
+// (Kaspersky) fully exited beforehand — ruling out an injected security hook. Since
+// Windows re-randomizes a system DLL's ASLR base once per boot (not per process),
+// two different processes crashing at the identical address is a strong signal they
+// both loaded the SAME DLL — most likely the GPU/display driver, since both BNC and
+// Chrome are Chromium-based and both hardware-accelerate through it. Disabling GPU
+// acceleration in BNC removes BNC's dependency on that driver path entirely; if the
+// driver is really at fault, this should stop BNC's crashes even though a separate
+// Chrome window would still be exposed to the same bug.
+if (process.env.BNC_ENABLE_GPU !== '1') {
+    app.disableHardwareAcceleration();
+}
 
 const { generateXrayConfig } = require('./utils');
 const { generateFingerprint, getInjectScript } = require('./fingerprint');

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, screen, shell, Tray, Menu, nativeImage, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, screen, shell, Tray, Menu, nativeImage, Notification, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs-extra');
 const { runVerify } = require('./verify');
@@ -721,6 +721,17 @@ app.on('render-process-gone', (_event, _webContents, details) => {
 
 app.on('child-process-gone', (_event, details) => {
     reportAppCrash(`child-process-gone-${details.type}-${details.reason}`, { exitCode: details.exitCode });
+});
+
+// System sleep/wake — a prior silent disappearance landed right after a resume-from-sleep,
+// which is a known trigger for GPU/driver-level Chromium crashes that die before any of the
+// JS-level handlers above can fire. Logging suspend/resume so the next occurrence can be
+// timed against it directly instead of inferred from Windows power event logs after the fact.
+app.whenReady().then(() => {
+    powerMonitor.on('suspend', () => debugLog('POWER', { level: 'info', msg: 'system suspend (sleep)', uptimeMs: Math.round(process.uptime() * 1000) }));
+    powerMonitor.on('resume', () => debugLog('POWER', { level: 'info', msg: 'system resume (wake)', uptimeMs: Math.round(process.uptime() * 1000) }));
+    powerMonitor.on('lock-screen', () => debugLog('POWER', { level: 'info', msg: 'lock-screen' }));
+    powerMonitor.on('unlock-screen', () => debugLog('POWER', { level: 'info', msg: 'unlock-screen' }));
 });
 // ─────────────────────────────────────────────────────────────────────────────
 

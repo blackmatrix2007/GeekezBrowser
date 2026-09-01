@@ -593,15 +593,15 @@ function scheduleWinRelaunch(maxWaitSeconds = 60) {
         ].join('\r\n');
         const batPath = path.join(os.tmpdir(), `bnc-relaunch-${Date.now()}.bat`);
         fs.writeFileSync(batPath, bat);
-        // windowsHide + detached together don't reliably suppress the console on Windows —
-        // the batch's own cmd.exe window briefly flashed during testing. WScript.Shell.Run
-        // with windowStyle=0 is the standard, long-established way to run something with
-        // zero visible window (plain, one-line VBS — not schtasks or PowerShell).
-        const vbsPath = path.join(os.tmpdir(), `bnc-relaunch-${Date.now()}.vbs`);
-        fs.writeFileSync(vbsPath, `CreateObject("WScript.Shell").Run """" & WScript.Arguments(0) & """", 0, False\r\n`);
-        spawn('wscript.exe', ['//B', '//Nologo', vbsPath, batPath], {
-            detached: true, stdio: 'ignore', windowsHide: true,
-        }).unref();
+        // A WScript.Shell.Run(..., 0, False) VBS wrapper was tried here to hide the batch's
+        // cmd.exe console flash (windowsHide + detached don't reliably suppress it). Dropped
+        // again: this Windows build actively logs a "VBScriptDeprecationAlert" the moment it
+        // runs (Microsoft is phasing VBScript out, disabled by default on newer builds), and
+        // right after adding it the relaunch started vanishing with zero trace anywhere — no
+        // crash dump, no Application Error, no AV block, nothing. Not proven to be the cause,
+        // but reliably launching BNC again matters far more than hiding a brief console window,
+        // so removing this dependency rather than continuing to chase it.
+        spawn('cmd.exe', ['/c', batPath], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
     } catch (e) {
         debugLog('UPDATER', { level: 'warn', msg: `scheduleWinRelaunch failed: ${e.message}` });
     }

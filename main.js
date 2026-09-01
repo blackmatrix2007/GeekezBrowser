@@ -526,6 +526,29 @@ function showBncLoginDialog(access) {
 const { autoUpdater } = require('electron-updater');
 let updatePromptShownForVersion = null;
 
+// Re-open BNC after a silent Windows update finishes installing. NSIS's own
+// "runAfterFinish" used to do this, but it relaunched immediately after the file
+// copy step — racing against AV/filesystem still settling the just-written files —
+// which caused the app to see its own fresh install as "a new update" and silently
+// reinstall itself in a loop (fixed by disabling runAfterFinish in package.json).
+// This does the same job from our side instead, with a real delay: a plain
+// `cmd.exe /c ping ... && start` (a standard, ordinary batch-file delay pattern),
+// NOT schtasks + a hidden PowerShell window — that combination was previously
+// flagged by Kaspersky as "PDM:Trojan.Win32.Generic" (it resembles a dropper's
+// persistence mechanism) and was removed for that reason. `ping` is used instead of
+// `timeout` because `timeout` refuses to run without a real attached console, which
+// a detached/stdio:'ignore' child does not have.
+function scheduleWinRelaunch(delaySeconds = 20) {
+    if (process.platform !== 'win32') return;
+    try {
+        const exePath = process.execPath;
+        const cmd = `ping -n ${delaySeconds + 1} 127.0.0.1 >nul && start "" "${exePath}"`;
+        spawn('cmd.exe', ['/c', cmd], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    } catch (e) {
+        debugLog('UPDATER', { level: 'warn', msg: `scheduleWinRelaunch failed: ${e.message}` });
+    }
+}
+
 function setupAutoUpdater() {
     autoUpdater.autoDownload    = true;
     // Mac: shell script handles install — disabling autoInstallOnAppQuit prevents Squirrel.Mac
@@ -612,6 +635,7 @@ function setupAutoUpdater() {
                 spawn('bash', [sp2], { detached: true, stdio: 'ignore' }).unref();
                 app.quit();
             } else {
+                scheduleWinRelaunch();
                 app.quit();
             }
             return;
@@ -674,7 +698,9 @@ function setupAutoUpdater() {
                 spawn('bash', [scriptPath], { detached: true, stdio: 'ignore' }).unref();
                 app.quit();
             } else {
-                // Win: dùng app.quit để NSIS installer chạy sau khi process thoát hoàn toàn
+                // Win: dùng app.quit để NSIS installer chạy sau khi process thoát hoàn toàn,
+                // rồi tự mở lại sau một khoảng chờ (xem scheduleWinRelaunch ở trên).
+                scheduleWinRelaunch();
                 app.quit();
             }
         }

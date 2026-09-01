@@ -568,7 +568,15 @@ function scheduleWinRelaunch(maxWaitSeconds = 60) {
         ].join('\r\n');
         const batPath = path.join(os.tmpdir(), `bnc-relaunch-${Date.now()}.bat`);
         fs.writeFileSync(batPath, bat);
-        spawn('cmd.exe', ['/c', batPath], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+        // windowsHide + detached together don't reliably suppress the console on Windows —
+        // the batch's own cmd.exe window briefly flashed during testing. WScript.Shell.Run
+        // with windowStyle=0 is the standard, long-established way to run something with
+        // zero visible window (plain, one-line VBS — not schtasks or PowerShell).
+        const vbsPath = path.join(os.tmpdir(), `bnc-relaunch-${Date.now()}.vbs`);
+        fs.writeFileSync(vbsPath, `CreateObject("WScript.Shell").Run """" & WScript.Arguments(0) & """", 0, False\r\n`);
+        spawn('wscript.exe', ['//B', '//Nologo', vbsPath, batPath], {
+            detached: true, stdio: 'ignore', windowsHide: true,
+        }).unref();
     } catch (e) {
         debugLog('UPDATER', { level: 'warn', msg: `scheduleWinRelaunch failed: ${e.message}` });
     }

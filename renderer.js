@@ -1237,6 +1237,28 @@ try {
 // Khởi động BNC UI
 bncInit();
 
+// Electron Mac: body có -webkit-app-region:drag nên wheel event bị OS capture.
+// Gắn wheel listener thủ công để bncNotifList scroll được bất kể drag region.
+(function attachNotifScrollFix() {
+    function _attachWheel(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('wheel', (e) => {
+            e.stopPropagation();
+            el.scrollTop += e.deltaY;
+        }, { passive: true });
+    }
+    function _attach() {
+        _attachWheel('bncNotifList');   // dropdown panel
+        _attachWheel('notifPageList');  // full notifications page
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', _attach);
+    } else {
+        _attach();
+    }
+})();
+
 // ════════════════════════════════════════════════════════════════════════════
 
 // Ẩn tabs dev-only khi chạy bản release (app.isPackaged = true)
@@ -4320,7 +4342,7 @@ function toggleNotifPanel() {
         panel.style.top  = (rect.bottom + 6) + 'px';
         panel.style.right = (window.innerWidth - rect.right - 4) + 'px';
         panel.style.left = 'auto';
-        panel.style.display = 'block';
+        panel.style.display = 'flex';
         _renderNotifList();
         // Fetch mới từ server — không đợi heartbeat 5 phút
         window.electronAPI.bncFetchNotifications().then(notifs => {

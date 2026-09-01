@@ -667,32 +667,13 @@ function setupAutoUpdater() {
 
     autoUpdater.on('error', (err) => {
         console.error('[UPDATE] electron-updater error:', err.message);
-        // Fallback: mở browser để tải tay
+        // Mac: ditto script xử lý install — không mở browser
+        if (process.platform === 'darwin') return;
+        // Win: fallback mở browser nếu electron-updater thất bại
         bncCheckVersion().then(v => { if (v) _checkVersionFallback(v); }).catch(() => {});
     });
 }
 
-// Fallback khi electron-updater không hoạt động — mở browser
-async function _checkVersionFallback(versionResult) {
-    if (!versionResult?.version) return;
-    const current    = app.getVersion();
-    const isOutdated = versionResult.version.localeCompare(current, undefined, { numeric: true, sensitivity: 'base' }) > 0;
-    if (!isOutdated) return;
-    const notes = versionResult.releaseNotes ? `\n\n${versionResult.releaseNotes}` : '';
-    const { response } = await dialog.showMessageBox({
-        type: 'info',
-        title: `Có phiên bản mới — v${versionResult.version}`,
-        message: `BNC Browser ${versionResult.version} đã sẵn sàng`,
-        detail: `Bạn đang dùng v${current}.${notes}`,
-        buttons: ['Tải ngay', 'Để sau'], defaultId: 0, cancelId: 1,
-    });
-    if (response === 0) shell.openExternal(versionResult.downloadUrl || 'https://yttool.vn');
-}
-
-// Tương thích ngược — giữ hàm cũ để không break các call site còn lại
-function checkAndNotifyUpdate(versionResult) {
-    return _checkVersionFallback(versionResult);
-}
 // ─────────────────────────────────────────────────────────────────────────────
 
 // --- Debug logger (writes to DATA_PATH/geekez_debug.log) ---
@@ -2433,9 +2414,8 @@ app.whenReady().then(async () => {
             } catch (_) {}
         }
 
-        // Check version mới (yttool + GitHub electron-updater)
-        const r = await bncCheckVersion();
-        if (r) checkAndNotifyUpdate(r);
+        // Check version mới — chỉ dùng electron-updater (download + ditto install)
+        // checkAndNotifyUpdate đã bỏ: mở browser thay vì tự cài
         autoUpdater.checkForUpdates().catch(() => {});
     }, 5 * 60 * 1000);
 

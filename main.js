@@ -686,6 +686,44 @@ function debugLog(tag, obj) {
     } catch(e) {}
 }
 
+// --- Fatal crash capture: main-process uncaught errors, renderer crashes, GPU/utility crashes ---
+// None of these were previously logged anywhere — a main-process uncaughtException already
+// terminated the app silently (Node's default with no listener), and a renderer/GPU crash left
+// the window blank with zero trace. Logs locally always; also best-effort pushes to the BNC
+// server via the existing logged-in-only bncApiCall('/crash-report') channel so support can see
+// it without asking the customer for their log file.
+function reportAppCrash(reason, extra) {
+    debugLog('FATAL', { level: 'error', msg: reason, ...extra });
+    bncApiCall('POST', '/crash-report', {
+        type: 'app-crash', reason,
+        deviceId: getDeviceId(), deviceName: os.hostname(),
+        appVersion: app.getVersion(), platform: process.platform, osRelease: os.release(),
+        uptimeMs: Math.round(process.uptime() * 1000),
+        ...extra,
+    }).catch(() => {});
+}
+
+process.on('uncaughtException', (err) => {
+    // Preserves Node's default behavior (process would already exit here with no listener
+    // attached) — just gives the crash a local + server record before it does.
+    reportAppCrash('uncaughtException', { error: err.message, stack: err.stack });
+    setTimeout(() => app.exit(1), 1500);
+});
+
+process.on('unhandledRejection', (reason) => {
+    const err = reason instanceof Error ? reason : new Error(String(reason));
+    reportAppCrash('unhandledRejection', { error: err.message, stack: err.stack });
+});
+
+app.on('render-process-gone', (_event, _webContents, details) => {
+    reportAppCrash(`render-process-gone-${details.reason}`, { exitCode: details.exitCode });
+});
+
+app.on('child-process-gone', (_event, details) => {
+    reportAppCrash(`child-process-gone-${details.type}-${details.reason}`, { exitCode: details.exitCode });
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
 let activeProcesses = {};
 let apiServer = null;
 let apiServerRunning = false;
@@ -4931,9 +4969,13 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
 
 app.on('window-all-closed', () => {
     // Do NOT quit — window is hidden to tray. Only quit via tray menu or app.isQuiting flag.
+    // Logged so an unexpected total-window-loss (renderer crash, OOM) is distinguishable from
+    // an intentional tray-hide when diagnosing "app tự tắt" reports.
+    debugLog('APP_LIFECYCLE', { level: 'info', msg: 'window-all-closed', isQuiting: !!app.isQuiting, uptimeMs: Math.round(process.uptime() * 1000) });
 });
 
 app.on('before-quit', () => {
+    debugLog('APP_LIFECYCLE', { level: 'info', msg: 'before-quit', wasAlreadyQuiting: !!app.isQuiting, uptimeMs: Math.round(process.uptime() * 1000) });
     app.isQuiting = true;
     Object.values(activeProcesses).forEach(p => {
         forceKill(p.xrayPid);

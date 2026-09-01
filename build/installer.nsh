@@ -11,9 +11,20 @@
 ; itself (its own child) — the installer commits suicide mid-run, which is exactly
 ; why "cannot be closed" / Retry never succeeds no matter what's manually killed:
 ; the installer instance handling the dialog is gone before it can re-check.
-; xray.exe/chrome.exe are separate executables the app spawns as ITS OWN children
-; (not ancestors of the installer), so "/T" there is harmless and still useful for
-; cleaning up their own descendants.
+; xray.exe is a separate executable the app spawns as ITS OWN child (not an
+; ancestor of the installer), so "/T" there is harmless and still useful for
+; cleaning up its own descendants.
+;
+; chrome.exe is deliberately NOT killed here anymore: "/IM chrome.exe" matches by
+; image name only, with no way to tell BNC's own profile-spawned Chrome apart from
+; the user's completely unrelated, already-open personal Chrome windows — it kills
+; every chrome.exe process on the whole machine. Confirmed via a real customer
+; report: they had 2 unrelated Chrome windows open, clicked "install update" in
+; BNC, and both their Chrome windows died along with BNC at the same moment.
+; BNC's own profile Chrome processes are already killed by PID (not by name) in
+; main.js's update-downloaded handler, via forceKill(chromeProcess.pid), before
+; app.quit() is even called — so this blanket kill was redundant for BNC's own
+; processes and only served to destroy the user's unrelated browser sessions.
 !macro preInit
   ; Kill app chính
   nsExec::Exec 'taskkill /F /IM "BNC.exe"'
@@ -24,9 +35,6 @@
   Pop $0
   ; Kill proxy engine
   nsExec::Exec 'taskkill /F /IM "xray.exe" /T'
-  Pop $0
-  ; Kill Chrome instances do app spawn ra
-  nsExec::Exec 'taskkill /F /IM "chrome.exe" /T'
   Pop $0
   ; Chờ OS release file lock
   Sleep 3000

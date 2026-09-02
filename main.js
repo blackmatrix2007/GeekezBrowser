@@ -566,14 +566,22 @@ let updatePromptShownForVersion = null;
 // `ping` was then found to itself be unreliable as a delay primitive on at least
 // one real machine — confirmed via multiple `ping -n 21 127.0.0.1` helper processes
 // still alive HOURS after being spawned (should finish in ~20s), almost certainly
-// something intercepting/dropping loopback ICMP. `choice /t N /d Y` is a pure
-// console-timer wait with no network dependency, so it doesn't share that failure
-// mode, and — unlike `timeout` — still works without a real attached console.
-function scheduleWinRelaunch(maxWaitSeconds = 60) {
+// something intercepting/dropping loopback ICMP. Switched to `choice /t N /d Y`
+// (a pure console-timer wait, no network dependency) — then a WScript.Shell.Run
+// VBS wrapper was added on top of that to hide the batch's console flash. Both were
+// then implicated when the relaunch started vanishing with zero trace anywhere (no
+// crash dump despite Crashpad enabled, no Application Error, no AV block) — removing
+// the VBS wrapper alone did NOT fix it, so `choice` itself (which, like `timeout`,
+// reads console/input state that may not really exist on a fully detached,
+// stdio:'ignore' child with no console at all) is the more likely remaining
+// culprit. Rather than trust another console-dependent wait primitive, the loop
+// below uses NO delay command at all — each `tasklist` invocation already costs
+// real wall-clock time (spawning a process, querying the process table), which is
+// enough pacing on its own; only tasklist/findstr/start are used anywhere here.
+function scheduleWinRelaunch() {
     if (process.platform !== 'win32') return;
     try {
         const exePath = process.execPath;
-        const iterations = Math.max(1, Math.round(maxWaitSeconds / 2));
         const bat = [
             '@echo off',
             'setlocal enabledelayedexpansion',
@@ -582,25 +590,18 @@ function scheduleWinRelaunch(maxWaitSeconds = 60) {
             'tasklist /FI "IMAGENAME eq BNC-*.exe" 2>nul | findstr /I "BNC-" >nul',
             'if %ERRORLEVEL%==0 (',
             `  set /a COUNT+=1`,
-            `  if !COUNT! GEQ ${iterations} goto :launch`,
-            '  choice /c y /t 2 /d y >nul',
+            `  if !COUNT! GEQ 200 goto :launch`,
             '  goto :wait_loop',
             ')',
             ':launch',
-            'choice /c y /t 3 /d y >nul',
+            'tasklist >nul',
+            'tasklist >nul',
+            'tasklist >nul',
             `start "" "${exePath}"`,
             'del "%~f0"',
         ].join('\r\n');
         const batPath = path.join(os.tmpdir(), `bnc-relaunch-${Date.now()}.bat`);
         fs.writeFileSync(batPath, bat);
-        // A WScript.Shell.Run(..., 0, False) VBS wrapper was tried here to hide the batch's
-        // cmd.exe console flash (windowsHide + detached don't reliably suppress it). Dropped
-        // again: this Windows build actively logs a "VBScriptDeprecationAlert" the moment it
-        // runs (Microsoft is phasing VBScript out, disabled by default on newer builds), and
-        // right after adding it the relaunch started vanishing with zero trace anywhere — no
-        // crash dump, no Application Error, no AV block, nothing. Not proven to be the cause,
-        // but reliably launching BNC again matters far more than hiding a brief console window,
-        // so removing this dependency rather than continuing to chase it.
         spawn('cmd.exe', ['/c', batPath], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
     } catch (e) {
         debugLog('UPDATER', { level: 'warn', msg: `scheduleWinRelaunch failed: ${e.message}` });

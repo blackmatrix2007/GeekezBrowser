@@ -24,12 +24,29 @@ function openEmbeddedTool(id, url, title) {
     _switchPage('embeddedToolPage', null);
     document.getElementById('embeddedToolTitle').textContent = title || '';
     const container = document.getElementById('embeddedToolWebviewContainer');
-    container.innerHTML = ''; // drop any previous tool's <webview> (different partition)
+    const loading = document.getElementById('embeddedToolLoading');
+
+    // Remove only the previous tool's <webview> (different id = different session
+    // partition) — the loading spinner div is a static sibling in this same
+    // container and must survive, so no full innerHTML wipe here.
+    document.getElementById('embeddedToolWebview')?.remove();
+
+    if (loading) loading.style.display = 'flex';
+
     const webview = document.createElement('webview');
     webview.id = 'embeddedToolWebview';
     webview.setAttribute('partition', `persist:tool-${id}`);
     webview.setAttribute('src', url);
-    webview.style.cssText = 'flex:1;width:100%;height:100%;border:none;';
+    // -webkit-app-region:no-drag — without it the webview inherits "drag" from the
+    // window chrome and every click inside the embedded page is swallowed as a
+    // window-drag gesture instead of reaching the page.
+    webview.style.cssText = 'flex:1;width:100%;height:100%;border:none;-webkit-app-region:no-drag;';
+
+    const hideLoading = () => { if (loading) loading.style.display = 'none'; };
+    webview.addEventListener('did-start-loading', () => { if (loading) loading.style.display = 'flex'; });
+    webview.addEventListener('did-stop-loading', hideLoading);
+    webview.addEventListener('did-fail-load', hideLoading);
+
     container.appendChild(webview);
 }
 

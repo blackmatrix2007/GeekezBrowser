@@ -4519,8 +4519,99 @@ ipcMain.handle('repair-profile', async (_event, profileId) => {
     }
 });
 
+// ─── Arrange Window ───────────────────────────────────────────────────────────
+
+function calcArrangeLayout(count, settings, workArea) {
+    const scale = Math.max(0.1, Math.min(2, (settings.scale || 100) / 100));
+    const { x: wx, y: wy, width: ww, height: wh } = workArea;
+    let cellW, cellH, numCols;
+
+    if (settings.sizeMode === 'userSize') {
+        cellW = Math.round((settings.windowWidth || 800) * scale);
+        cellH = Math.round((settings.windowHeight || 600) * scale);
+        numCols = Math.max(1, Math.floor(ww / cellW));
+    } else if (settings.sizeMode === 'userRowsCols') {
+        numCols = Math.max(1, parseInt(settings.cols) || 3);
+        const numRows = Math.max(1, parseInt(settings.rows) || 2);
+        cellW = Math.round((ww / numCols) * scale);
+        cellH = Math.round((wh / numRows) * scale);
+    } else {
+        numCols = Math.ceil(Math.sqrt(count));
+        cellW = Math.round(ww / numCols);
+        cellH = Math.round(wh / Math.ceil(count / numCols));
+    }
+
+    const positions = [];
+    for (let i = 0; i < count; i++) {
+        const col = i % numCols;
+        const row = Math.floor(i / numCols);
+        positions.push({ x: wx + col * cellW, y: wy + row * cellH, w: cellW, h: cellH });
+    }
+    return { positions, cellW, cellH, numCols };
+}
+
+async function moveWindowByPid(pid, x, y, w, h) {
+    try {
+        if (process.platform === 'darwin') {
+            const script = `tell application "System Events" to set bounds of first window of (first process whose unix id is ${pid}) to {${x}, ${y}, ${x + w}, ${y + h}}`;
+            execSync(`osascript -e '${script}'`, { timeout: 3000, stdio: 'pipe' });
+        } else if (process.platform === 'win32') {
+            const tmpPs = path.join(os.tmpdir(), `bnc_wpos_${pid}.ps1`);
+            const psCode = `
+Add-Type -TypeDefinition @'
+using System;using System.Runtime.InteropServices;
+public class BncWin32{
+[DllImport("user32.dll")]public static extern bool SetWindowPos(IntPtr h,IntPtr i,int x,int y,int cw,int ch,uint f);
+[DllImport("user32.dll")]public static extern bool ShowWindow(IntPtr h,int c);}
+'@
+$p=Get-Process -Id ${pid} -ErrorAction SilentlyContinue
+if($p){$hw=$p.MainWindowHandle;[BncWin32]::ShowWindow($hw,9)|Out-Null;[BncWin32]::SetWindowPos($hw,[IntPtr]::Zero,${x},${y},${w},${h},0x40)|Out-Null}`;
+            fs.writeFileSync(tmpPs, psCode);
+            execSync(`powershell -NoProfile -NonInteractive -WindowStyle Hidden -File "${tmpPs}"`, { timeout: 5000, stdio: 'pipe' });
+            try { fs.unlinkSync(tmpPs); } catch (_) {}
+        }
+    } catch (_) {}
+}
+
+ipcMain.handle('get-screen-info', () => {
+    const d = screen.getPrimaryDisplay();
+    return { workArea: d.workArea, bounds: d.bounds };
+});
+
+ipcMain.handle('get-arrange-settings', async () => {
+    const s = fs.existsSync(SETTINGS_FILE) ? await fs.readJson(SETTINGS_FILE) : {};
+    return s.arrangeWindow || { sizeMode: 'auto', arrangeMode: 'separate', windowWidth: 800, windowHeight: 600, rows: 2, cols: 3, scale: 100, arrangeAtSameTime: true };
+});
+
+ipcMain.handle('save-arrange-settings', async (_, cfg) => {
+    const s = fs.existsSync(SETTINGS_FILE) ? await fs.readJson(SETTINGS_FILE) : {};
+    s.arrangeWindow = cfg;
+    await fs.writeJson(SETTINGS_FILE, s, { spaces: 2 });
+    return { success: true };
+});
+
+ipcMain.handle('calc-arrange-layout', (_, count, settings) => {
+    const workArea = screen.getPrimaryDisplay().workArea;
+    return { ...calcArrangeLayout(count, settings, workArea), workArea };
+});
+
+ipcMain.handle('arrange-opening-profiles', async (_, settings) => {
+    const running = Object.entries(activeProcesses);
+    if (!running.length) return { success: false, message: 'No running profiles' };
+    const workArea = screen.getPrimaryDisplay().workArea;
+    const { positions } = calcArrangeLayout(running.length, settings, workArea);
+    await Promise.all(running.map(async ([, proc], i) => {
+        const pid = proc.chromeProcess?.pid;
+        if (pid && positions[i]) {
+            await new Promise(r => setTimeout(r, i * 80));
+            await moveWindowByPid(pid, positions[i].x, positions[i].y, positions[i].w, positions[i].h);
+        }
+    }));
+    return { success: true, count: running.length };
+});
+
 // --- 核心启动逻辑 ---
-ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
+ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle, windowOverride) => {
     const sender = event.sender;
 
     if (activeProcesses[profileId]) {
@@ -4765,7 +4856,10 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
                   ]
             ),
             `--user-data-dir=${userDataDir}`,
-            `--window-size=${profile.fingerprint?.window?.width || 1280},${profile.fingerprint?.window?.height || 800}`,
+            ...(windowOverride
+                ? [`--window-position=${windowOverride.x},${windowOverride.y}`, `--window-size=${windowOverride.w},${windowOverride.h}`]
+                : [`--window-size=${profile.fingerprint?.window?.width || 1280},${profile.fingerprint?.window?.height || 800}`]
+            ),
             '--restore-last-session',
             '--no-sandbox',
             '--disable-setuid-sandbox',

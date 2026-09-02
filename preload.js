@@ -6,7 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveProfile: (data) => ipcRenderer.invoke('save-profile', data),
     updateProfile: (data) => ipcRenderer.invoke('update-profile', data),
     deleteProfile: (id) => ipcRenderer.invoke('delete-profile', id),
-    launchProfile: (id, watermarkStyle) => ipcRenderer.invoke('launch-profile', id, watermarkStyle),
+    launchProfile: (id, watermarkStyle, windowOverride) => ipcRenderer.invoke('launch-profile', id, watermarkStyle, windowOverride),
     getSettings: () => ipcRenderer.invoke('get-settings'),
     saveSettings: (data) => ipcRenderer.invoke('save-settings', data),
     exportProfile: (id) => ipcRenderer.invoke('export-profile', id),
@@ -85,4 +85,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     teamRemoveMember: (memberId) => ipcRenderer.invoke('bnc-team-remove-member', memberId),
     switchWorkspace: (ownerCustomerId) => ipcRenderer.invoke('bnc-switch-workspace', ownerCustomerId),
     onWorkspaceLoaded: (cb) => ipcRenderer.on('bnc-workspace-loaded', (_, data) => cb(data)),
+    // ─── Arrange Window ──────────────────────────────────────────────────────
+    getScreenInfo: () => ipcRenderer.invoke('get-screen-info'),
+    getArrangeSettings: () => ipcRenderer.invoke('get-arrange-settings'),
+    saveArrangeSettings: (cfg) => ipcRenderer.invoke('save-arrange-settings', cfg),
+    calcArrangeLayout: (count, settings) => ipcRenderer.invoke('calc-arrange-layout', count, settings),
+    arrangeOpeningProfiles: (settings) => ipcRenderer.invoke('arrange-opening-profiles', settings),
 });

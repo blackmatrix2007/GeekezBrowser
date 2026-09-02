@@ -4503,3 +4503,177 @@ async function markAllNotifsRead() {
 async function triggerInstallUpdate() {
     try { await window.electronAPI.installAppUpdate(); } catch (_) {}
 }
+
+// ─── Arrange Window ───────────────────────────────────────────────────────────
+
+let _awSettings = null;
+
+async function openArrangeWindow() {
+    const modal = document.getElementById('arrangeWindowModal');
+    if (!modal) return;
+    _awSettings = await window.electronAPI.getArrangeSettings();
+    // populate fields
+    document.getElementById('aw-sizeMode').value = _awSettings.sizeMode || 'auto';
+    document.getElementById('aw-arrangeMode').value = _awSettings.arrangeMode || 'separate';
+    document.getElementById('aw-winW').value = _awSettings.windowWidth || 800;
+    document.getElementById('aw-winH').value = _awSettings.windowHeight || 600;
+    const rowsSel = document.getElementById('aw-rows');
+    const colsSel = document.getElementById('aw-cols');
+    rowsSel.value = String(_awSettings.rows || 2);
+    colsSel.value = String(_awSettings.cols || 3);
+    document.getElementById('aw-scale').value = _awSettings.scale || 100;
+    document.getElementById('aw-atSameTime').checked = _awSettings.arrangeAtSameTime !== false;
+    onAwSizeModeChange();
+    modal.style.display = 'flex';
+    await awDrawPreview('opening');
+}
+
+function closeArrangeWindow() {
+    const modal = document.getElementById('arrangeWindowModal');
+    if (modal) modal.style.display = 'none';
+    _awSaveSettings();
+}
+
+function _awGetSettings() {
+    const sizeMode = document.getElementById('aw-sizeMode').value;
+    return {
+        sizeMode,
+        arrangeMode: document.getElementById('aw-arrangeMode').value,
+        windowWidth: parseInt(document.getElementById('aw-winW').value) || 800,
+        windowHeight: parseInt(document.getElementById('aw-winH').value) || 600,
+        rows: parseInt(document.getElementById('aw-rows').value) || 2,
+        cols: parseInt(document.getElementById('aw-cols').value) || 3,
+        scale: parseFloat(document.getElementById('aw-scale').value) || 100,
+        arrangeAtSameTime: document.getElementById('aw-atSameTime').checked,
+    };
+}
+
+async function _awSaveSettings() {
+    try { await window.electronAPI.saveArrangeSettings(_awGetSettings()); } catch (_) {}
+}
+
+function onAwSizeModeChange() {
+    const mode = document.getElementById('aw-sizeMode').value;
+    document.getElementById('aw-row-size').style.display = mode === 'userSize' ? 'table-row' : 'none';
+    document.getElementById('aw-row-rowscols').style.display = mode === 'userRowsCols' ? 'table-row' : 'none';
+    // re-draw preview after a tick
+    setTimeout(() => awDrawPreview('opening'), 50);
+}
+
+async function awDrawPreview(type) {
+    const canvas = document.getElementById('aw-preview');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    // get running profiles or selected profiles count
+    let count = 0;
+    if (type === 'opening') {
+        try {
+            const ids = await window.electronAPI.getRunningIds?.() || [];
+            count = ids.length;
+        } catch (_) { count = 0; }
+    } else {
+        const selected = getSelectedProfileIds();
+        count = selected.length;
+    }
+    if (count === 0) count = 4; // show sample grid if none
+
+    const settings = _awGetSettings();
+    const result = await window.electronAPI.calcArrangeLayout(count, settings);
+    if (!result) return;
+
+    const { workArea, cellW, cellH, numCols } = result;
+    const numRows = Math.ceil(count / numCols);
+    const scaleX = (W - 8) / workArea.width;
+    const scaleY = (H - 8) / workArea.height;
+    const padX = 4, padY = 4;
+
+    // background (screen)
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, W, H);
+
+    // draw grid cells
+    const colors = ['#00e0ff33', '#7c3aed33', '#10b98133', '#f59e0b33'];
+    for (let i = 0; i < count; i++) {
+        const col = i % numCols;
+        const row = Math.floor(i / numCols);
+        const rx = padX + col * cellW * scaleX;
+        const ry = padY + row * cellH * scaleY;
+        const rw = cellW * scaleX - 2;
+        const rh = cellH * scaleY - 2;
+
+        ctx.fillStyle = colors[i % colors.length];
+        ctx.fillRect(rx, ry, rw, rh);
+        ctx.strokeStyle = '#00e0ff88';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(rx, ry, rw, rh);
+
+        // number label
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold ${Math.max(10, Math.min(16, rh * 0.3))}px system-ui`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(i + 1, rx + rw / 2, ry + rh / 2);
+    }
+
+    // info text
+    ctx.fillStyle = '#888';
+    ctx.font = '10px system-ui';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(`${numCols}×${numRows}  ${cellW}×${cellH}px`, W - 4, H - 2);
+}
+
+async function awPreview(type) {
+    await awDrawPreview(type);
+}
+
+async function awArrangeOpening() {
+    const settings = _awGetSettings();
+    try {
+        const result = await window.electronAPI.arrangeOpeningProfiles(settings);
+        if (!result.success) {
+            showToast(result.message || 'No running profiles to arrange', 'warn');
+        } else {
+            showToast(`Arranged ${result.count} window${result.count !== 1 ? 's' : ''}`, 'success');
+        }
+    } catch (e) {
+        showToast('Arrange failed: ' + e.message, 'error');
+    }
+    _awSaveSettings();
+}
+
+async function awOpenAndArrangeSelected() {
+    const profileIds = getSelectedProfileIds();
+    if (!profileIds.length) {
+        showToast('No profiles selected', 'warn');
+        return;
+    }
+    const settings = _awGetSettings();
+    const result = await window.electronAPI.calcArrangeLayout(profileIds.length, settings);
+    if (!result) return;
+
+    let launched = 0;
+    for (let i = 0; i < profileIds.length; i++) {
+        const pos = result.positions[i];
+        try {
+            await window.electronAPI.launchProfile(profileIds[i], null, pos);
+            launched++;
+        } catch (_) {}
+        if (i < profileIds.length - 1) await new Promise(r => setTimeout(r, 300));
+    }
+    showToast(`Launched & arranged ${launched} profile${launched !== 1 ? 's' : ''}`, 'success');
+    _awSaveSettings();
+}
+
+function getSelectedProfileIds() {
+    return [...document.querySelectorAll('.profile-item.selected')].map(el => el.dataset.id).filter(Boolean);
+}
+
+// close on backdrop click
+document.addEventListener('DOMContentLoaded', () => {
+    const modal = document.getElementById('arrangeWindowModal');
+    if (modal) modal.addEventListener('click', e => { if (e.target === modal) closeArrangeWindow(); });
+});

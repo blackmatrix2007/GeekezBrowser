@@ -1096,7 +1096,8 @@ async function handleApiRequest(method, pathname, body, params) {
                            '--disable-features=LockProfileCookieDatabase'],
                     defaultViewport: null, ignoreDefaultArgs: ['--enable-automation'],
                 });
-                const client = await (await browser.pages())[0].createCDPSession();
+                const page = (await browser.pages())[0] || await browser.newPage();
+                const client = await page.createCDPSession();
                 const { cookies } = await client.send('Network.getAllCookies');
                 await browser.close();
                 backupData.browserData[profile.id]._cookies = cookies;
@@ -4051,7 +4052,8 @@ ipcMain.handle('export-full-backup', async (_, { profileIds, password }) => {
                     defaultViewport: null,
                     ignoreDefaultArgs: ['--enable-automation'],
                 });
-                const client = await (await browser.pages())[0].createCDPSession();
+                const page = (await browser.pages())[0] || await browser.newPage();
+                const client = await page.createCDPSession();
                 const { cookies } = await client.send('Network.getAllCookies');
                 await browser.close();
                 backupData.browserData[profile.id]._cookies = cookies;
@@ -4184,7 +4186,8 @@ ipcMain.handle('import-full-backup', async (_, { password }) => {
                         defaultViewport: null, ignoreDefaultArgs: ['--enable-automation'],
                     });
                     if (hasCookies) {
-                        const client = await (await browser.pages())[0].createCDPSession();
+                        const page = (await browser.pages())[0] || await browser.newPage();
+                        const client = await page.createCDPSession();
                         let cookieCount = 0;
                         for (const cookie of browserFiles._cookies) {
                             try {
@@ -4362,7 +4365,8 @@ async function pullAndApplyProfileSession(profileId, userDataDir, chromePath, lo
             defaultViewport: null, ignoreDefaultArgs: ['--enable-automation'],
         });
         try {
-            const client = await (await browser.pages())[0].createCDPSession();
+            const page = (await browser.pages())[0] || await browser.newPage();
+            const client = await page.createCDPSession();
             let applied = 0;
             for (const cookie of res.cookies) {
                 try {
@@ -4417,9 +4421,8 @@ async function pushProfileSessionToServer(profileId, userDataDir, chromePath) {
         });
         let cookies = [];
         try {
-            // Must use browser-level target (not page target) so Network.getAllCookies
-            // returns the full cookie store, not just cookies for the current page origin.
-            const client = await (await browser.pages())[0].createCDPSession();
+            const page = (await browser.pages())[0] || await browser.newPage();
+            const client = await page.createCDPSession();
             const result = await client.send('Network.getAllCookies');
             cookies = result.cookies || [];
         } finally {

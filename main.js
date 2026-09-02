@@ -4571,13 +4571,33 @@ function calcArrangeLayout(count, settings, workArea) {
     return { positions, cellW, cellH, numCols };
 }
 
-async function moveWindowByPid(pid, x, y, w, h) {
+// Repositions ALL given windows via a single spawned helper process, not one per
+// window. The original per-window version used execSync (blocking) and, on
+// Windows, re-spawned powershell.exe + recompiled an inline Add-Type C# snippet
+// for every single profile — since execSync freezes the whole event loop, wrapping
+// those calls in Promise.all bought no real concurrency, so arranging N already-open
+// profiles serialized N full PowerShell startups (each ~300-800ms), able to hang the
+// entire app (no clicks, no other IPC) for several seconds with a realistic profile
+// count. One batch invocation plus a non-blocking exec() removes both costs.
+async function moveWindowsBatch(moves) {
+    if (!moves || !moves.length) return;
     try {
         if (process.platform === 'darwin') {
-            const script = `tell application "System Events" to set bounds of first window of (first process whose unix id is ${pid}) to {${x}, ${y}, ${x + w}, ${y + h}}`;
-            execSync(`osascript -e '${script}'`, { timeout: 3000, stdio: 'pipe' });
+            const script = moves.map(m =>
+                `tell application "System Events" to set bounds of first window of (first process whose unix id is ${m.pid}) to {${m.x}, ${m.y}, ${m.x + m.w}, ${m.y + m.h}}`
+            ).join('\n');
+            const tmpScpt = path.join(os.tmpdir(), `bnc_wpos_batch_${Date.now()}.applescript`);
+            fs.writeFileSync(tmpScpt, script);
+            await new Promise((resolve) => {
+                exec(`osascript "${tmpScpt}"`, { timeout: 8000 }, () => {
+                    try { fs.unlinkSync(tmpScpt); } catch (_) {}
+                    resolve();
+                });
+            });
         } else if (process.platform === 'win32') {
-            const tmpPs = path.join(os.tmpdir(), `bnc_wpos_${pid}.ps1`);
+            const psLines = moves.map(m =>
+                `$p=Get-Process -Id ${m.pid} -ErrorAction SilentlyContinue; if($p){$hw=$p.MainWindowHandle;[BncWin32]::ShowWindow($hw,9)|Out-Null;[BncWin32]::SetWindowPos($hw,[IntPtr]::Zero,${m.x},${m.y},${m.w},${m.h},0x40)|Out-Null}`
+            ).join('\n');
             const psCode = `
 Add-Type -TypeDefinition @'
 using System;using System.Runtime.InteropServices;
@@ -4585,11 +4605,15 @@ public class BncWin32{
 [DllImport("user32.dll")]public static extern bool SetWindowPos(IntPtr h,IntPtr i,int x,int y,int cw,int ch,uint f);
 [DllImport("user32.dll")]public static extern bool ShowWindow(IntPtr h,int c);}
 '@
-$p=Get-Process -Id ${pid} -ErrorAction SilentlyContinue
-if($p){$hw=$p.MainWindowHandle;[BncWin32]::ShowWindow($hw,9)|Out-Null;[BncWin32]::SetWindowPos($hw,[IntPtr]::Zero,${x},${y},${w},${h},0x40)|Out-Null}`;
+${psLines}`;
+            const tmpPs = path.join(os.tmpdir(), `bnc_wpos_batch_${Date.now()}.ps1`);
             fs.writeFileSync(tmpPs, psCode);
-            execSync(`powershell -NoProfile -NonInteractive -WindowStyle Hidden -File "${tmpPs}"`, { timeout: 5000, stdio: 'pipe' });
-            try { fs.unlinkSync(tmpPs); } catch (_) {}
+            await new Promise((resolve) => {
+                exec(`powershell -NoProfile -NonInteractive -WindowStyle Hidden -File "${tmpPs}"`, { timeout: 10000 }, () => {
+                    try { fs.unlinkSync(tmpPs); } catch (_) {}
+                    resolve();
+                });
+            });
         }
     } catch (_) {}
 }
@@ -4621,14 +4645,15 @@ ipcMain.handle('arrange-opening-profiles', async (_, settings) => {
     if (!running.length) return { success: false, message: 'No running profiles' };
     const workArea = screen.getPrimaryDisplay().workArea;
     const { positions } = calcArrangeLayout(running.length, settings, workArea);
-    await Promise.all(running.map(async ([, proc], i) => {
+    const moves = [];
+    running.forEach(([, proc], i) => {
         const pid = proc.chromeProcess?.pid;
         if (pid && positions[i]) {
-            await new Promise(r => setTimeout(r, i * 80));
-            await moveWindowByPid(pid, positions[i].x, positions[i].y, positions[i].w, positions[i].h);
+            moves.push({ pid, x: positions[i].x, y: positions[i].y, w: positions[i].w, h: positions[i].h });
         }
-    }));
-    return { success: true, count: running.length };
+    });
+    await moveWindowsBatch(moves);
+    return { success: true, count: moves.length };
 });
 
 // --- 核心启动逻辑 ---

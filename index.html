@@ -1584,9 +1584,9 @@
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                 Groups
             </button>
-            <button class="outline" onclick="openArrangeWindow()" title="Arrange Window" style="display:flex;align-items:center;gap:5px;">
+            <button class="outline" onclick="openArrangeWindow()" title="Sắp xếp cửa sổ" style="display:flex;align-items:center;gap:5px;">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8"/><rect x="13" y="3" width="8" height="8"/><rect x="3" y="13" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/></svg>
-                Arrange
+                Sắp xếp
             </button>
         </div>
         <div class="sub-right">
@@ -2551,7 +2551,7 @@
             <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);">
                 <div style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8"/><rect x="13" y="3" width="8" height="8"/><rect x="3" y="13" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/></svg>
-                    Arrange Window
+                    Sắp xếp cửa sổ
                 </div>
                 <button onclick="closeArrangeWindow()" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:18px;line-height:1;">✕</button>
             </div>
@@ -2559,25 +2559,25 @@
             <div style="padding:16px 18px;">
                 <table style="width:100%;border-collapse:collapse;">
                     <tr>
-                        <td style="padding:6px 0;color:var(--text-secondary);font-size:13px;width:130px;">Size mode</td>
+                        <td style="padding:6px 0;color:var(--text-secondary);font-size:13px;width:130px;">Chế độ kích thước</td>
                         <td style="padding:6px 0;">
                             <select id="aw-sizeMode" onchange="onAwSizeModeChange()" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);color:var(--text-primary);font-size:13px;">
-                                <option value="auto">Auto window size</option>
-                                <option value="userSize">User set window size</option>
-                                <option value="userRowsCols">User set rows, columns</option>
+                                <option value="auto">Tự động</option>
+                                <option value="userSize">Tự chỉnh kích thước cửa sổ</option>
+                                <option value="userRowsCols">Tự chỉnh hàng, cột</option>
                             </select>
                         </td>
                     </tr>
                     <tr>
-                        <td style="padding:6px 0;color:var(--text-secondary);font-size:13px;">Arrange mode</td>
+                        <td style="padding:6px 0;color:var(--text-secondary);font-size:13px;">Chế độ sắp xếp</td>
                         <td style="padding:6px 0;">
                             <select id="aw-arrangeMode" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);color:var(--text-primary);font-size:13px;">
-                                <option value="separate">Separate</option>
+                                <option value="separate">Phân tách</option>
                             </select>
                         </td>
                     </tr>
                     <tr id="aw-row-size" style="display:none;">
-                        <td style="padding:6px 0;color:var(--text-secondary);font-size:13px;">Window size</td>
+                        <td style="padding:6px 0;color:var(--text-secondary);font-size:13px;">Kích thước cửa sổ</td>
                         <td style="padding:6px 0;display:flex;align-items:center;gap:6px;">
                             <input id="aw-winW" type="number" value="800" min="200" style="width:72px;padding:5px 6px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);color:var(--text-primary);font-size:13px;">
                             <span style="color:var(--text-secondary);">x</span>
@@ -2585,7 +2585,7 @@
                         </td>
                     </tr>
                     <tr id="aw-row-rowscols" style="display:none;">
-                        <td style="padding:6px 0;color:var(--text-secondary);font-size:13px;">Rows x Columns</td>
+                        <td style="padding:6px 0;color:var(--text-secondary);font-size:13px;">Hàng x Cột</td>
                         <td style="padding:6px 0;display:flex;align-items:center;gap:6px;">
                             <select id="aw-rows" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);color:var(--text-primary);font-size:13px;">
                                 <option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option>
@@ -2597,7 +2597,7 @@
                         </td>
                     </tr>
                     <tr>
-                        <td style="padding:6px 0;color:var(--text-secondary);font-size:13px;">Scale (%)</td>
+                        <td style="padding:6px 0;color:var(--text-secondary);font-size:13px;">Tỷ lệ (%)</td>
                         <td style="padding:6px 0;">
                             <input id="aw-scale" type="number" value="100" min="10" max="200" style="width:80px;padding:5px 6px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);color:var(--text-primary);font-size:13px;">
                         </td>
@@ -2606,10 +2606,10 @@
 
                 <div style="display:flex;gap:20px;margin:10px 0;font-size:13px;">
                     <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-                        <input type="checkbox" id="aw-selectArea"> Select working area
+                        <input type="checkbox" id="aw-selectArea"> Chọn vùng làm việc
                     </label>
                     <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-                        <input type="checkbox" id="aw-atSameTime" checked> Arrange at the same time open
+                        <input type="checkbox" id="aw-atSameTime" checked> Sắp xếp ngay khi mở
                     </label>
                 </div>
 
@@ -2620,10 +2620,10 @@
 
                 <!-- Action buttons -->
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
-                    <button onclick="awArrangeOpening()" style="padding:8px;background:var(--accent);border:none;color:var(--bg-color);border-radius:7px;cursor:pointer;font-size:13px;font-weight:600;">Arrange opening profile</button>
-                    <button onclick="awOpenAndArrangeSelected()" style="padding:8px;background:var(--card-bg);border:1px solid var(--border);color:var(--text-primary);border-radius:7px;cursor:pointer;font-size:13px;">Open and arrange selected profile</button>
-                    <button onclick="awPreview('opening')" style="padding:8px;background:var(--card-bg);border:1px solid var(--border);color:var(--text-primary);border-radius:7px;cursor:pointer;font-size:13px;">Preview Opening</button>
-                    <button onclick="awPreview('selected')" style="padding:8px;background:var(--card-bg);border:1px solid var(--border);color:var(--text-primary);border-radius:7px;cursor:pointer;font-size:13px;">Preview Selected</button>
+                    <button onclick="awArrangeOpening()" style="padding:8px;background:var(--accent);border:none;color:var(--bg-color);border-radius:7px;cursor:pointer;font-size:13px;font-weight:600;">Sắp xếp profile đang mở</button>
+                    <button onclick="awOpenAndArrangeSelected()" style="padding:8px;background:var(--card-bg);border:1px solid var(--border);color:var(--text-primary);border-radius:7px;cursor:pointer;font-size:13px;">Mở và sắp xếp profile đã chọn</button>
+                    <button onclick="awPreview('opening')" style="padding:8px;background:var(--card-bg);border:1px solid var(--border);color:var(--text-primary);border-radius:7px;cursor:pointer;font-size:13px;">Xem trước đang mở</button>
+                    <button onclick="awPreview('selected')" style="padding:8px;background:var(--card-bg);border:1px solid var(--border);color:var(--text-primary);border-radius:7px;cursor:pointer;font-size:13px;">Xem trước đã chọn</button>
                 </div>
             </div>
         </div>

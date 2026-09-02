@@ -545,68 +545,17 @@ function showBncLoginDialog(access) {
 const { autoUpdater } = require('electron-updater');
 let updatePromptShownForVersion = null;
 
-// Re-open BNC after a silent Windows update finishes installing. NSIS's own
-// "runAfterFinish" used to do this, but it relaunched immediately after the file
-// copy step — racing against AV/filesystem still settling the just-written files —
-// which caused the app to see its own fresh install as "a new update" and silently
-// reinstall itself in a loop (fixed by disabling runAfterFinish in package.json).
-//
-// This does the same job from our side instead — NOT via schtasks + a hidden
-// PowerShell window; that combination was previously flagged by Kaspersky as
-// "PDM:Trojan.Win32.Generic" (it resembles a dropper's persistence mechanism) and
-// was removed for that reason. Only plain cmd.exe/tasklist/findstr are used here.
-//
-// A first version used a flat `ping`-based delay (chosen because `timeout` refuses
-// to run without a real attached console). A fixed 20s delay still lost the same
-// race once — the relaunched app read a not-yet-fully-written install and briefly
-// re-triggered the exact reinstall loop this was meant to avoid. Polling for the
-// installer's own process to actually disappear (rather than guessing how long
-// that takes) is what actually closes the race.
-//
-// `ping` was then found to itself be unreliable as a delay primitive on at least
-// one real machine — confirmed via multiple `ping -n 21 127.0.0.1` helper processes
-// still alive HOURS after being spawned (should finish in ~20s), almost certainly
-// something intercepting/dropping loopback ICMP. Switched to `choice /t N /d Y`
-// (a pure console-timer wait, no network dependency) — then a WScript.Shell.Run
-// VBS wrapper was added on top of that to hide the batch's console flash. Both were
-// then implicated when the relaunch started vanishing with zero trace anywhere (no
-// crash dump despite Crashpad enabled, no Application Error, no AV block) — removing
-// the VBS wrapper alone did NOT fix it, so `choice` itself (which, like `timeout`,
-// reads console/input state that may not really exist on a fully detached,
-// stdio:'ignore' child with no console at all) is the more likely remaining
-// culprit. Rather than trust another console-dependent wait primitive, the loop
-// below uses NO delay command at all — each `tasklist` invocation already costs
-// real wall-clock time (spawning a process, querying the process table), which is
-// enough pacing on its own; only tasklist/findstr/start are used anywhere here.
-function scheduleWinRelaunch() {
-    if (process.platform !== 'win32') return;
-    try {
-        const exePath = process.execPath;
-        const bat = [
-            '@echo off',
-            'setlocal enabledelayedexpansion',
-            `set "COUNT=0"`,
-            ':wait_loop',
-            'tasklist /FI "IMAGENAME eq BNC-*.exe" 2>nul | findstr /I "BNC-" >nul',
-            'if %ERRORLEVEL%==0 (',
-            `  set /a COUNT+=1`,
-            `  if !COUNT! GEQ 200 goto :launch`,
-            '  goto :wait_loop',
-            ')',
-            ':launch',
-            'tasklist >nul',
-            'tasklist >nul',
-            'tasklist >nul',
-            `start "" "${exePath}"`,
-            'del "%~f0"',
-        ].join('\r\n');
-        const batPath = path.join(os.tmpdir(), `bnc-relaunch-${Date.now()}.bat`);
-        fs.writeFileSync(batPath, bat);
-        spawn('cmd.exe', ['/c', batPath], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
-    } catch (e) {
-        debugLog('UPDATER', { level: 'warn', msg: `scheduleWinRelaunch failed: ${e.message}` });
-    }
-}
+// A custom auto-relaunch (spawning a detached batch script to wait for the installer
+// to finish, then relaunch BNC.exe) was tried here across several iterations — a
+// flat `ping`-based delay, then `choice`, then a VBS console-hiding wrapper, then a
+// pure `tasklist`-paced loop with no delay command at all. Every variant kept
+// showing visible (sometimes stuck) console windows on at least one real machine
+// regardless of `windowsHide`, and one variant vanished with zero trace at all (no
+// crash dump, no Application Error, no AV block). Reverted to electron-updater's
+// own quitAndInstall(isSilent, isForceRunAfter) — see the comments at its two call
+// sites below for why the historical reason for avoiding it (installer spawned as
+// this process's own child, killed by installer.nsh's old `taskkill /T` on BNC.exe)
+// no longer applies, since that /T was removed independently of this update flow.
 
 function setupAutoUpdater() {
     autoUpdater.autoDownload    = true;
@@ -694,8 +643,11 @@ function setupAutoUpdater() {
                 spawn('bash', [sp2], { detached: true, stdio: 'ignore' }).unref();
                 app.quit();
             } else {
-                scheduleWinRelaunch();
-                app.quit();
+                // electron-updater's own mechanism (isSilent, isForceRunAfter) — see the
+                // long comment above scheduleWinRelaunch's old definition for why a custom
+                // batch-script relaunch was tried and abandoned (visible/stuck console
+                // windows on at least one real machine, regardless of windowsHide).
+                autoUpdater.quitAndInstall(true, true);
             }
             return;
         }
@@ -757,10 +709,20 @@ function setupAutoUpdater() {
                 spawn('bash', [scriptPath], { detached: true, stdio: 'ignore' }).unref();
                 app.quit();
             } else {
-                // Win: dùng app.quit để NSIS installer chạy sau khi process thoát hoàn toàn,
-                // rồi tự mở lại sau một khoảng chờ (xem scheduleWinRelaunch ở trên).
-                scheduleWinRelaunch();
-                app.quit();
+                // Win: electron-updater's own quitAndInstall(isSilent, isForceRunAfter) —
+                // NSIS relaunches the app itself once the install finishes. The earlier
+                // avoidance of this API was about quitAndInstall spawning the installer as
+                // this process's own child before quitting, which used to matter when
+                // installer.nsh's preInit still killed BNC.exe with taskkill /T (that /T
+                // cascaded down and killed the installer too, since it was a child at that
+                // point) — that /T was removed independently of this update-flow change, so
+                // the original hazard no longer applies. A custom batch-script relaunch
+                // (tasklist polling, no ping/choice/VBS — those were each tried and dropped
+                // for being unreliable outside a real console) still showed visible/stuck
+                // console windows on at least one real machine regardless of windowsHide;
+                // reverting to the library's own well-tested path instead of continuing to
+                // chase that.
+                autoUpdater.quitAndInstall(true, true);
             }
         }
     });

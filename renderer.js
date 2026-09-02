@@ -4672,12 +4672,12 @@ async function awArrangeOpening() {
     try {
         const result = await window.electronAPI.arrangeOpeningProfiles(settings);
         if (!result.success) {
-            showToast(result.message || 'No running profiles to arrange', 'warn');
+            showBncToast(result.message || 'Không có profile nào đang mở');
         } else {
-            showToast(`Arranged ${result.count} window${result.count !== 1 ? 's' : ''}`, 'success');
+            showBncToast(`Đã sắp xếp ${result.count} cửa sổ`);
         }
     } catch (e) {
-        showToast('Arrange failed: ' + e.message, 'error');
+        showBncToast('Lỗi sắp xếp: ' + e.message);
     }
     _awSaveSettings();
 }
@@ -4685,7 +4685,7 @@ async function awArrangeOpening() {
 async function awOpenAndArrangeSelected() {
     const profileIds = getSelectedProfileIds();
     if (!profileIds.length) {
-        showToast('No profiles selected', 'warn');
+        showBncToast('Chưa chọn profile nào');
         return;
     }
     const settings = _awGetSettings();
@@ -4701,7 +4701,7 @@ async function awOpenAndArrangeSelected() {
         } catch (_) {}
         if (i < profileIds.length - 1) await new Promise(r => setTimeout(r, 300));
     }
-    showToast(`Launched & arranged ${launched} profile${launched !== 1 ? 's' : ''}`, 'success');
+    showBncToast(`Đã mở và sắp xếp ${launched} profile`);
     _awSaveSettings();
 }
 

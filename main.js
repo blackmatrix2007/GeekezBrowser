@@ -4609,7 +4609,8 @@ ${psLines}`;
             const tmpPs = path.join(os.tmpdir(), `bnc_wpos_batch_${Date.now()}.ps1`);
             fs.writeFileSync(tmpPs, psCode);
             await new Promise((resolve) => {
-                exec(`powershell -NoProfile -NonInteractive -WindowStyle Hidden -File "${tmpPs}"`, { timeout: 10000 }, () => {
+                exec(`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "${tmpPs}"`, { timeout: 10000 }, (err, stdout, stderr) => {
+                    if (err) debugLog('ARRANGE', { level: 'warn', msg: `moveWindowsBatch powershell failed: ${err.message}`, stderr });
                     try { fs.unlinkSync(tmpPs); } catch (_) {}
                     resolve();
                 });

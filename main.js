@@ -3736,6 +3736,39 @@ ipcMain.handle('get-user-extensions', async () => {
 });
 ipcMain.handle('open-url', async (_, url) => { await shell.openExternal(url); });
 
+// ─── Proxy affiliate shop window ───────────────────────────────────────────
+// Opens the proxy provider's site in its OWN embedded BrowserWindow (not the
+// system default browser) with a persistent session partition, so once the
+// customer logs in once, the login is remembered across app restarts — next
+// time they click "Mua Proxy" they land straight on the shop, already signed in.
+let proxyShopWindow = null;
+function openProxyShopWindow(url) {
+    if (proxyShopWindow && !proxyShopWindow.isDestroyed()) {
+        proxyShopWindow.loadURL(url);
+        proxyShopWindow.show();
+        proxyShopWindow.focus();
+        return;
+    }
+    proxyShopWindow = new BrowserWindow({
+        width: 1100, height: 800, minWidth: 600, minHeight: 400,
+        title: 'Mua Proxy',
+        backgroundColor: '#1e1e2d',
+        icon: path.join(__dirname, 'icon.png'),
+        webPreferences: {
+            // Named partition (not the default session) persists to disk under
+            // userData and is reused across app restarts — this is what makes the
+            // login "stick" between sessions.
+            partition: 'persist:proxy-shop',
+            contextIsolation: true,
+            nodeIntegration: false,
+        },
+    });
+    proxyShopWindow.setMenuBarVisibility(false);
+    proxyShopWindow.loadURL(url);
+    proxyShopWindow.on('closed', () => { proxyShopWindow = null; });
+}
+ipcMain.handle('open-proxy-shop', (_, url) => { openProxyShopWindow(url); });
+
 // --- 自定义数据目录 ---
 ipcMain.handle('get-data-path-info', async () => {
     return {

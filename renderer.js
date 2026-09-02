@@ -6,10 +6,13 @@
 // "Mua Proxy" button in the Add/Edit profile modals — shallow affiliate integration,
 // no backend/API purchase flow. Swap this single URL to change provider (e.g. once
 // an IPRoyal referral link is available) — nothing else needs to change.
+// Opens in an embedded BrowserWindow (not the system browser) with its own persistent
+// session, so the customer's proxy6.net login is remembered across app restarts —
+// next click lands them straight on the shop, already signed in.
 const PROXY_AFFILIATE_URL = 'https://proxy6.net/?r=659546';
 
 function openProxyAffiliateLink() {
-    window.electronAPI.invoke('open-url', PROXY_AFFILIATE_URL);
+    window.electronAPI.invoke('open-proxy-shop', PROXY_AFFILIATE_URL);
 }
 
 // ════════════════════════════════════════════════════════════════════════════

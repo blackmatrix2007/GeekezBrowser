@@ -1094,7 +1094,7 @@ async function handleApiRequest(method, pathname, body, params) {
                     headless: 'new', executablePath: chromePath, userDataDir: profileDataDir,
                     args: ['--no-first-run', '--disable-extensions', '--disable-sync', '--disable-gpu',
                            '--disable-features=LockProfileCookieDatabase',
-                           '--password-store=basic'],
+                           ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : [])],
                     defaultViewport: null, ignoreDefaultArgs: ['--enable-automation'],
                 });
                 const page = (await browser.pages())[0] || await browser.newPage();
@@ -4050,7 +4050,7 @@ ipcMain.handle('export-full-backup', async (_, { profileIds, password }) => {
                     userDataDir: profileDataDir,
                     args: ['--no-first-run', '--disable-extensions', '--disable-sync', '--disable-gpu',
                            '--disable-features=LockProfileCookieDatabase',
-                           '--password-store=basic'],
+                           ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : [])],
                     defaultViewport: null,
                     ignoreDefaultArgs: ['--enable-automation'],
                 });
@@ -4185,7 +4185,7 @@ ipcMain.handle('import-full-backup', async (_, { password }) => {
                         headless: 'new', executablePath: chromePath, userDataDir: profileDataDir,
                         args: ['--no-first-run', '--disable-extensions', '--disable-sync', '--disable-gpu',
                                '--disable-features=LockProfileCookieDatabase',
-                           '--password-store=basic'],
+                           ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : [])],
                         defaultViewport: null, ignoreDefaultArgs: ['--enable-automation'],
                     });
                     if (hasCookies) {
@@ -4376,7 +4376,7 @@ async function pullAndApplyProfileSession(profileId, userDataDir, chromePath, lo
             args: [
                 '--no-first-run', '--disable-extensions', '--disable-sync', '--disable-gpu',
                 '--disable-features=LockProfileCookieDatabase',
-                           '--password-store=basic',
+                           ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : []),
             ],
             defaultViewport: null, ignoreDefaultArgs: ['--enable-automation'],
         });
@@ -4432,7 +4432,7 @@ async function pushProfileSessionToServer(profileId, userDataDir, chromePath) {
                 // Chrome 127+: disable App-Bound Encryption so headless can read cookies
                 // that were written by the real (windowed) Chrome on the same machine.
                 '--disable-features=LockProfileCookieDatabase',
-                           '--password-store=basic',
+                           ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : []),
             ],
             defaultViewport: null, ignoreDefaultArgs: ['--enable-automation'],
         });
@@ -4794,10 +4794,10 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle) => {
             // sends.
             '--disable-breakpad',                 // skip crashpad init (avoids named-pipe deadlock on Windows)
             '--disable-component-update',         // no on-startup component fetch (network hang guard)
-            // Use static passphrase ("peanuts") instead of macOS Keychain / Windows DPAPI to
-            // encrypt cookies. Lets a throwaway headless Chrome (launched post-exit for sync)
-            // read cookies without needing Keychain access from an Electron subprocess context.
-            '--password-store=basic',
+            // macOS: skip Keychain dialog so headless CDP can read cookies post-exit.
+            // Chrome uses an empty passphrase instead of Keychain → consistent encryption
+            // between windowed and headless launches in the same process tree.
+            ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : []),
         ];
 
         // 4b. Custom Chromium C++ patch flags (only when using custom/fingerprint chromium)

@@ -4641,7 +4641,10 @@ ipcMain.handle('calc-arrange-layout', (_, count, settings) => {
     return { ...calcArrangeLayout(count, settings, workArea), workArea };
 });
 
-ipcMain.handle('arrange-opening-profiles', async (_, settings) => {
+// Shared by the manual "Sắp xếp profile đang mở" button and the "Sắp xếp ngay khi
+// mở" auto-trigger (see launch-profile) — both just need to re-tile whatever is
+// currently running.
+async function arrangeRunningProfiles(settings) {
     const running = Object.entries(activeProcesses);
     if (!running.length) return { success: false, message: 'No running profiles' };
     const workArea = screen.getPrimaryDisplay().workArea;
@@ -4655,7 +4658,9 @@ ipcMain.handle('arrange-opening-profiles', async (_, settings) => {
     });
     await moveWindowsBatch(moves);
     return { success: true, count: moves.length };
-});
+}
+
+ipcMain.handle('arrange-opening-profiles', async (_, settings) => arrangeRunningProfiles(settings));
 
 // --- 核心启动逻辑 ---
 ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle, windowOverride) => {
@@ -5128,6 +5133,22 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle, window
             const aumid = `GKZ.${profileId.replace(/-/g, '').slice(0, 16)}`;
             setTimeout(() => applyWindowAUMID(chromeProcess.pid, aumid), 3000);
             setTimeout(() => applyWindowAUMID(chromeProcess.pid, aumid), 8000);
+        }
+
+        // "Sắp xếp ngay khi mở" (arrangeAtSameTime) — re-tile every currently running
+        // profile whenever a new one launches WITHOUT an explicit windowOverride (a
+        // profile launched via "Mở và sắp xếp profile đã chọn" already got positioned
+        // at launch via --window-position/--window-size, so re-arranging it too would
+        // just fight that). Delayed so Chrome has time to actually create its window —
+        // moveWindowsBatch no-ops harmlessly on a PID with no window yet either way.
+        if (!windowOverride) {
+            setTimeout(async () => {
+                try {
+                    const s = fs.existsSync(SETTINGS_FILE) ? await fs.readJson(SETTINGS_FILE) : {};
+                    const aw = s.arrangeWindow;
+                    if (aw && aw.arrangeAtSameTime !== false) await arrangeRunningProfiles(aw);
+                } catch (_) {}
+            }, 2000);
         }
 
         chromeProcess.on('exit', async (code, signal) => {

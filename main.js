@@ -4352,6 +4352,12 @@ async function pullAndApplyProfileSession(profileId, userDataDir, chromePath, lo
         const res = await bncApiCall('GET', `/profiles/${profileId}/session`);
         if (!res || !res.found) return null;
 
+        // Same device pushed these cookies → local cookie DB is already the authoritative
+        // source. Injecting the server copy would overwrite fresh local cookies with the
+        // server snapshot (possibly older), causing an unexpected logout on the same machine.
+        // Cross-machine sync only makes sense when pulling from a different device.
+        if (res.deviceId && res.deviceId === getDeviceId()) return null;
+
         const serverUpdatedAt = new Date(res.updatedAt).getTime();
         if (localLastSyncedAt && serverUpdatedAt <= localLastSyncedAt) return null; // already up to date
         if (!Array.isArray(res.cookies) || res.cookies.length === 0) return serverUpdatedAt;

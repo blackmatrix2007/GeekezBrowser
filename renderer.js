@@ -750,8 +750,45 @@ function showGroupsPage() {
     document.getElementById('newGroupInput')?.focus();
 }
 
-function showToolsPage() {
+// Fallback used only if the server is unreachable — keeps the Tools page from
+// being completely empty offline. The real list normally comes from
+// GET /api/bnc/tools (see bnc-get-tools in main.js), so adding/removing tools
+// going forward is a server-side edit, no app update needed.
+const _TOOLS_FALLBACK = [
+    { id: 'yt-thumbnail', title: 'Lấy Thumbnail YouTube', icon: '🖼️', desc: 'Dán link video → lấy ảnh thumbnail full độ phân giải', type: 'native' },
+    { id: '2fa', title: '2FA Generator', icon: '🔐', desc: 'Sinh mã xác thực 2 lớp', type: 'embed', url: 'https://phuc.vn/2fa/' },
+];
+
+function _renderToolsGrid(tools) {
+    const grid = document.getElementById('toolsGrid');
+    if (!grid) return;
+    if (!tools || tools.length === 0) {
+        grid.innerHTML = '<div style="grid-column:1/-1;color:#666;font-size:12px;">Không tải được danh sách công cụ.</div>';
+        return;
+    }
+    grid.innerHTML = tools.map(tool => {
+        const action = tool.type === 'native'
+            ? (tool.id === 'yt-thumbnail' ? 'openYoutubeThumbModal()' : '')
+            : `openEmbeddedTool('${tool.id}', '${(tool.url || '').replace(/'/g, "\\'")}', '${(tool.title || '').replace(/'/g, "\\'")}')`;
+        return `
+        <div onclick="${action}"
+            style="background:rgba(0,0,0,0.2);border:1.5px solid rgba(255,255,255,0.08);border-radius:12px;padding:20px 16px;display:flex;flex-direction:column;gap:8px;cursor:pointer;transition:border-color .15s;-webkit-app-region:no-drag;"
+            onmouseover="this.style.borderColor='rgba(0,224,255,0.4)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.08)'">
+            <div style="font-size:28px;">${tool.icon || '🛠️'}</div>
+            <div style="font-size:14px;font-weight:700;color:#fff;">${tool.title || ''}</div>
+            <div style="font-size:11px;color:#888;">${tool.desc || ''}</div>
+        </div>`;
+    }).join('');
+}
+
+async function showToolsPage() {
     _switchPage('toolsPage', 'nav-tools');
+    try {
+        const tools = await window.electronAPI.bncGetTools();
+        _renderToolsGrid(tools && tools.length > 0 ? tools : _TOOLS_FALLBACK);
+    } catch (_) {
+        _renderToolsGrid(_TOOLS_FALLBACK);
+    }
 }
 
 async function showPlansPage() {

@@ -2739,6 +2739,27 @@ ipcMain.handle('bnc-get-plans', async () => {
     } catch (_) { return []; }
 });
 
+// "Công Cụ" page — list fetched from server so adding/removing a tool never
+// needs a new app build. Empty-array fallback on any failure (offline, server
+// down) — the Tools page just renders nothing rather than breaking.
+ipcMain.handle('bnc-get-tools', async () => {
+    try {
+        return await new Promise((resolve) => {
+            const url = new URL(BNC_API + '/tools');
+            const req = https.request({ hostname: url.hostname, path: url.pathname, method: 'GET' }, (res) => {
+                let data = '';
+                res.on('data', c => data += c);
+                res.on('end', () => {
+                    try { resolve(JSON.parse(data).tools || []); } catch (_) { resolve([]); }
+                });
+            });
+            req.on('error', () => resolve([]));
+            req.setTimeout(8000, () => { req.destroy(); resolve([]); });
+            req.end();
+        });
+    } catch (_) { return []; }
+});
+
 // Trigger install update từ renderer (user click "Cài ngay" trong UI)
 ipcMain.handle('install-app-update', () => {
     app.quit();

@@ -6,28 +6,43 @@
 // "Mua Proxy" button in the Add/Edit profile modals — shallow affiliate integration,
 // no backend/API purchase flow. Swap this single URL to change provider (e.g. once
 // an IPRoyal referral link is available) — nothing else needs to change.
-// Opens in an embedded BrowserWindow (not the system browser) with its own persistent
-// session, so the customer's proxy6.net login is remembered across app restarts —
-// next click lands them straight on the shop, already signed in.
 const PROXY_AFFILIATE_URL = 'https://proxy6.net/?r=659546';
 
 function openProxyAffiliateLink() {
-    window.electronAPI.invoke('open-proxy-shop', PROXY_AFFILIATE_URL);
+    openEmbeddedTool('proxy-shop', PROXY_AFFILIATE_URL, 'Mua Proxy');
 }
 
 // ════════════════════════════════════════════════════════════════════════════
 // TOOLS
 // ════════════════════════════════════════════════════════════════════════════
-// Generic opener for external-site tools — each id gets its own persistent
-// session partition in main.js (see openToolWindow there), so logging into
-// one tool's site doesn't affect another's, and each remembers login across
-// app restarts.
-function openToolWindow(id, url, title) {
-    window.electronAPI.invoke('open-tool-window', { id, url, title });
+// Generic opener for external-site tools — renders in-app via <webview> on the
+// embeddedToolPage (not a separate OS window). A fresh <webview> is created per
+// call with its own persist:tool-{id} session partition, so one tool's login
+// (proxy6.net, phuc.vn/2fa, ...) never mixes with another's, and each is
+// remembered across app restarts (partitions persist to disk under userData).
+function openEmbeddedTool(id, url, title) {
+    _switchPage('embeddedToolPage', null);
+    document.getElementById('embeddedToolTitle').textContent = title || '';
+    const container = document.getElementById('embeddedToolWebviewContainer');
+    container.innerHTML = ''; // drop any previous tool's <webview> (different partition)
+    const webview = document.createElement('webview');
+    webview.id = 'embeddedToolWebview';
+    webview.setAttribute('partition', `persist:tool-${id}`);
+    webview.setAttribute('src', url);
+    webview.style.cssText = 'flex:1;width:100%;height:100%;border:none;';
+    container.appendChild(webview);
+}
+
+function closeEmbeddedTool() {
+    showToolsPage();
+}
+
+function reloadEmbeddedTool() {
+    document.getElementById('embeddedToolWebview')?.reload();
 }
 
 function open2faTool() {
-    openToolWindow('2fa', 'https://phuc.vn/2fa/', '2FA Generator');
+    openEmbeddedTool('2fa', 'https://phuc.vn/2fa/', '2FA Generator');
 }
 
 // ── YouTube thumbnail grabber — fully native, no external site needed.
@@ -617,7 +632,7 @@ function _applyWorkspacePermissions(permissions) {
 // ── Team Members UI ──────────────────────────────────────────────────────────
 let _teamMembers = [];
 
-const _ALL_PAGES = ['profilesPage', 'teamPage', 'groupsPage', 'plansPage', 'notificationsPage', 'settingsPage', 'toolsPage'];
+const _ALL_PAGES = ['profilesPage', 'teamPage', 'groupsPage', 'plansPage', 'notificationsPage', 'settingsPage', 'toolsPage', 'embeddedToolPage'];
 function _switchPage(activePageId, activeNavId) {
     document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
     document.getElementById(activeNavId)?.classList.add('active');

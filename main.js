@@ -1776,7 +1776,10 @@ function createWindow() {
         icon: path.join(__dirname, 'icon.png'),
         titleBarOverlay: { color: '#1e1e2d', symbolColor: '#ffffff', height: 35 },
         titleBarStyle: 'hidden',
-        webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, spellcheck: false }
+        // webviewTag: true — lets the Tools/Proxy pages embed 3rd-party sites (proxy6.net,
+        // phuc.vn/2fa) directly inside the main window via <webview>, instead of a separate
+        // OS-level popup window.
+        webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, spellcheck: false, webviewTag: true }
     });
     win.setMenuBarVisibility(false);
     win.loadFile('index.html');
@@ -3735,42 +3738,6 @@ ipcMain.handle('get-user-extensions', async () => {
     return settings.userExtensions || [];
 });
 ipcMain.handle('open-url', async (_, url) => { await shell.openExternal(url); });
-
-// ─── External tool windows (proxy shop, 2FA generator, etc.) ──────────────
-// Opens a tool's site in its OWN embedded BrowserWindow (not the system default
-// browser), each keyed by a stable id so repeated clicks reuse/focus the same
-// window instead of stacking duplicates. Each gets its own named session
-// partition — persisted to disk under userData, so a login (proxy6.net,
-// phuc.vn/2fa, ...) is remembered across app restarts. Partitions are kept
-// separate per tool so their sessions/cookies never mix.
-const toolWindows = {}; // id -> BrowserWindow
-function openToolWindow(id, url, title) {
-    const existing = toolWindows[id];
-    if (existing && !existing.isDestroyed()) {
-        existing.loadURL(url);
-        existing.show();
-        existing.focus();
-        return;
-    }
-    const win = new BrowserWindow({
-        width: 1100, height: 800, minWidth: 600, minHeight: 400,
-        title: title || 'Tool',
-        backgroundColor: '#1e1e2d',
-        icon: path.join(__dirname, 'icon.png'),
-        webPreferences: {
-            partition: `persist:tool-${id}`,
-            contextIsolation: true,
-            nodeIntegration: false,
-        },
-    });
-    win.setMenuBarVisibility(false);
-    win.loadURL(url);
-    win.on('closed', () => { delete toolWindows[id]; });
-    toolWindows[id] = win;
-}
-ipcMain.handle('open-tool-window', (_, { id, url, title }) => { openToolWindow(id, url, title); });
-// Back-compat: 'open-proxy-shop' predates the generic tool-window mechanism.
-ipcMain.handle('open-proxy-shop', (_, url) => { openToolWindow('proxy-shop', url, 'Mua Proxy'); });
 
 // --- 自定义数据目录 ---
 ipcMain.handle('get-data-path-info', async () => {

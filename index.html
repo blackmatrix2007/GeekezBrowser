@@ -1700,6 +1700,19 @@
     </div>
     <!-- END TOOLS PAGE -->
 
+    <!-- EMBEDDED TOOL PAGE (proxy shop, 2FA, ...) — <webview> rendered here in-app,
+         no separate OS window. Each tool gets a fresh <webview> created in JS with its
+         own persist:tool-{id} partition so sessions/cookies never mix between tools. -->
+    <div id="embeddedToolPage" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0;margin:-15px -20px;padding:0;">
+        <div style="padding:10px 16px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;display:flex;align-items:center;gap:10px;-webkit-app-region:no-drag;">
+            <button onclick="closeEmbeddedTool()" style="padding:6px 12px;font-size:12px;background:transparent;color:#aaa;border:1px solid rgba(255,255,255,0.15);border-radius:6px;cursor:pointer;">← Quay lại</button>
+            <span id="embeddedToolTitle" style="font-size:13px;font-weight:600;color:#fff;flex:1;"></span>
+            <button onclick="reloadEmbeddedTool()" title="Tải lại" style="padding:6px 10px;font-size:12px;background:transparent;color:#aaa;border:1px solid rgba(255,255,255,0.15);border-radius:6px;cursor:pointer;">⟳</button>
+        </div>
+        <div id="embeddedToolWebviewContainer" style="flex:1;min-height:0;display:flex;"></div>
+    </div>
+    <!-- END EMBEDDED TOOL PAGE -->
+
     <!-- YOUTUBE THUMBNAIL MODAL -->
     <div id="ytThumbModal" class="modal-overlay" style="display:none;">
         <div class="modal-content" style="width:520px;">

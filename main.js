@@ -627,8 +627,8 @@ function setupAutoUpdater() {
             await new Promise(r => setTimeout(r, 600));
             app.isQuiting = true;
             if (process.platform === 'darwin') {
-                const pending2 = path.join(os.homedir(), 'Library', 'Caches', 'geekez-browser-updater', 'pending');
-                const zipPath2 = path.join(pending2, `BNC-${info.version}-mac-arm64.zip`);
+                const zipPath2 = info.downloadedFile
+                    || path.join(os.homedir(), 'Library', 'Caches', 'geekez-browser-updater', 'pending', `BNC-${info.version}-mac-${process.arch === 'arm64' ? 'arm64' : 'x64'}.zip`);
                 const tmpDir2  = path.join(os.tmpdir(), `bnc-apply-${info.version}`);
                 const script2  = [
                     '#!/bin/bash', 'sleep 3',
@@ -690,8 +690,8 @@ function setupAutoUpdater() {
             if (process.platform === 'darwin') {
                 // Mac: Squirrel.Mac (dùng bởi quitAndInstall) yêu cầu code signing → không apply được.
                 // Dùng shell script detached: extract zip → ditto replace app → open lại.
-                const pending = path.join(os.homedir(), 'Library', 'Caches', 'geekez-browser-updater', 'pending');
-                const zipPath = path.join(pending, `BNC-${info.version}-mac-arm64.zip`);
+                const zipPath = info.downloadedFile
+                    || path.join(os.homedir(), 'Library', 'Caches', 'geekez-browser-updater', 'pending', `BNC-${info.version}-mac-${process.arch === 'arm64' ? 'arm64' : 'x64'}.zip`);
                 const tmpDir  = path.join(os.tmpdir(), `bnc-apply-${info.version}`);
                 const script  = [
                     '#!/bin/bash',
@@ -1092,11 +1092,11 @@ async function handleApiRequest(method, pathname, body, params) {
             try {
                 const browser = await puppeteer.launch({
                     headless: 'new', executablePath: chromePath, userDataDir: profileDataDir,
-                    args: ['--no-first-run', '--disable-extensions', '--disable-sync', '--disable-gpu'],
+                    args: ['--no-first-run', '--disable-extensions', '--disable-sync', '--disable-gpu',
+                           '--disable-features=LockProfileCookieDatabase'],
                     defaultViewport: null, ignoreDefaultArgs: ['--enable-automation'],
                 });
-                const page = (await browser.pages())[0] || await browser.newPage();
-                const client = await page.createCDPSession();
+                const client = await browser.target().createCDPSession();
                 const { cookies } = await client.send('Network.getAllCookies');
                 await browser.close();
                 backupData.browserData[profile.id]._cookies = cookies;
@@ -4046,12 +4046,12 @@ ipcMain.handle('export-full-backup', async (_, { profileIds, password }) => {
                     headless: 'new',
                     executablePath: chromePath,
                     userDataDir: profileDataDir,
-                    args: ['--no-first-run', '--disable-extensions', '--disable-sync', '--disable-gpu'],
+                    args: ['--no-first-run', '--disable-extensions', '--disable-sync', '--disable-gpu',
+                           '--disable-features=LockProfileCookieDatabase'],
                     defaultViewport: null,
                     ignoreDefaultArgs: ['--enable-automation'],
                 });
-                const page = (await browser.pages())[0] || await browser.newPage();
-                const client = await page.createCDPSession();
+                const client = await browser.target().createCDPSession();
                 const { cookies } = await client.send('Network.getAllCookies');
                 await browser.close();
                 backupData.browserData[profile.id]._cookies = cookies;
@@ -4179,12 +4179,12 @@ ipcMain.handle('import-full-backup', async (_, { password }) => {
                 try {
                     const browser = await puppeteer.launch({
                         headless: 'new', executablePath: chromePath, userDataDir: profileDataDir,
-                        args: ['--no-first-run', '--disable-extensions', '--disable-sync', '--disable-gpu'],
+                        args: ['--no-first-run', '--disable-extensions', '--disable-sync', '--disable-gpu',
+                               '--disable-features=LockProfileCookieDatabase'],
                         defaultViewport: null, ignoreDefaultArgs: ['--enable-automation'],
                     });
                     if (hasCookies) {
-                        const page = (await browser.pages())[0] || await browser.newPage();
-                        const client = await page.createCDPSession();
+                        const client = await browser.target().createCDPSession();
                         let cookieCount = 0;
                         for (const cookie of browserFiles._cookies) {
                             try {
@@ -4355,12 +4355,14 @@ async function pullAndApplyProfileSession(profileId, userDataDir, chromePath, lo
 
         const browser = await puppeteer.launch({
             headless: 'new', executablePath: chromePath, userDataDir,
-            args: ['--no-first-run', '--disable-extensions', '--disable-sync', '--disable-gpu'],
+            args: [
+                '--no-first-run', '--disable-extensions', '--disable-sync', '--disable-gpu',
+                '--disable-features=LockProfileCookieDatabase',
+            ],
             defaultViewport: null, ignoreDefaultArgs: ['--enable-automation'],
         });
         try {
-            const page = (await browser.pages())[0] || await browser.newPage();
-            const client = await page.createCDPSession();
+            const client = await browser.target().createCDPSession();
             let applied = 0;
             for (const cookie of res.cookies) {
                 try {
@@ -4399,23 +4401,30 @@ async function pushProfileSessionToServer(profileId, userDataDir, chromePath) {
         const auth = getSavedBncAuth();
         if (!auth?.accessToken) return;
 
-        // Small buffer after the real Chrome process exit so the OS/AV fully releases
-        // browser_data file locks before we spin up a second (headless) Chrome on it.
-        await new Promise(r => setTimeout(r, 500));
+        // Give OS/AV time to fully release browser_data file locks after Chrome exits.
+        // 2s instead of 500ms: SQLite WAL checkpoint on Windows + AV scan can be slow.
+        await new Promise(r => setTimeout(r, 2000));
 
         const browser = await puppeteer.launch({
             headless: 'new', executablePath: chromePath, userDataDir,
-            args: ['--no-first-run', '--disable-extensions', '--disable-sync', '--disable-gpu'],
+            args: [
+                '--no-first-run', '--disable-extensions', '--disable-sync', '--disable-gpu',
+                // Chrome 127+: disable App-Bound Encryption so headless can read cookies
+                // that were written by the real (windowed) Chrome on the same machine.
+                '--disable-features=LockProfileCookieDatabase',
+            ],
             defaultViewport: null, ignoreDefaultArgs: ['--enable-automation'],
         });
         let cookies = [];
         try {
-            const page = (await browser.pages())[0] || await browser.newPage();
-            const client = await page.createCDPSession();
+            // Must use browser-level target (not page target) so Network.getAllCookies
+            // returns the full cookie store, not just cookies for the current page origin.
+            const client = await browser.target().createCDPSession();
             const result = await client.send('Network.getAllCookies');
             cookies = result.cookies || [];
         } finally {
             await browser.close();
+            await new Promise(r => setTimeout(r, 1000));
         }
         if (cookies.length === 0) return;
 

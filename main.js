@@ -3736,38 +3736,41 @@ ipcMain.handle('get-user-extensions', async () => {
 });
 ipcMain.handle('open-url', async (_, url) => { await shell.openExternal(url); });
 
-// ─── Proxy affiliate shop window ───────────────────────────────────────────
-// Opens the proxy provider's site in its OWN embedded BrowserWindow (not the
-// system default browser) with a persistent session partition, so once the
-// customer logs in once, the login is remembered across app restarts — next
-// time they click "Mua Proxy" they land straight on the shop, already signed in.
-let proxyShopWindow = null;
-function openProxyShopWindow(url) {
-    if (proxyShopWindow && !proxyShopWindow.isDestroyed()) {
-        proxyShopWindow.loadURL(url);
-        proxyShopWindow.show();
-        proxyShopWindow.focus();
+// ─── External tool windows (proxy shop, 2FA generator, etc.) ──────────────
+// Opens a tool's site in its OWN embedded BrowserWindow (not the system default
+// browser), each keyed by a stable id so repeated clicks reuse/focus the same
+// window instead of stacking duplicates. Each gets its own named session
+// partition — persisted to disk under userData, so a login (proxy6.net,
+// phuc.vn/2fa, ...) is remembered across app restarts. Partitions are kept
+// separate per tool so their sessions/cookies never mix.
+const toolWindows = {}; // id -> BrowserWindow
+function openToolWindow(id, url, title) {
+    const existing = toolWindows[id];
+    if (existing && !existing.isDestroyed()) {
+        existing.loadURL(url);
+        existing.show();
+        existing.focus();
         return;
     }
-    proxyShopWindow = new BrowserWindow({
+    const win = new BrowserWindow({
         width: 1100, height: 800, minWidth: 600, minHeight: 400,
-        title: 'Mua Proxy',
+        title: title || 'Tool',
         backgroundColor: '#1e1e2d',
         icon: path.join(__dirname, 'icon.png'),
         webPreferences: {
-            // Named partition (not the default session) persists to disk under
-            // userData and is reused across app restarts — this is what makes the
-            // login "stick" between sessions.
-            partition: 'persist:proxy-shop',
+            partition: `persist:tool-${id}`,
             contextIsolation: true,
             nodeIntegration: false,
         },
     });
-    proxyShopWindow.setMenuBarVisibility(false);
-    proxyShopWindow.loadURL(url);
-    proxyShopWindow.on('closed', () => { proxyShopWindow = null; });
+    win.setMenuBarVisibility(false);
+    win.loadURL(url);
+    win.on('closed', () => { delete toolWindows[id]; });
+    toolWindows[id] = win;
 }
-ipcMain.handle('open-proxy-shop', (_, url) => { openProxyShopWindow(url); });
+ipcMain.handle('open-tool-window', (_, { id, url, title }) => { openToolWindow(id, url, title); });
+// Back-compat: 'open-proxy-shop' predates the generic tool-window mechanism.
+ipcMain.handle('open-proxy-shop', (_, url) => { openToolWindow('proxy-shop', url, 'Mua Proxy'); });
 
 // --- 自定义数据目录 ---
 ipcMain.handle('get-data-path-info', async () => {

@@ -16,6 +16,76 @@ function openProxyAffiliateLink() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// TOOLS
+// ════════════════════════════════════════════════════════════════════════════
+// Generic opener for external-site tools — each id gets its own persistent
+// session partition in main.js (see openToolWindow there), so logging into
+// one tool's site doesn't affect another's, and each remembers login across
+// app restarts.
+function openToolWindow(id, url, title) {
+    window.electronAPI.invoke('open-tool-window', { id, url, title });
+}
+
+function open2faTool() {
+    openToolWindow('2fa', 'https://phuc.vn/2fa/', '2FA Generator');
+}
+
+// ── YouTube thumbnail grabber — fully native, no external site needed.
+// YouTube serves thumbnails from a predictable public URL per video ID at
+// several fixed resolutions; no API key or auth required.
+const YT_THUMB_SIZES = [
+    { key: 'maxresdefault', label: 'Max (1280×720)' },
+    { key: 'sddefault',     label: 'SD (640×480)' },
+    { key: 'hqdefault',     label: 'HQ (480×360)' },
+    { key: 'mqdefault',     label: 'MQ (320×180)' },
+];
+
+function extractYoutubeId(input) {
+    const s = (input || '').trim();
+    if (/^[\w-]{11}$/.test(s)) return s; // already a bare video ID
+    const patterns = [
+        /(?:youtube\.com\/watch\?v=|youtube\.com\/shorts\/|youtube\.com\/embed\/|youtu\.be\/)([\w-]{11})/,
+    ];
+    for (const re of patterns) {
+        const m = s.match(re);
+        if (m) return m[1];
+    }
+    return null;
+}
+
+function openYoutubeThumbModal() {
+    document.getElementById('ytThumbInput').value = '';
+    document.getElementById('ytThumbResults').innerHTML = '';
+    document.getElementById('ytThumbModal').style.display = 'flex';
+    setTimeout(() => document.getElementById('ytThumbInput')?.focus(), 100);
+}
+
+function closeYoutubeThumbModal() {
+    document.getElementById('ytThumbModal').style.display = 'none';
+}
+
+function loadYoutubeThumbs() {
+    const input = document.getElementById('ytThumbInput').value;
+    const id = extractYoutubeId(input);
+    const results = document.getElementById('ytThumbResults');
+    if (!id) {
+        results.innerHTML = '<div style="color:#f44336;font-size:13px;padding:10px 0;">Không nhận diện được video ID — dán link YouTube đầy đủ hoặc video ID (11 ký tự).</div>';
+        return;
+    }
+    results.innerHTML = YT_THUMB_SIZES.map(({ key, label }) => {
+        const url = `https://img.youtube.com/vi/${id}/${key}.jpg`;
+        return `
+        <div style="border:1px solid rgba(255,255,255,0.08);border-radius:8px;overflow:hidden;background:rgba(0,0,0,0.2);">
+            <img src="${url}" style="width:100%;display:block;background:#111;" onerror="this.parentElement.style.display='none'">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;gap:8px;">
+                <span style="font-size:11px;color:#888;">${label}</span>
+                <button onclick="window.electronAPI.invoke('open-url','${url}')" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid #00b8d4;background:transparent;color:#00b8d4;cursor:pointer;">Mở ảnh</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // BNC AUTH UI
 // ════════════════════════════════════════════════════════════════════════════
 let _bncAuth = null; // { email, customerId, slots: { totalGranted, slotsUsed, slotsBilled, available, canRun } }
@@ -547,7 +617,7 @@ function _applyWorkspacePermissions(permissions) {
 // ── Team Members UI ──────────────────────────────────────────────────────────
 let _teamMembers = [];
 
-const _ALL_PAGES = ['profilesPage', 'teamPage', 'groupsPage', 'plansPage', 'notificationsPage', 'settingsPage'];
+const _ALL_PAGES = ['profilesPage', 'teamPage', 'groupsPage', 'plansPage', 'notificationsPage', 'settingsPage', 'toolsPage'];
 function _switchPage(activePageId, activeNavId) {
     document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
     document.getElementById(activeNavId)?.classList.add('active');
@@ -646,6 +716,10 @@ function showGroupsPage() {
     _switchPage('groupsPage', 'nav-groups');
     renderGroupManagerList();
     document.getElementById('newGroupInput')?.focus();
+}
+
+function showToolsPage() {
+    _switchPage('toolsPage', 'nav-tools');
 }
 
 async function showPlansPage() {

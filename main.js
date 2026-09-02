@@ -4356,10 +4356,16 @@ async function pullAndApplyProfileSession(profileId, userDataDir, chromePath, lo
         // source. Injecting the server copy would overwrite fresh local cookies with the
         // server snapshot (possibly older), causing an unexpected logout on the same machine.
         // Cross-machine sync only makes sense when pulling from a different device.
-        if (res.deviceId && res.deviceId === getDeviceId()) return null;
+        if (res.deviceId && res.deviceId === getDeviceId()) {
+            console.log(`[SessionSync] pull skipped for ${profileId}: same device (local is authoritative)`);
+            return null;
+        }
 
         const serverUpdatedAt = new Date(res.updatedAt).getTime();
-        if (localLastSyncedAt && serverUpdatedAt <= localLastSyncedAt) return null; // already up to date
+        if (localLastSyncedAt && serverUpdatedAt <= localLastSyncedAt) {
+            console.log(`[SessionSync] pull skipped for ${profileId}: already up to date`);
+            return null;
+        }
         if (!Array.isArray(res.cookies) || res.cookies.length === 0) return serverUpdatedAt;
 
         const browser = await puppeteer.launch({
@@ -4431,11 +4437,15 @@ async function pushProfileSessionToServer(profileId, userDataDir, chromePath) {
             const client = await page.createCDPSession();
             const result = await client.send('Network.getAllCookies');
             cookies = result.cookies || [];
+            console.log(`[SessionSync] CDP captured ${cookies.length} cookies for ${profileId}`);
         } finally {
             await browser.close();
             await new Promise(r => setTimeout(r, 1000));
         }
-        if (cookies.length === 0) return;
+        if (cookies.length === 0) {
+            console.warn(`[SessionSync] push skipped for ${profileId}: 0 cookies captured`);
+            return;
+        }
 
         const res = await bncApiCall('PUT', `/profiles/${profileId}/session`, { cookies, deviceId: getDeviceId() });
         if (res && res.cookieCount !== undefined) {

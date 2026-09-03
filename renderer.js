@@ -233,8 +233,11 @@ async function bncInit() {
         const prev = new Set((_bncNotifications || []).map(n => n.id));
         _bncNotifications = notifs || [];
         _renderNotifBadge();
-        // Hiện dialog cho những notification mới (chưa có trong danh sách trước)
-        const newOnes = _bncNotifications.filter(n => !n.isRead && !prev.has(n.id));
+        // Hiện dialog cho notification mới có displayMode=dialog (hoặc không set = mặc định dialog)
+        const newOnes = _bncNotifications.filter(n =>
+            !n.isRead && !prev.has(n.id) &&
+            (!n.metadata?.displayMode || n.metadata?.displayMode === 'dialog')
+        );
         if (newOnes.length > 0) bncShowNotifDialog(newOnes);
     });
 

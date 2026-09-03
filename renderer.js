@@ -9,7 +9,7 @@
 const PROXY_AFFILIATE_URL = 'https://proxy6.net/?r=659546';
 
 function openProxyAffiliateLink() {
-    openEmbeddedTool('proxy-shop', PROXY_AFFILIATE_URL, 'Mua Proxy');
+    window.electronAPI.invoke('open-url', PROXY_AFFILIATE_URL);
 }
 
 // ════════════════════════════════════════════════════════════════════════════

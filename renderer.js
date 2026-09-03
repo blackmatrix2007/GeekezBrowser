@@ -4672,7 +4672,11 @@ async function awArrangeOpening() {
     try {
         const result = await window.electronAPI.arrangeOpeningProfiles(settings);
         if (!result.success) {
-            showBncToast(result.message || 'Không có profile nào đang mở');
+            if (result.needsAccessibility) {
+                showBncToast('⚠️ Cần cấp quyền Accessibility: Vào System Settings → Privacy & Security → Accessibility → bật BNC (hoặc Electron). Sau đó thử lại.');
+            } else {
+                showBncToast(result.message || 'Không có profile nào đang mở');
+            }
         } else {
             showBncToast(`Đã sắp xếp ${result.count} cửa sổ`);
         }

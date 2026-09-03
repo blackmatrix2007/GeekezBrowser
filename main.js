@@ -4583,13 +4583,21 @@ async function moveWindowsBatch(moves) {
     if (!moves || !moves.length) return;
     try {
         if (process.platform === 'darwin') {
+            const { systemPreferences } = require('electron');
+            const trusted = systemPreferences.isTrustedAccessibilityClient(false);
+            if (!trusted) {
+                console.warn('[Arrange] macOS Accessibility permission not granted — requesting...');
+                systemPreferences.isTrustedAccessibilityClient(true);
+                return;
+            }
             const script = moves.map(m =>
-                `tell application "System Events" to set bounds of first window of (first process whose unix id is ${m.pid}) to {${m.x}, ${m.y}, ${m.x + m.w}, ${m.y + m.h}}`
+                `tell application "System Events"\n  try\n    set p to first process whose unix id is ${m.pid}\n    set bounds of first window of p to {${m.x}, ${m.y}, ${m.x + m.w}, ${m.y + m.h}}\n  end try\nend tell`
             ).join('\n');
             const tmpScpt = path.join(os.tmpdir(), `bnc_wpos_batch_${Date.now()}.applescript`);
             fs.writeFileSync(tmpScpt, script);
             await new Promise((resolve) => {
-                exec(`osascript "${tmpScpt}"`, { timeout: 8000 }, () => {
+                exec(`osascript "${tmpScpt}"`, { timeout: 8000 }, (err, stdout, stderr) => {
+                    if (err) console.warn('[Arrange] osascript error:', err.message, stderr);
                     try { fs.unlinkSync(tmpScpt); } catch (_) {}
                     resolve();
                 });
@@ -4645,6 +4653,13 @@ ipcMain.handle('calc-arrange-layout', (_, count, settings) => {
 // mở" auto-trigger (see launch-profile) — both just need to re-tile whatever is
 // currently running.
 async function arrangeRunningProfiles(settings) {
+    if (process.platform === 'darwin') {
+        const { systemPreferences } = require('electron');
+        if (!systemPreferences.isTrustedAccessibilityClient(false)) {
+            systemPreferences.isTrustedAccessibilityClient(true);
+            return { success: false, needsAccessibility: true, message: 'accessibility' };
+        }
+    }
     const running = Object.entries(activeProcesses);
     if (!running.length) return { success: false, message: 'No running profiles' };
     const workArea = screen.getPrimaryDisplay().workArea;

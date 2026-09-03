@@ -104,17 +104,44 @@ function loadYoutubeThumbs() {
         results.innerHTML = '<div style="color:#f44336;font-size:13px;padding:10px 0;">Không nhận diện được video ID — dán link YouTube đầy đủ hoặc video ID (11 ký tự).</div>';
         return;
     }
+    _ytThumbCurrentId = id;
+    document.getElementById('ytThumbDownloadAllRow').style.display = 'block';
     results.innerHTML = YT_THUMB_SIZES.map(({ key, label }) => {
         const url = `https://img.youtube.com/vi/${id}/${key}.jpg`;
+        const filename = `${id}_${key}.jpg`;
         return `
         <div style="border:1px solid rgba(255,255,255,0.08);border-radius:8px;overflow:hidden;background:rgba(0,0,0,0.2);">
             <img src="${url}" style="width:100%;display:block;background:#111;" onerror="this.parentElement.style.display='none'">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;gap:8px;">
                 <span style="font-size:11px;color:#888;">${label}</span>
-                <button onclick="window.electronAPI.invoke('open-url','${url}')" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid #00b8d4;background:transparent;color:#00b8d4;cursor:pointer;">Mở ảnh</button>
+                <div style="display:flex;gap:6px;">
+                    <button onclick="window.electronAPI.invoke('open-url','${url}')" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid #555;background:transparent;color:#aaa;cursor:pointer;">Mở</button>
+                    <button onclick="ytThumbDownloadOne('${url}','${filename}')" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid #00b8d4;background:transparent;color:#00b8d4;cursor:pointer;">Tải về</button>
+                </div>
             </div>
         </div>`;
     }).join('');
+}
+
+let _ytThumbCurrentId = '';
+
+async function ytThumbDownloadOne(url, filename) {
+    const r = await window.electronAPI.invoke('download-thumb', { url, filename });
+    if (!r?.ok) showBncToast('Không tải được ảnh', 2500);
+}
+
+async function ytThumbDownloadAll() {
+    const id = _ytThumbCurrentId;
+    if (!id) return;
+    const items = YT_THUMB_SIZES.map(({ key }) => ({
+        url: `https://img.youtube.com/vi/${id}/${key}.jpg`,
+        filename: `${id}_${key}.jpg`,
+    }));
+    const r = await window.electronAPI.invoke('download-all-thumbs', items);
+    if (r?.ok) {
+        const msg = r.failed > 0 ? `Đã tải ${r.total - r.failed}/${r.total} ảnh` : `Đã tải ${r.total} ảnh`;
+        showBncToast(msg, 3000);
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════

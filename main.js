@@ -3806,6 +3806,36 @@ ipcMain.handle('get-user-extensions', async () => {
 });
 ipcMain.handle('open-url', async (_, url) => { await shell.openExternal(url); });
 
+// Tải 1 thumbnail — show save dialog
+ipcMain.handle('download-thumb', async (_, { url, filename }) => {
+    const { canceled, filePath } = await dialog.showSaveDialog({
+        defaultPath: filename || 'thumbnail.jpg',
+        filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] }],
+    });
+    if (canceled || !filePath) return { ok: false };
+    try {
+        await downloadFile(url, filePath);
+        return { ok: true };
+    } catch (e) {
+        return { ok: false, error: e.message };
+    }
+});
+
+// Tải tất cả thumbnails — pick folder rồi download song song
+ipcMain.handle('download-all-thumbs', async (_, items) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+        properties: ['openDirectory', 'createDirectory'],
+        title: 'Chọn thư mục lưu thumbnails',
+    });
+    if (canceled || !filePaths?.[0]) return { ok: false };
+    const dir = filePaths[0];
+    const results = await Promise.allSettled(
+        items.map(({ url, filename }) => downloadFile(url, path.join(dir, filename)))
+    );
+    const failed = results.filter(r => r.status === 'rejected').length;
+    return { ok: true, total: items.length, failed };
+});
+
 // --- 自定义数据目录 ---
 ipcMain.handle('get-data-path-info', async () => {
     return {

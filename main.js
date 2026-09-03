@@ -210,6 +210,44 @@ async function bncLogin(email, password) {
     }
 }
 
+// Gọi /api/bnc/register — trả về { accessToken, refreshToken, customer } hoặc throw
+async function bncRegisterApi(name, email, password, confirmPassword) {
+    const os = require('os');
+    const body = JSON.stringify({
+        name, email, password, confirmPassword,
+        deviceId: getDeviceId(),
+        deviceName: os.hostname(),
+        platform: `${process.platform}-${process.arch}`,
+    });
+    return await new Promise((resolve, reject) => {
+        const url = new URL(BNC_API + '/register');
+        const req = https.request({
+            hostname: url.hostname,
+            path: url.pathname,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(body),
+                'x-app-version': app.getVersion(),
+            },
+        }, (res) => {
+            let data = '';
+            res.on('data', c => data += c);
+            res.on('end', () => {
+                try {
+                    const json = JSON.parse(data);
+                    if (res.statusCode === 201) resolve(json);
+                    else reject(new Error(json.message || 'Đăng ký thất bại'));
+                } catch (_) { reject(new Error('Lỗi kết nối server')); }
+            });
+        });
+        req.on('error', (e) => reject(new Error(e.message)));
+        req.setTimeout(10000, () => { req.destroy(); reject(new Error('Timeout kết nối server')); });
+        req.write(body);
+        req.end();
+    });
+}
+
 // Ping server để verify token + lấy slots mới nhất — trả về { slots, _statusCode } hoặc null
 // Gọi /subscription một lần với token cụ thể (không retry)
 async function _bncPingOnce(accessToken) {
@@ -2510,20 +2548,9 @@ app.whenReady().then(async () => {
                 mainWindow.webContents.send('bnc-slots-updated', result.slots);
             }
         }
-        // Hiển thị thông báo mới từ server (Electron OS notification)
+        // Gửi notifications sang renderer — renderer tự hiện in-app dialog + badge
         if (result.notifications && result.notifications.length > 0) {
             try {
-                const seenFile = path.join(app.getPath('userData'), 'bnc_seen_notif.json');
-                const seen = new Set(fs.existsSync(seenFile) ? fs.readJsonSync(seenFile) : []);
-                const newNotifs = result.notifications.filter(n => !seen.has(n.id));
-                for (const n of newNotifs) {
-                    new Notification({ title: n.title, body: n.body }).show();
-                    seen.add(n.id);
-                }
-                if (newNotifs.length > 0) {
-                    fs.writeJsonSync(seenFile, [...seen].slice(-500));
-                }
-                // Gửi sang renderer để hiển thị badge + list (kể cả đã seen qua OS notification)
                 if (mainWindow && !mainWindow.isDestroyed()) {
                     mainWindow.webContents.send('bnc-notifications-updated', result.notifications);
                 }
@@ -2648,6 +2675,25 @@ ipcMain.handle('bnc-login', async (_, { email, password }) => {
     }
 
     return { success: true, customer: result.customer, slots, teams };
+});
+
+ipcMain.handle('bnc-register', async (_, { name, email, password, confirmPassword }) => {
+    try {
+        const result = await bncRegisterApi(name, email, password, confirmPassword);
+        saveBncAuth({
+            accessToken: result.accessToken,
+            refreshToken: result.refreshToken || null,
+            email,
+            customerId: result.customer?.id || null,
+            slots: { totalGranted: 0, slotsUsed: 0, available: 0 },
+            teams: [],
+            activeWorkspace: 'own',
+            savedAt: new Date().toISOString(),
+        });
+        return { success: true, customer: result.customer };
+    } catch (e) {
+        return { success: false, message: e.message };
+    }
 });
 
 // Terms of Service: check / accept / decline

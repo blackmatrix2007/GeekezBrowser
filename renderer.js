@@ -157,10 +157,17 @@ async function bncInit() {
         }
     } catch (_) {}
 
-    // Register link → open browser
+    // Register link → show in-app register form
     document.getElementById('bncRegisterLink')?.addEventListener('click', (e) => {
         e.preventDefault();
-        window.electronAPI.invoke('open-url', 'https://yttool.vn/dang-ky');
+        document.getElementById('bncLoginForm').style.display = 'none';
+        document.getElementById('bncRegisterForm').style.display = 'block';
+        document.getElementById('bncRegNameInput')?.focus();
+    });
+    document.getElementById('bncBackToLoginLink')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        document.getElementById('bncRegisterForm').style.display = 'none';
+        document.getElementById('bncLoginForm').style.display = 'block';
     });
     document.getElementById('bncForgotLink')?.addEventListener('click', (e) => {
         e.preventDefault();
@@ -223,8 +230,12 @@ async function bncInit() {
 
     // Nhận notifications từ heartbeat (main.js push mỗi 5 phút)
     window.electronAPI.onBncNotificationsUpdated((notifs) => {
+        const prev = new Set((_bncNotifications || []).map(n => n.id));
         _bncNotifications = notifs || [];
         _renderNotifBadge();
+        // Hiện dialog cho những notification mới (chưa có trong danh sách trước)
+        const newOnes = _bncNotifications.filter(n => !n.isRead && !prev.has(n.id));
+        if (newOnes.length > 0) bncShowNotifDialog(newOnes);
     });
 
     // Startup sync: main.js đã fetch profiles mới từ server → reload UI
@@ -319,6 +330,58 @@ async function doBncLogin() {
         errEl.textContent = 'Lỗi kết nối. Kiểm tra lại mạng.';
         errEl.style.display = 'block';
         btn.disabled = false; btn.textContent = 'Đăng nhập';
+    }
+}
+
+async function doBncRegister() {
+    const name     = document.getElementById('bncRegNameInput')?.value?.trim();
+    const email    = document.getElementById('bncRegEmailInput')?.value?.trim();
+    const password = document.getElementById('bncRegPwInput')?.value;
+    const confirm  = document.getElementById('bncRegPwConfirmInput')?.value;
+    const errEl    = document.getElementById('bncRegError');
+    const btn      = document.getElementById('bncRegBtn');
+
+    errEl.style.display = 'none';
+    if (!name || !email || !password || !confirm) {
+        errEl.textContent = 'Vui lòng điền đầy đủ thông tin';
+        errEl.style.display = 'block'; return;
+    }
+    if (password !== confirm) {
+        errEl.textContent = 'Mật khẩu xác nhận không khớp';
+        errEl.style.display = 'block'; return;
+    }
+    if (password.length < 6) {
+        errEl.textContent = 'Mật khẩu phải từ 6 ký tự trở lên';
+        errEl.style.display = 'block'; return;
+    }
+
+    btn.disabled = true; btn.textContent = 'Đang đăng ký...';
+    try {
+        const result = await window.electronAPI.bncRegister(name, email, password, confirm);
+        if (result.success) {
+            // Auto-load bằng cách gọi login luôn để lấy đầy đủ slots/profiles
+            const loginResult = await window.electronAPI.bncLogin(email, password);
+            _bncAuth = {
+                isLoggedIn: true, email,
+                customerId: result.customer?.id,
+                slots: loginResult?.slots || { totalGranted: 0, slotsUsed: 0, available: 0 },
+                teams: loginResult?.teams || [],
+                activeWorkspace: 'own',
+            };
+            hideBncLoginOverlay();
+            bncRenderUserInfo(_bncAuth);
+            _renderWorkspaceSelector(_bncAuth.teams);
+            await loadProfiles();
+            await ensureBncTermsAccepted();
+        } else {
+            errEl.textContent = result.message || 'Đăng ký thất bại';
+            errEl.style.display = 'block';
+            btn.disabled = false; btn.textContent = 'Đăng ký';
+        }
+    } catch (e) {
+        errEl.textContent = 'Lỗi kết nối. Kiểm tra lại mạng.';
+        errEl.style.display = 'block';
+        btn.disabled = false; btn.textContent = 'Đăng ký';
     }
 }
 
@@ -4544,6 +4607,48 @@ async function triggerInstallUpdate() {
 // ─── Arrange Window ───────────────────────────────────────────────────────────
 
 let _awSettings = null;
+
+// ─── BNC Notification Dialog ──────────────────────────────────────────────────
+let _notifDialogQueue = [];
+let _notifDialogIdx = 0;
+
+function bncShowNotifDialog(notifs) {
+    if (!notifs || !notifs.length) return;
+    _notifDialogQueue = notifs;
+    _notifDialogIdx = 0;
+    _renderNotifDialogItem();
+    const el = document.getElementById('bncNotifDialog');
+    if (el) { el.style.display = 'flex'; }
+}
+
+function _renderNotifDialogItem() {
+    const n = _notifDialogQueue[_notifDialogIdx];
+    if (!n) return;
+    const iconMap = { warning: '⚠️', error: '🔴', success: '✅', info: '📢' };
+    document.getElementById('bncNotifDialogIcon').textContent = iconMap[n.type] || '📢';
+    document.getElementById('bncNotifDialogTitle').textContent = n.title || '';
+    document.getElementById('bncNotifDialogBody').textContent = n.body || '';
+    const nextBtn = document.getElementById('bncNotifDialogNextBtn');
+    if (nextBtn) nextBtn.style.display = _notifDialogQueue.length > 1 && _notifDialogIdx < _notifDialogQueue.length - 1 ? 'inline-block' : 'none';
+    // Mark as read
+    if (n.id) window.electronAPI.bncMarkNotificationsRead([Number(n.id)]).catch(() => {});
+}
+
+function bncNotifDialogNext() {
+    _notifDialogIdx++;
+    if (_notifDialogIdx < _notifDialogQueue.length) {
+        _renderNotifDialogItem();
+    } else {
+        bncNotifDialogClose();
+    }
+}
+
+function bncNotifDialogClose() {
+    const el = document.getElementById('bncNotifDialog');
+    if (el) el.style.display = 'none';
+    _notifDialogQueue = [];
+    _notifDialogIdx = 0;
+}
 
 async function openArrangeWindow() {
     const modal = document.getElementById('arrangeWindowModal');

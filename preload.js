@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getPlatform: () => process.platform,
     // ─── BNC Auth ───────────────────────────────────────────────────────────
     bncLogin: (email, password) => ipcRenderer.invoke('bnc-login', { email, password }),
+    bncRegister: (name, email, password, confirmPassword) => ipcRenderer.invoke('bnc-register', { name, email, password, confirmPassword }),
     bncLogout: () => ipcRenderer.invoke('bnc-logout'),
     bncTermsStatus: () => ipcRenderer.invoke('bnc-terms-status'),
     bncTermsAccept: () => ipcRenderer.invoke('bnc-terms-accept'),

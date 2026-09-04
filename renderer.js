@@ -1292,7 +1292,11 @@ async function openPaymentModal(planId, price, planName) {
         const deviceQrUrl = deviceInfo.transferContent
             ? `https://img.vietqr.io/image/${info.bankAcqId}-${info.bankAccountNo}-compact2.png?amount=${deviceInfo.pricePerDevice}&addInfo=${encodeURIComponent(deviceInfo.transferContent)}&accountName=${encodeURIComponent(info.bankAccountName)}`
             : null;
-        const bankName = info.bankAccountNo?.startsWith('10') ? 'Vietinbank' : 'Ngân hàng';
+        const bankName = info.bankAccountNo?.startsWith('10') ? 'Vietinbank' : 'MB Bank';
+        const sepay = info.sepay || null;
+        const sepayQrUrl = sepay?.bankAccountNo
+            ? `https://img.vietqr.io/image/${sepay.bankAcqId}-${sepay.bankAccountNo}-compact2.png?amount=${price}&addInfo=${encodeURIComponent(sepay.transferContent)}&accountName=${encodeURIComponent(sepay.bankAccountName)}`
+            : null;
         const ls = info.lemonSqueezy || {};
         const stripeInfo = (info.stripe?.available) ? info.stripe : null;
 
@@ -1301,11 +1305,29 @@ async function openPaymentModal(planId, price, planName) {
                 <div style="font-size:13px;color:#aaa;margin-bottom:4px;">Gói đã chọn</div>
                 <div style="font-size:18px;font-weight:700;color:#00e0ff;">${planName} — ${fmt(price)}đ</div>
             </div>
-            <img src="${qrUrl}" alt="QR" style="width:200px;height:200px;border-radius:10px;margin-bottom:14px;background:#fff;" onerror="this.style.display='none'">
-            <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:14px;text-align:left;font-size:13px;line-height:1.8;color:#ccc;margin-bottom:4px;">
-                <div><span style="color:#888;">Ngân hàng:</span> <strong style="color:#fff;">${bankName}</strong></div>
-                <div><span style="color:#888;">Số TK:</span> <strong style="color:#00e0ff;">${info.bankAccountNo}</strong></div>
-                <div><span style="color:#888;">Chủ TK:</span> <strong style="color:#fff;">${info.bankAccountName}</strong></div>
+
+            <div style="font-size:11px;color:#aaa;margin-bottom:8px;">Chuyển vào <b style="color:#fff;">một trong hai</b> tài khoản bên dưới — hệ thống tự nhận</div>
+
+            <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:4px;">
+                <div style="flex:1;min-width:180px;max-width:220px;background:rgba(0,0,0,0.3);border-radius:10px;padding:12px;text-align:center;">
+                    <div style="font-size:11px;font-weight:600;color:#aaa;margin-bottom:8px;letter-spacing:1px;">VIETINBANK</div>
+                    <img src="${qrUrl}" alt="QR Vietinbank" style="width:180px;height:180px;border-radius:8px;background:#fff;" onerror="this.style.display='none'">
+                    <div style="margin-top:8px;font-size:12px;line-height:1.7;color:#ccc;text-align:left;">
+                        <div><span style="color:#888;">Số TK:</span> <strong style="color:#00e0ff;">${info.bankAccountNo}</strong></div>
+                        <div><span style="color:#888;">Chủ TK:</span> <strong style="color:#fff;">${info.bankAccountName}</strong></div>
+                    </div>
+                </div>
+                ${sepayQrUrl ? `
+                <div style="flex:1;min-width:180px;max-width:220px;background:rgba(0,0,0,0.3);border-radius:10px;padding:12px;text-align:center;border:1px solid rgba(255,152,0,0.3);">
+                    <div style="font-size:11px;font-weight:600;color:#ff9800;margin-bottom:8px;letter-spacing:1px;">MB BANK · SePay</div>
+                    <img src="${sepayQrUrl}" alt="QR MB Bank" style="width:180px;height:180px;border-radius:8px;background:#fff;" onerror="this.style.display='none'">
+                    <div style="margin-top:8px;font-size:12px;line-height:1.7;color:#ccc;text-align:left;">
+                        <div><span style="color:#888;">Số TK:</span> <strong style="color:#ff9800;">${sepay.bankAccountNo}</strong></div>
+                        <div><span style="color:#888;">Chủ TK:</span> <strong style="color:#fff;">${sepay.bankAccountName}</strong></div>
+                    </div>
+                </div>` : ''}
+            </div>
+            <div style="background:rgba(0,0,0,0.2);border-radius:8px;padding:10px 14px;text-align:left;font-size:13px;color:#ccc;margin-top:4px;">
                 <div><span style="color:#888;">Số tiền:</span> <strong style="color:#fff;">${fmt(price)}đ</strong></div>
                 <div><span style="color:#888;">Nội dung:</span> <strong style="color:#ff9800;font-family:monospace;font-size:14px;">${info.transferContent}</strong></div>
             </div>

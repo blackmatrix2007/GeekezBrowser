@@ -1491,73 +1491,114 @@ function getLanguageFromCountry(country) {
     return countryLanguageMap[country] || 'en-US';
 }
 
-// Detect proxy IP geolocation using ip-api.com (free, no API key needed)
+// ISO-3166 2-letter code → full name, for the same country set as
+// countryLanguageMap above (ipinfo.io returns only the 2-letter code, but
+// getLanguageFromCountry()/countryLanguageMap key off the full English name).
+const COUNTRY_CODE_TO_NAME = {
+    AU: 'Australia', US: 'United States', GB: 'United Kingdom', CA: 'Canada',
+    DE: 'Germany', FR: 'France', ES: 'Spain', IT: 'Italy', JP: 'Japan',
+    CN: 'China', KR: 'South Korea', BR: 'Brazil', MX: 'Mexico', NL: 'Netherlands',
+    RU: 'Russia', IN: 'India', SG: 'Singapore', HK: 'Hong Kong', TW: 'Taiwan',
+    TH: 'Thailand', VN: 'Vietnam', ID: 'Indonesia', MY: 'Malaysia', PH: 'Philippines',
+    PL: 'Poland', TR: 'Turkey', SE: 'Sweden', NO: 'Norway', DK: 'Denmark',
+    FI: 'Finland', AT: 'Austria', CH: 'Switzerland', BE: 'Belgium', PT: 'Portugal',
+    GR: 'Greece', CZ: 'Czech Republic', RO: 'Romania', HU: 'Hungary', UA: 'Ukraine',
+    AR: 'Argentina', CL: 'Chile', CO: 'Colombia', PE: 'Peru', VE: 'Venezuela',
+    ZA: 'South Africa', EG: 'Egypt', SA: 'Saudi Arabia', AE: 'United Arab Emirates',
+    IL: 'Israel', NZ: 'New Zealand', IE: 'Ireland',
+};
+
+// Extracts the IP out of any supported proxy string format:
+//   IPv4: ip:port, ip:port:user:pass, socks5://ip:port
+//   IPv6: [::1]:port, [::1]:port:user:pass, raw IPv6 (no port)
+// Returns null if nothing IP-shaped could be parsed out.
+function parseProxyIp(proxyStr) {
+    let ip = proxyStr.trim();
+    ip = ip.replace(/^(socks5|socks4|http|https):\/\//, '');
+
+    const bracketedIPv6 = ip.match(/^\[([^\]]+)\]/);
+    if (bracketedIPv6) {
+        ip = bracketedIPv6[1];
+    } else {
+        const colonCount = (ip.match(/:/g) || []).length;
+        if (colonCount > 1 && !ip.includes('.')) {
+            // Raw IPv6 — geo-IP APIs below accept the full address as-is.
+        } else {
+            ip = ip.split(':')[0];
+        }
+    }
+
+    const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+    const ipv6Regex = /^[0-9a-fA-F:]+$/;
+    if (!ipv4Regex.test(ip) && !ipv6Regex.test(ip)) return null;
+    return ip;
+}
+
+async function fetchIpApiGeo(ip) {
+    const url = `http://ip-api.com/json/${ip}?fields=status,message,country,countryCode,city,timezone,lat,lon`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    const data = await response.json();
+    if (data.status !== 'success') throw new Error(data.message || 'ip-api.com error');
+    return {
+        ip, country: data.country, countryCode: data.countryCode, city: data.city,
+        timezone: data.timezone, latitude: data.lat, longitude: data.lon,
+        language: getLanguageFromCountry(data.country), source: 'ip-api.com',
+    };
+}
+
+async function fetchIpInfoGeo(ip) {
+    const url = `https://ipinfo.io/${ip}/json`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    const data = await response.json();
+    if (data.bogon || !data.country) throw new Error('ipinfo.io: no country data');
+    const countryName = COUNTRY_CODE_TO_NAME[data.country] || data.country;
+    const [lat, lon] = (data.loc || ',').split(',').map(Number);
+    return {
+        ip, country: countryName, countryCode: data.country, city: data.city,
+        timezone: data.timezone, latitude: lat || null, longitude: lon || null,
+        language: getLanguageFromCountry(countryName), source: 'ipinfo.io',
+    };
+}
+
+// Detect proxy IP geolocation, cross-checking two independent databases.
+// Some datacenter IP blocks get re-leased/re-sold to a provider physically
+// hosted elsewhere, and WHOIS-derived geo databases can lag behind for
+// months — confirmed case: a Vietnam-hosted proxy (per the provider's own
+// dashboard, and matching ipinfo.io) was reported as Netherlands by
+// ip-api.com alone, silently mismatching the student's expected fingerprint.
+// ipinfo.io is preferred when both succeed and disagree; ip-api.com is the
+// fallback if ipinfo.io is unreachable/rate-limited.
 async function getProxyGeolocation(proxyStr) {
     try {
-        // Parse IP from proxy string
-        // Supported formats:
-        //   IPv4: ip:port, ip:port:user:pass, socks5://ip:port
-        //   IPv6: [::1]:port, [::1]:port:user:pass, raw IPv6 (no port)
-        let ip = proxyStr.trim();
-
-        // Remove protocol if exists
-        ip = ip.replace(/^(socks5|socks4|http|https):\/\//, '');
-
-        // Handle bracketed IPv6: [2a0f:d941::1]:port:user:pass
-        const bracketedIPv6 = ip.match(/^\[([^\]]+)\]/);
-        if (bracketedIPv6) {
-            ip = bracketedIPv6[1];
-        } else {
-            // Count colons: >1 colon and no dot = raw IPv6
-            const colonCount = (ip.match(/:/g) || []).length;
-            if (colonCount > 1 && !ip.includes('.')) {
-                // Raw IPv6, take as-is (ip-api.com accepts full IPv6)
-                // Strip any trailing :user:pass that looks like it was appended
-                // IPv6 addresses have at least 2 colons, a port suffix would be :port which is ambiguous
-                // Safe approach: if the string has exactly 7 colons it's a full IPv6, use it whole
-                if (colonCount >= 7) {
-                    // Full IPv6 address, use entire string
-                } else {
-                    // Might have extra :user:pass — can't reliably parse, use as-is
-                }
-            } else {
-                // IPv4 or hostname: extract first segment before colon
-                ip = ip.split(':')[0];
-            }
-        }
-
-        // Validate: IPv4 or IPv6
-        const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
-        const ipv6Regex = /^[0-9a-fA-F:]+$/;
-        if (!ipv4Regex.test(ip) && !ipv6Regex.test(ip)) {
-            console.error('Invalid IP format:', ip);
+        const ip = parseProxyIp(proxyStr);
+        if (!ip) {
+            console.error('Invalid IP format in proxy string:', proxyStr);
             return null;
         }
 
         console.log(`🔍 Detecting geolocation for IP: ${ip}`);
 
-        // Query ip-api.com (free, 45 requests/minute limit)
-        const url = `http://ip-api.com/json/${ip}?fields=status,message,country,countryCode,city,timezone,lat,lon`;
-        const response = await fetch(url);
-        const data = await response.json();
+        const [ipApiResult, ipInfoResult] = await Promise.allSettled([
+            fetchIpApiGeo(ip),
+            fetchIpInfoGeo(ip),
+        ]);
+        const a = ipApiResult.status === 'fulfilled' ? ipApiResult.value : null;
+        const b = ipInfoResult.status === 'fulfilled' ? ipInfoResult.value : null;
 
-        if (data.status === 'success') {
-            const result = {
-                ip: ip,
-                country: data.country,
-                countryCode: data.countryCode,
-                city: data.city,
-                timezone: data.timezone,
-                latitude: data.lat,
-                longitude: data.lon,
-                language: getLanguageFromCountry(data.country)
-            };
-            console.log('✅ Geolocation detected:', result);
-            return result;
-        } else {
-            console.error('❌ Geolocation API error:', data.message || 'Unknown error');
+        if (a && b && a.countryCode !== b.countryCode) {
+            console.warn(`⚠️ Geo-IP mismatch for ${ip}: ip-api.com=${a.countryCode} vs ipinfo.io=${b.countryCode} — using ipinfo.io`);
+        }
+
+        const chosen = b || a;
+        if (!chosen) {
+            console.error('❌ Geolocation detection failed on both sources',
+                ipApiResult.status === 'rejected' ? ipApiResult.reason?.message : '',
+                ipInfoResult.status === 'rejected' ? ipInfoResult.reason?.message : '');
             return null;
         }
+
+        console.log('✅ Geolocation detected:', chosen);
+        return chosen;
     } catch (error) {
         console.error('❌ Failed to detect proxy geolocation:', error.message);
         return null;

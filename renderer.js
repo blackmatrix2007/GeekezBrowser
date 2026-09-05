@@ -256,11 +256,18 @@ async function bncInit() {
     });
 
     // Nhận notifications từ heartbeat (main.js push mỗi 5 phút)
+    let _bncNotifInitialized = false;
     window.electronAPI.onBncNotificationsUpdated((notifs) => {
         const prev = new Set((_bncNotifications || []).map(n => n.id));
         _bncNotifications = notifs || [];
         _renderNotifBadge();
-        // Hiện dialog cho notification mới có displayMode=dialog (hoặc không set = mặc định dialog)
+        // Lần đầu load (app vừa mở): đánh dấu các notification hiện có là đã biết,
+        // không hiện dialog — tránh reshowing notification cũ từ phiên trước.
+        if (!_bncNotifInitialized) {
+            _bncNotifInitialized = true;
+            return;
+        }
+        // Hiện dialog cho notification MỚI (chưa có trong prev) có displayMode=dialog
         const newOnes = _bncNotifications.filter(n =>
             !n.isRead && !prev.has(n.id) &&
             (!n.metadata?.displayMode || n.metadata?.displayMode === 'dialog')
@@ -1298,43 +1305,73 @@ async function openPaymentModal(planId, price, planName) {
         const ls = info.lemonSqueezy || {};
         const stripeInfo = (info.stripe?.available) ? info.stripe : null;
 
+        // Build tabs: Tab 1 = thanh toán gói, Tab 2 = thêm thiết bị (chỉ khi có)
+        const hasDeviceTab = !!deviceQrUrl;
+        const hasIntlTab   = !!(ls.monthly?.url || ls.annual?.url || stripeInfo);
+
         content.innerHTML = `
             <div style="margin-bottom:14px;">
                 <div style="font-size:13px;color:#aaa;margin-bottom:4px;">Gói đã chọn</div>
                 <div style="font-size:18px;font-weight:700;color:#00e0ff;">${planName} — ${fmt(price)}đ</div>
             </div>
-            <img src="${qrUrl}" alt="QR" style="width:200px;height:200px;border-radius:10px;margin-bottom:14px;background:#fff;" onerror="this.style.display='none'">
-            <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:14px;text-align:left;font-size:13px;line-height:1.8;color:#ccc;margin-bottom:4px;">
-                <div><span style="color:#888;">Ngân hàng:</span> <strong style="color:#fff;">${bankName}</strong></div>
-                <div><span style="color:#888;">Số TK:</span> <strong style="color:#00e0ff;">${activeBank.bankAccountNo}</strong></div>
-                <div><span style="color:#888;">Chủ TK:</span> <strong style="color:#fff;">${activeBank.bankAccountName}</strong></div>
-                <div><span style="color:#888;">Số tiền:</span> <strong style="color:#fff;">${fmt(price)}đ</strong></div>
-                <div><span style="color:#888;">Nội dung:</span> <strong style="color:#ff9800;font-family:monospace;font-size:14px;">${activeBank.transferContent}</strong></div>
+
+            ${hasDeviceTab ? `
+            <div id="pmTabs" style="display:flex;gap:0;border-bottom:1px solid rgba(255,255,255,0.1);margin-bottom:16px;">
+                <button id="pmTab0" onclick="switchPmTab(0)" style="flex:1;padding:8px 0;font-size:13px;font-weight:600;background:transparent;border:none;border-bottom:2px solid #00e0ff;color:#00e0ff;cursor:pointer;">💳 Thanh toán gói</button>
+                <button id="pmTab1" onclick="switchPmTab(1)" style="flex:1;padding:8px 0;font-size:13px;font-weight:600;background:transparent;border:none;border-bottom:2px solid transparent;color:#888;cursor:pointer;">➕ Thêm thiết bị</button>
+            </div>` : ''}
+
+            <div id="pmPane0">
+                <img src="${qrUrl}" alt="QR" style="width:200px;height:200px;border-radius:10px;margin-bottom:14px;background:#fff;" onerror="this.style.display='none'">
+                <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:14px;text-align:left;font-size:13px;line-height:1.8;color:#ccc;margin-bottom:4px;">
+                    <div><span style="color:#888;">Ngân hàng:</span> <strong style="color:#fff;">${bankName}</strong></div>
+                    <div><span style="color:#888;">Số TK:</span> <strong style="color:#00e0ff;">${activeBank.bankAccountNo}</strong></div>
+                    <div><span style="color:#888;">Chủ TK:</span> <strong style="color:#fff;">${activeBank.bankAccountName}</strong></div>
+                    <div><span style="color:#888;">Số tiền:</span> <strong style="color:#fff;">${fmt(price)}đ</strong></div>
+                    <div><span style="color:#888;">Nội dung:</span> <strong style="color:#ff9800;font-family:monospace;font-size:14px;">${activeBank.transferContent}</strong></div>
+                </div>
+                <div style="font-size:11px;color:#666;margin-top:10px;">Hệ thống tự động gia hạn sau khi nhận được chuyển khoản (thường trong vài phút)</div>
+                ${hasIntlTab ? `
+                <div style="margin-top:16px;border-top:1px solid rgba(255,255,255,0.07);padding-top:14px;">
+                    <div style="font-size:12px;color:#888;margin-bottom:8px;">🌍 Hoặc thanh toán quốc tế (thẻ/PayPal)</div>
+                    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+                        ${ls.monthly?.url ? `<button data-ls-plan="monthly" style="padding:8px 16px;border-radius:8px;border:1px solid #00e0ff;background:rgba(0,224,255,0.1);color:#00e0ff;font-size:13px;cursor:pointer;">$${ls.monthly.price}/tháng (LS)</button>` : ''}
+                        ${ls.annual?.url ? `<button data-ls-plan="annual" style="padding:8px 16px;border-radius:8px;border:1px solid #00e0ff;background:rgba(0,224,255,0.1);color:#00e0ff;font-size:13px;cursor:pointer;">$${ls.annual.price}/năm (LS)</button>` : ''}
+                        ${stripeInfo?.monthly ? `<button data-stripe-plan="monthly" style="padding:8px 16px;border-radius:8px;border:1px solid #7c5cff;background:rgba(124,92,255,0.1);color:#b09cff;font-size:13px;cursor:pointer;">$${stripeInfo.monthly.price}/tháng (Stripe)</button>` : ''}
+                        ${stripeInfo?.annual ? `<button data-stripe-plan="annual" style="padding:8px 16px;border-radius:8px;border:1px solid #7c5cff;background:rgba(124,92,255,0.1);color:#b09cff;font-size:13px;cursor:pointer;">$${stripeInfo.annual.price}/năm (Stripe)</button>` : ''}
+                    </div>
+                    <div style="font-size:11px;color:#666;margin-top:8px;">Mở trình duyệt để thanh toán an toàn — hệ thống tự động kích hoạt sau khi xác nhận</div>
+                </div>` : ''}
             </div>
-            <div style="font-size:11px;color:#666;margin-top:10px;">Hệ thống tự động gia hạn sau khi nhận được chuyển khoản (thường trong vài phút)</div>
-            ${deviceQrUrl ? `
-            <div style="margin-top:18px;border-top:1px solid rgba(255,255,255,0.07);padding-top:16px;">
-                <div style="font-size:13px;font-weight:600;color:#e0e0e0;margin-bottom:10px;">➕ Thêm thiết bị (+${fmt(deviceInfo.pricePerDevice)}đ/máy)</div>
-                <img src="${deviceQrUrl}" alt="QR thiết bị" style="width:160px;height:160px;border-radius:10px;margin-bottom:10px;background:#fff;" onerror="this.style.display='none'">
-                <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:10px 14px;text-align:left;font-size:12px;line-height:1.8;color:#ccc;">
-                    <div><span style="color:#888;">Số tiền:</span> <strong style="color:#fff;">${fmt(deviceInfo.pricePerDevice)}đ</strong></div>
-                    <div><span style="color:#888;">Nội dung:</span> <strong style="color:#ff9800;font-family:monospace;">${deviceInfo.transferContent}</strong></div>
-                    <div style="margin-top:4px;font-size:11px;color:#555;">${deviceInfo.note || 'D2 = +2 thiết bị, v.v.'}</div>
+
+            ${hasDeviceTab ? `
+            <div id="pmPane1" style="display:none;">
+                <div style="font-size:12px;color:#aaa;margin-bottom:12px;">Chuyển khoản riêng để thêm thiết bị vào tài khoản hiện tại</div>
+                <img src="${deviceQrUrl}" alt="QR thiết bị" style="width:190px;height:190px;border-radius:10px;margin-bottom:14px;background:#fff;" onerror="this.style.display='none'">
+                <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:14px;text-align:left;font-size:13px;line-height:1.8;color:#ccc;margin-bottom:4px;">
+                    <div><span style="color:#888;">Ngân hàng:</span> <strong style="color:#fff;">${bankName}</strong></div>
+                    <div><span style="color:#888;">Số TK:</span> <strong style="color:#00e0ff;">${activeBank.bankAccountNo}</strong></div>
+                    <div><span style="color:#888;">Số tiền:</span> <strong style="color:#fff;">${fmt(deviceInfo.pricePerDevice)}đ/thiết bị</strong></div>
+                    <div><span style="color:#888;">Nội dung:</span> <strong style="color:#ff9800;font-family:monospace;font-size:14px;">${deviceInfo.transferContent}</strong></div>
                 </div>
+                <div style="font-size:11px;color:#666;margin-top:8px;">${deviceInfo.note || 'Ví dụ: nội dung D2 = thêm 2 thiết bị, D3 = 3 thiết bị…'}</div>
             </div>` : ''}
-            ${(ls.monthly?.url || ls.annual?.url || stripeInfo) ? `
-            <div style="margin-top:18px;border-top:1px solid rgba(255,255,255,0.07);padding-top:16px;">
-                <div style="font-size:13px;font-weight:600;color:#e0e0e0;margin-bottom:10px;">🌍 Hoặc thanh toán quốc tế (thẻ/PayPal)</div>
-                <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
-                    ${ls.monthly?.url ? `<button data-ls-plan="monthly" style="padding:8px 16px;border-radius:8px;border:1px solid #00e0ff;background:rgba(0,224,255,0.1);color:#00e0ff;font-size:13px;cursor:pointer;">$${ls.monthly.price}/tháng (LS)</button>` : ''}
-                    ${ls.annual?.url ? `<button data-ls-plan="annual" style="padding:8px 16px;border-radius:8px;border:1px solid #00e0ff;background:rgba(0,224,255,0.1);color:#00e0ff;font-size:13px;cursor:pointer;">$${ls.annual.price}/năm (LS)</button>` : ''}
-                    ${stripeInfo?.monthly ? `<button data-stripe-plan="monthly" style="padding:8px 16px;border-radius:8px;border:1px solid #7c5cff;background:rgba(124,92,255,0.1);color:#b09cff;font-size:13px;cursor:pointer;">$${stripeInfo.monthly.price}/tháng (Stripe)</button>` : ''}
-                    ${stripeInfo?.annual ? `<button data-stripe-plan="annual" style="padding:8px 16px;border-radius:8px;border:1px solid #7c5cff;background:rgba(124,92,255,0.1);color:#b09cff;font-size:13px;cursor:pointer;">$${stripeInfo.annual.price}/năm (Stripe)</button>` : ''}
-                </div>
-                <div style="font-size:11px;color:#666;margin-top:8px;">Mở trình duyệt để thanh toán an toàn — hệ thống tự động kích hoạt sau khi xác nhận</div>
-            </div>` : ''}
+
             <button onclick="closePaymentModal(true)" style="margin-top:14px;padding:8px 20px;border-radius:8px;border:1px solid #444;background:transparent;color:#aaa;font-size:13px;cursor:pointer;">← Quay lại</button>
         `;
+
+        // Tab switching logic (inline, injected into window scope)
+        window.switchPmTab = function(idx) {
+            [0, 1].forEach(i => {
+                const tab  = document.getElementById('pmTab' + i);
+                const pane = document.getElementById('pmPane' + i);
+                if (!tab || !pane) return;
+                const active = i === idx;
+                tab.style.color         = active ? '#00e0ff' : '#888';
+                tab.style.borderBottom  = active ? '2px solid #00e0ff' : '2px solid transparent';
+                pane.style.display      = active ? '' : 'none';
+            });
+        };
 
         // Mở trình duyệt hệ thống (không nhúng webview trong app) khi bấm nút quốc tế
         content.querySelectorAll('[data-ls-plan]').forEach(btn => {

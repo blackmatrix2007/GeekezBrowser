@@ -3203,7 +3203,7 @@ let isImportMode = false;
 function openExportModal() { document.getElementById('exportModal').style.display = 'flex'; }
 function closeExportModal() { document.getElementById('exportModal').style.display = 'none'; }
 
-async function openExportSelectModal(type) {
+async function openExportSelectModal(type, preSelectedIds) {
     exportType = type;
     closeExportModal();
 
@@ -3228,10 +3228,19 @@ async function openExportSelectModal(type) {
     // 渲染选择器
     renderExportProfileList(profiles);
 
-    // 默认全选
-    selectedProfileIds = profiles.map(p => p.id);
-    document.getElementById('exportSelectAll').checked = true;
-    updateExportSelectedCount(profiles.length);
+    // Pre-select: nếu có danh sách từ bulk selection thì dùng, không thì chọn tất
+    if (preSelectedIds && preSelectedIds.length > 0) {
+        selectedProfileIds = preSelectedIds.filter(id => profiles.some(p => p.id === id));
+        document.getElementById('exportSelectAll').checked = selectedProfileIds.length === profiles.length;
+        // Uncheck tất rồi check lại đúng
+        document.querySelectorAll('#exportProfileList input[type="checkbox"]').forEach(cb => {
+            cb.checked = selectedProfileIds.includes(parseInt(cb.value) || cb.value);
+        });
+    } else {
+        selectedProfileIds = profiles.map(p => p.id);
+        document.getElementById('exportSelectAll').checked = true;
+    }
+    updateExportSelectedCount(selectedProfileIds.length);
 
     // 更新标题（使用 i18n）
     const titleSpan = document.querySelector('#exportSelectTitle span[data-i18n]');
@@ -4389,6 +4398,13 @@ function _clearProfileSelection() {
     _selectedProfileIds.clear();
     document.querySelectorAll('.profile-select-cb').forEach(cb => cb.checked = false);
     _updateBulkBar();
+}
+
+async function _bulkExportSelected() {
+    if (_selectedProfileIds.size === 0) return;
+    const ids = [..._selectedProfileIds];
+    // Mở modal chọn loại export, truyền ids đã chọn vào
+    openExportSelectModal('profiles', ids);
 }
 
 async function _bulkMoveToGroup() {

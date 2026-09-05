@@ -1511,7 +1511,7 @@
             <span id="currentProxyDisplay" class="status-badge">OFF</span>
             <button class="outline" onclick="openProxyManager()" data-i18n="manageChain">⚙️ Proxy Chain</button>
         </div>
-        <div style="display:none; gap:10px; align-items:center; flex:1;">
+        <div style="display:flex; gap:10px; align-items:center; flex:1;">
             <button class="outline" onclick="openExportModal()" data-i18n="btnExport">📤 Export</button>
             <div style="position: relative;">
                 <button class="outline" onclick="toggleImportMenu()" id="importBtn" data-i18n="importYaml">📥 Import
@@ -1641,6 +1641,7 @@
     <div id="bulkActionBar" style="display:none;align-items:center;gap:12px;flex-shrink:0;padding:8px 20px;background:rgba(0,224,255,0.07);border-bottom:1px solid rgba(0,224,255,0.15);">
         <span id="bulkCountLabel" style="font-size:13px;color:#00e0ff;font-weight:600;"></span>
         <button onclick="_bulkMoveToGroup()" style="padding:5px 14px;background:rgba(0,224,255,0.15);border:1px solid rgba(0,224,255,0.4);color:#00e0ff;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">📁 Chuyển nhóm</button>
+        <button onclick="_bulkExportSelected()" style="padding:5px 14px;background:rgba(0,224,255,0.15);border:1px solid rgba(0,224,255,0.4);color:#00e0ff;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">📤 Export</button>
         <button onclick="_clearProfileSelection()" style="padding:5px 14px;background:transparent;border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;cursor:pointer;font-size:12px;">✕ Bỏ chọn</button>
     </div>
 

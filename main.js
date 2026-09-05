@@ -2881,8 +2881,15 @@ ipcMain.handle('bnc-get-payment-info', async () => {
     try {
         const remote = await bncApiCall('GET', '/payment-info');
         if (remote?._statusCode === 200) {
-            if (remote.lemonSqueezy) info.lemonSqueezy = remote.lemonSqueezy;
-            if (remote.stripe) info.stripe = remote.stripe;
+            // Merge bank info từ server — cho phép thay đổi TK không cần build lại app
+            if (remote.bankAcqId)      info.bankAcqId      = remote.bankAcqId;
+            if (remote.bankAccountNo)  info.bankAccountNo  = remote.bankAccountNo;
+            if (remote.bankAccountName)info.bankAccountName= remote.bankAccountName;
+            if (remote.transferContent)info.transferContent= remote.transferContent;
+            if (remote.sepay)          info.sepay          = remote.sepay;
+            if (remote.deviceAddOn)    info.deviceAddOn    = remote.deviceAddOn;
+            if (remote.lemonSqueezy)   info.lemonSqueezy   = remote.lemonSqueezy;
+            if (remote.stripe)         info.stripe         = remote.stripe;
         }
     } catch (_) { /* QR ngân hàng vẫn hiển thị bình thường nếu backend lỗi */ }
     return info;

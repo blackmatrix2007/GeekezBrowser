@@ -4403,8 +4403,11 @@ function _clearProfileSelection() {
 async function _bulkExportSelected() {
     if (_selectedProfileIds.size === 0) return;
     const ids = [..._selectedProfileIds];
-    // Mở modal chọn loại export, truyền ids đã chọn vào
-    openExportSelectModal('profiles', ids);
+    try {
+        const result = await window.electronAPI.invoke('export-selected-data', { type: 'profiles', profileIds: ids });
+        if (result.success) showBncToast(`✅ Đã xuất ${result.count} profile`, 3000);
+        else if (!result.cancelled) showBncToast('❌ ' + (result.error || 'Xuất thất bại'), 3000);
+    } catch (e) { showBncToast('❌ ' + e.message, 3000); }
 }
 
 async function _bulkMoveToGroup() {

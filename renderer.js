@@ -4910,4 +4910,308 @@ function getSelectedProfileIds() {
 document.addEventListener('DOMContentLoaded', () => {
     const modal = document.getElementById('arrangeWindowModal');
     if (modal) modal.addEventListener('click', e => { if (e.target === modal) closeArrangeWindow(); });
+    _gcInit();
 });
+
+// ─── GoClaw Chat ───────────────────────────────────────────────────────────────
+let _gcWs = null;
+let _gcConnected = false;
+let _gcConnecting = false;
+let _gcMsgId = 1;
+let _gcSessionKey = null;
+let _gcPanelOpen = false;
+let _gcSettingsOpen = false;
+let _gcCurrentAiEl = null;
+let _gcCurrentAiText = '';
+
+function _gcGetConfig() {
+    return {
+        token: localStorage.getItem('geekez_goclaw_token') || '',
+        agentId: localStorage.getItem('geekez_goclaw_agentid') || 'default',
+        wsUrl: 'wss://agent.ymm.vn/ws'
+    };
+}
+
+function _gcInit() {
+    // Apply sidebar button visibility
+    const show = localStorage.getItem('geekez_goclaw_show') !== '0';
+    const btn = document.getElementById('nav-goclaw');
+    if (btn) btn.style.display = show ? 'flex' : 'none';
+    const chk = document.getElementById('gcShowInSidebar');
+    if (chk) chk.checked = show;
+}
+
+function toggleGcChatPanel() {
+    _gcPanelOpen = !_gcPanelOpen;
+    const panel = document.getElementById('gcChatPanel');
+    const navBtn = document.getElementById('nav-goclaw');
+    if (_gcPanelOpen) {
+        panel.classList.add('open');
+        navBtn && navBtn.classList.add('active');
+        // Lazy connect: only when first opened and token is set
+        if (!_gcConnected && !_gcConnecting) {
+            const cfg = _gcGetConfig();
+            if (cfg.token) {
+                _gcConnect();
+            } else {
+                // Show settings if no token configured
+                if (!_gcSettingsOpen) gcToggleSettings();
+            }
+        }
+        // Focus input
+        setTimeout(() => { const inp = document.getElementById('gcInput'); inp && inp.focus(); }, 250);
+    } else {
+        panel.classList.remove('open');
+        navBtn && navBtn.classList.remove('active');
+    }
+}
+
+function gcToggleSettings() {
+    _gcSettingsOpen = !_gcSettingsOpen;
+    const screen = document.getElementById('gcSettingsScreen');
+    if (!screen) return;
+    if (_gcSettingsOpen) {
+        // Populate fields
+        const cfg = _gcGetConfig();
+        const ti = document.getElementById('gcTokenInput');
+        const ai = document.getElementById('gcAgentInput');
+        const chk = document.getElementById('gcShowInSidebar');
+        if (ti) ti.value = cfg.token;
+        if (ai) ai.value = cfg.agentId;
+        if (chk) chk.checked = localStorage.getItem('geekez_goclaw_show') !== '0';
+        screen.style.display = 'flex';
+    } else {
+        screen.style.display = 'none';
+    }
+}
+
+function gcSaveSettings() {
+    const token = (document.getElementById('gcTokenInput')?.value || '').trim();
+    const agentId = (document.getElementById('gcAgentInput')?.value || '').trim() || 'default';
+    const show = document.getElementById('gcShowInSidebar')?.checked !== false;
+    localStorage.setItem('geekez_goclaw_token', token);
+    localStorage.setItem('geekez_goclaw_agentid', agentId);
+    localStorage.setItem('geekez_goclaw_show', show ? '1' : '0');
+    gcToggleSidebarBtn(show);
+    _gcSettingsOpen = true;
+    gcToggleSettings(); // close
+    if (token) {
+        if (_gcWs) { try { _gcWs.close(); } catch(_) {} _gcWs = null; }
+        _gcConnected = false;
+        _gcConnecting = false;
+        _gcConnect();
+    }
+}
+
+function gcToggleSidebarBtn(show) {
+    const btn = document.getElementById('nav-goclaw');
+    if (btn) btn.style.display = show ? 'flex' : 'none';
+    localStorage.setItem('geekez_goclaw_show', show ? '1' : '0');
+}
+
+function _gcConnect() {
+    const cfg = _gcGetConfig();
+    if (!cfg.token || _gcConnecting || _gcConnected) return;
+    _gcConnecting = true;
+    _gcSetStatus('Đang kết nối...', '#f59e0b');
+    _gcSessionKey = 'bnc_' + Date.now();
+
+    try {
+        _gcWs = new WebSocket(cfg.wsUrl);
+    } catch (e) {
+        _gcConnecting = false;
+        _gcSetStatus('Lỗi: ' + e.message, '#ef4444');
+        _gcUpdateStatusDot('#ef4444');
+        return;
+    }
+
+    _gcWs.onopen = () => {
+        _gcWsSend({ type: 'req', method: 'connect', params: { token: cfg.token }, id: _gcMsgId++ });
+    };
+    _gcWs.onmessage = (e) => {
+        try { _gcOnMessage(JSON.parse(e.data)); } catch (_) {}
+    };
+    _gcWs.onerror = () => {
+        _gcConnected = false;
+        _gcConnecting = false;
+        _gcSetStatus('Lỗi kết nối', '#ef4444');
+        _gcUpdateStatusDot('#ef4444');
+    };
+    _gcWs.onclose = () => {
+        _gcConnected = false;
+        _gcConnecting = false;
+        _gcSetStatus('Đã ngắt', '#666');
+        _gcUpdateStatusDot('#444');
+        // Finish any pending AI response
+        if (_gcCurrentAiEl) { _gcCurrentAiEl = null; }
+    };
+}
+
+function _gcWsSend(obj) {
+    if (_gcWs && _gcWs.readyState === WebSocket.OPEN) {
+        _gcWs.send(JSON.stringify(obj));
+        return true;
+    }
+    return false;
+}
+
+function _gcOnMessage(data) {
+    // connect ack
+    if (data.type === 'res' && data.method === 'connect') {
+        if (data.error) {
+            _gcConnecting = false;
+            _gcSetStatus('Auth thất bại', '#ef4444');
+            _gcUpdateStatusDot('#ef4444');
+            _gcAppendSystemMsg('⚠ Kết nối thất bại: ' + (data.error.message || 'sai token'));
+            return;
+        }
+        _gcConnected = true;
+        _gcConnecting = false;
+        _gcSetStatus('Đã kết nối', '#22c55e');
+        _gcUpdateStatusDot('#22c55e');
+        return;
+    }
+    // streaming chunk
+    if (data.type === 'event' && data.method === 'chunk') {
+        const delta = data.params?.delta || '';
+        if (delta) _gcAppendChunk(delta);
+        return;
+    }
+    // run started (first chunk trigger)
+    if (data.type === 'event' && data.method === 'run.started') {
+        if (!_gcCurrentAiEl) _gcPrepareAiMessage();
+        return;
+    }
+    // run done
+    if (data.type === 'event' && data.method === 'run.completed') {
+        _gcFinishResponse();
+        return;
+    }
+    // chat.send error
+    if (data.type === 'res' && data.method === 'chat.send' && data.error) {
+        _gcFinishResponse();
+        _gcAppendSystemMsg('⚠ ' + (data.error.message || 'Gửi tin thất bại'));
+    }
+}
+
+function gcSendMessage() {
+    const input = document.getElementById('gcInput');
+    const msg = (input?.value || '').trim();
+    if (!msg) return;
+    input.value = '';
+
+    const cfg = _gcGetConfig();
+    if (!cfg.token) { gcToggleSettings(); return; }
+
+    _gcAddUserMessage(msg);
+    _gcPrepareAiMessage();
+
+    const doSend = () => {
+        _gcWsSend({
+            type: 'req',
+            method: 'chat.send',
+            params: { message: msg, agentId: cfg.agentId, sessionKey: _gcSessionKey, stream: true },
+            id: _gcMsgId++
+        });
+    };
+
+    if (_gcConnected) {
+        doSend();
+    } else {
+        // Connect then send
+        if (!_gcConnecting) _gcConnect();
+        let waited = 0;
+        const poll = setInterval(() => {
+            waited += 150;
+            if (_gcConnected) { clearInterval(poll); doSend(); }
+            else if (waited > 5000) {
+                clearInterval(poll);
+                _gcFinishResponse();
+                _gcAppendSystemMsg('⚠ Không kết nối được. Kiểm tra token.');
+            }
+        }, 150);
+    }
+}
+
+function gcHandleKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        gcSendMessage();
+    }
+}
+
+// DOM helpers
+function _gcAddUserMessage(text) {
+    const list = document.getElementById('gcMessages');
+    if (!list) return;
+    const el = document.createElement('div');
+    el.style.cssText = 'display:flex;justify-content:flex-end;';
+    const bubble = document.createElement('div');
+    bubble.style.cssText = 'max-width:85%;padding:8px 12px;background:rgba(0,224,255,0.13);border:1px solid rgba(0,224,255,0.22);border-radius:14px 14px 4px 14px;font-size:13px;color:#e0e0e0;word-break:break-word;white-space:pre-wrap;';
+    bubble.textContent = text;
+    el.appendChild(bubble);
+    list.appendChild(el);
+    list.scrollTop = list.scrollHeight;
+}
+
+function _gcPrepareAiMessage() {
+    _gcCurrentAiText = '';
+    const list = document.getElementById('gcMessages');
+    if (!list) return;
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:8px;align-items:flex-start;';
+    row.innerHTML = '<div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,#00e0ff,#6366f1);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;flex-shrink:0;margin-top:2px;">AI</div>';
+    const bubble = document.createElement('div');
+    bubble.className = 'gc-ai-bubble';
+    bubble.style.cssText = 'flex:1;padding:8px 12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:4px 14px 14px 14px;font-size:13px;color:#ccc;word-break:break-word;white-space:pre-wrap;min-height:22px;';
+    bubble.innerHTML = '<span style="opacity:0.4;animation:none;">▋</span>';
+    row.appendChild(bubble);
+    _gcCurrentAiEl = bubble;
+    list.appendChild(row);
+    list.scrollTop = list.scrollHeight;
+}
+
+function _gcAppendChunk(delta) {
+    if (!_gcCurrentAiEl) return;
+    _gcCurrentAiText += delta;
+    _gcCurrentAiEl.textContent = _gcCurrentAiText;
+    const list = document.getElementById('gcMessages');
+    if (list) list.scrollTop = list.scrollHeight;
+}
+
+function _gcFinishResponse() {
+    if (_gcCurrentAiEl && !_gcCurrentAiText) {
+        _gcCurrentAiEl.textContent = '(Không có phản hồi)';
+        _gcCurrentAiEl.style.opacity = '0.5';
+    }
+    _gcCurrentAiEl = null;
+    _gcCurrentAiText = '';
+}
+
+function _gcAppendSystemMsg(text) {
+    const list = document.getElementById('gcMessages');
+    if (!list) return;
+    const el = document.createElement('div');
+    el.style.cssText = 'text-align:center;font-size:11px;color:#666;padding:4px 0;user-select:none;';
+    el.textContent = text;
+    list.appendChild(el);
+    list.scrollTop = list.scrollHeight;
+}
+
+function gcClearChat() {
+    const list = document.getElementById('gcMessages');
+    if (list) list.innerHTML = '';
+    _gcSessionKey = 'bnc_' + Date.now();
+    _gcCurrentAiEl = null;
+    _gcCurrentAiText = '';
+}
+
+function _gcSetStatus(text, color) {
+    const el = document.getElementById('gcWsStatus');
+    if (el) { el.textContent = text; el.style.color = color || '#666'; }
+}
+
+function _gcUpdateStatusDot(color) {
+    const el = document.getElementById('gcStatusDot');
+    if (el) el.style.background = color || '#444';
+}

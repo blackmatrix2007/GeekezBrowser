@@ -64,13 +64,6 @@
             "arm64"
           ]
         },
-        {
-          "target": "zip",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
       ],
       "icon": "icon.ico",
       "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
@@ -88,8 +81,7 @@
     },
     "mac": {
       "target": [
-        "dmg",
-        "zip"
+        "dmg"
       ],
       "icon": "icon.icns",
       "identity": null,

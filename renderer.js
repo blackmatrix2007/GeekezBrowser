@@ -234,14 +234,14 @@ async function bncInit() {
         const txt = document.getElementById('updateBarText');
         const prog = document.getElementById('updateProgressWrap');
         if (bar) bar.style.display = 'flex';
-        if (txt) txt.textContent = `Đang tải v${version}...`;
+        if (txt) txt.textContent = L(`Đang tải v${version}...`, `Downloading v${version}...`);
         if (prog) prog.style.display = 'block';
     });
     window.electronAPI.onUpdateProgress(({ percent }) => {
         const p = document.getElementById('updateProgressBar');
         const t = document.getElementById('updateBarText');
         if (p) p.style.width = percent + '%';
-        if (t) t.textContent = `Đang tải... ${percent}%`;
+        if (t) t.textContent = L(`Đang tải... ${percent}%`, `Downloading... ${percent}%`);
     });
     window.electronAPI.onUpdateReady(({ version }) => {
         const bar  = document.getElementById('updateBar');
@@ -249,10 +249,10 @@ async function bncInit() {
         const prog = document.getElementById('updateProgressWrap');
         const btn  = document.getElementById('updateInstallBtn');
         if (bar)  bar.style.display = 'flex';
-        if (txt)  txt.textContent = `v${version} sẵn sàng`;
+        if (txt)  txt.textContent = L(`v${version} sẵn sàng`, `v${version} ready`);
         if (prog) prog.style.display = 'none';
-        if (btn)  btn.style.display = 'inline-block';
-        showBncToast(`🎉 BNC Browser v${version} đã sẵn sàng cài đặt`, 8000);
+        if (btn)  { btn.style.display = 'inline-block'; btn.textContent = L('Cài ngay', 'Install'); }
+        showBncToast(L(`🎉 BNC Browser v${version} đã sẵn sàng cài đặt`, `🎉 BNC Browser v${version} is ready to install`), 8000);
     });
 
     // Nhận notifications từ heartbeat (main.js push mỗi 5 phút)
@@ -308,10 +308,10 @@ function showBncLoginOverlay(reason) {
     const notice = document.getElementById('bncLoginNotice');
     if (notice) {
         if (reason === 'device_kicked') {
-            notice.textContent = 'Thiết bị khác vừa đăng nhập vào tài khoản của bạn. Vui lòng đăng nhập lại.';
+            notice.textContent = L('Thiết bị khác vừa đăng nhập vào tài khoản của bạn. Vui lòng đăng nhập lại.', 'Another device logged into your account. Please sign in again.');
             notice.style.cssText = 'display:block;margin-bottom:16px;padding:10px 14px;border-radius:8px;font-size:13px;font-weight:500;background:rgba(255,180,0,0.12);border:1px solid rgba(255,180,0,0.35);color:#ffb400;';
         } else if (reason === 'token_invalid') {
-            notice.textContent = 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
+            notice.textContent = L('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.', 'Session expired. Please sign in again.');
             notice.style.cssText = 'display:block;margin-bottom:16px;padding:10px 14px;border-radius:8px;font-size:13px;font-weight:500;background:rgba(0,224,255,0.08);border:1px solid rgba(0,224,255,0.2);color:#00e0ff;';
         } else {
             notice.style.display = 'none';
@@ -338,11 +338,11 @@ async function doBncLogin() {
     const btn      = document.getElementById('bncLoginBtn');
 
     if (!email || !password) {
-        errEl.textContent = 'Vui lòng nhập đầy đủ email và mật khẩu';
+        errEl.textContent = L('Vui lòng nhập đầy đủ email và mật khẩu', 'Please enter your email and password');
         errEl.style.display = 'block'; return;
     }
     errEl.style.display = 'none';
-    btn.disabled = true; btn.textContent = 'Đang đăng nhập...';
+    btn.disabled = true; btn.textContent = L('Đang đăng nhập...', 'Signing in...');
 
     try {
         const result = await window.electronAPI.bncLogin(email, password);
@@ -359,14 +359,14 @@ async function doBncLogin() {
             await loadProfiles(); // Load profiles của account vừa login
             await ensureBncTermsAccepted();
         } else {
-            errEl.textContent = result.message || 'Đăng nhập thất bại';
+            errEl.textContent = result.message || L('Đăng nhập thất bại', 'Sign in failed');
             errEl.style.display = 'block';
-            btn.disabled = false; btn.textContent = 'Đăng nhập';
+            btn.disabled = false; btn.textContent = L('Đăng nhập', 'Sign In');
         }
     } catch (e) {
-        errEl.textContent = 'Lỗi kết nối. Kiểm tra lại mạng.';
+        errEl.textContent = L('Lỗi kết nối. Kiểm tra lại mạng.', 'Connection error. Check your network.');
         errEl.style.display = 'block';
-        btn.disabled = false; btn.textContent = 'Đăng nhập';
+        btn.disabled = false; btn.textContent = L('Đăng nhập', 'Sign In');
     }
 }
 
@@ -380,19 +380,19 @@ async function doBncRegister() {
 
     errEl.style.display = 'none';
     if (!name || !email || !password || !confirm) {
-        errEl.textContent = 'Vui lòng điền đầy đủ thông tin';
+        errEl.textContent = L('Vui lòng điền đầy đủ thông tin', 'Please fill in all fields');
         errEl.style.display = 'block'; return;
     }
     if (password !== confirm) {
-        errEl.textContent = 'Mật khẩu xác nhận không khớp';
+        errEl.textContent = L('Mật khẩu xác nhận không khớp', 'Passwords do not match');
         errEl.style.display = 'block'; return;
     }
     if (password.length < 6) {
-        errEl.textContent = 'Mật khẩu phải từ 6 ký tự trở lên';
+        errEl.textContent = L('Mật khẩu phải từ 6 ký tự trở lên', 'Password must be at least 6 characters');
         errEl.style.display = 'block'; return;
     }
 
-    btn.disabled = true; btn.textContent = 'Đang đăng ký...';
+    btn.disabled = true; btn.textContent = L('Đang đăng ký...', 'Creating account...');
     try {
         const result = await window.electronAPI.bncRegister(name, email, password, confirm);
         if (result.success) {
@@ -411,14 +411,14 @@ async function doBncRegister() {
             await loadProfiles();
             await ensureBncTermsAccepted();
         } else {
-            errEl.textContent = result.message || 'Đăng ký thất bại';
+            errEl.textContent = result.message || L('Đăng ký thất bại', 'Registration failed');
             errEl.style.display = 'block';
-            btn.disabled = false; btn.textContent = 'Đăng ký';
+            btn.disabled = false; btn.textContent = L('Đăng ký', 'Create Account');
         }
     } catch (e) {
-        errEl.textContent = 'Lỗi kết nối. Kiểm tra lại mạng.';
+        errEl.textContent = L('Lỗi kết nối. Kiểm tra lại mạng.', 'Connection error. Check your network.');
         errEl.style.display = 'block';
-        btn.disabled = false; btn.textContent = 'Đăng ký';
+        btn.disabled = false; btn.textContent = L('Đăng ký', 'Create Account');
     }
 }
 
@@ -526,7 +526,7 @@ function bncRenderUserInfo(auth) {
         if (slots && slots.totalGranted > 0) {
             planEl.textContent = `${slots.canRun ?? slots.available} / ${slots.totalGranted} slots`;
         } else {
-            planEl.textContent = 'Chưa có slot';
+            planEl.textContent = L('Chưa có slot', 'No slot');
         }
     }
 
@@ -555,8 +555,8 @@ function _updatePlanPill(auth) {
     const planEl = document.getElementById('bncDropPlan');
     if (planEl) {
         planEl.textContent = (slots && canRunVal > 0)
-            ? `${availableVal}/${canRunVal} slot trống`
-            : 'Chưa có slot';
+            ? `${availableVal}/${canRunVal} ${L('slot trống', 'slots free')}`
+            : L('Chưa có slot', 'No slot');
     }
 
     if (!slots || canRunVal === 0) {
@@ -780,7 +780,7 @@ async function _loadNotifPage() {
     const list  = document.getElementById('notifPageList');
     const pager = document.getElementById('notifPagePager');
     if (!list) return;
-    list.innerHTML = '<div style="text-align:center;color:#555;padding:40px 0;">Đang tải...</div>';
+    list.innerHTML = `<div style="text-align:center;color:#555;padding:40px 0;">${L('Đang tải...', 'Loading...')}</div>`;
 
     try {
         const data = await window.electronAPI.bncFetchNotificationsPage(_notifPage, _NOTIF_PER_PAGE);
@@ -789,7 +789,7 @@ async function _loadNotifPage() {
         const totalPages = Math.max(1, Math.ceil(total / _NOTIF_PER_PAGE));
 
         if (notifs.length === 0) {
-            list.innerHTML = '<div style="text-align:center;color:#555;padding:60px 0;font-size:14px;">Chưa có thông báo nào</div>';
+            list.innerHTML = `<div style="text-align:center;color:#555;padding:60px 0;font-size:14px;">${L('Chưa có thông báo nào', 'No notifications yet')}</div>`;
             pager.innerHTML = '';
             return;
         }
@@ -810,12 +810,12 @@ async function _loadNotifPage() {
 
         pager.innerHTML = `
             <button onclick="_notifPageGo(${_notifPage - 1})" ${_notifPage <= 1 ? 'disabled' : ''}
-                style="padding:4px 14px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#aaa;border-radius:6px;cursor:pointer;">‹ Trước</button>
-            <span style="color:#666;">Trang ${_notifPage} / ${totalPages} &nbsp;(${total} thông báo)</span>
+                style="padding:4px 14px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#aaa;border-radius:6px;cursor:pointer;">‹ ${L('Trước', 'Prev')}</button>
+            <span style="color:#666;">${L('Trang', 'Page')} ${_notifPage} / ${totalPages} &nbsp;(${total} ${L('thông báo', 'notifications')})</span>
             <button onclick="_notifPageGo(${_notifPage + 1})" ${_notifPage >= totalPages ? 'disabled' : ''}
-                style="padding:4px 14px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#aaa;border-radius:6px;cursor:pointer;">Sau ›</button>`;
+                style="padding:4px 14px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#aaa;border-radius:6px;cursor:pointer;">${L('Sau', 'Next')} ›</button>`;
     } catch (_) {
-        list.innerHTML = '<div style="text-align:center;color:#e05;padding:40px 0;">Lỗi tải thông báo</div>';
+        list.innerHTML = `<div style="text-align:center;color:#e05;padding:40px 0;">${L('Lỗi tải thông báo', 'Failed to load notifications')}</div>`;
     }
 }
 
@@ -906,16 +906,16 @@ async function showPlansPage() {
             <div style="font-size:15px;font-weight:800;color:#fff;">${p.name}</div>
             <div>
                 <span style="font-size:20px;font-weight:800;color:#fff;">${fmt(p.price)}</span>
-                <span style="font-size:11px;color:#667;">/lần</span>
+                <span style="font-size:11px;color:#667;">${L('/lần', '/time')}</span>
             </div>
             <div style="font-size:11px;color:#888;flex:1;">
-                <div style="margin-bottom:4px;">✓ ${p.maxProfiles >= 9999 ? 'Không giới hạn hồ sơ' : p.maxProfiles + ' hồ sơ'}</div>
-                <div style="margin-bottom:4px;">✓ ${p.maxDevices} thiết bị đăng nhập</div>
+                <div style="margin-bottom:4px;">✓ ${p.maxProfiles >= 9999 ? L('Không giới hạn hồ sơ', 'Unlimited profiles') : p.maxProfiles + L(' hồ sơ', ' profiles')}</div>
+                <div style="margin-bottom:4px;">✓ ${p.maxDevices} ${L('thiết bị đăng nhập', 'devices')}</div>
                 <div>✓ Windows &amp; macOS</div>
             </div>
             <button data-btn="select-plan"
                 style="padding:9px 0;border-radius:8px;border:none;background:linear-gradient(135deg,#00e0ff,#0055ff);color:#fff;font-size:13px;font-weight:700;cursor:pointer;width:100%;pointer-events:none;">
-                Chọn gói
+                ${L('Chọn gói', 'Select Plan')}
             </button>
         </div>`).join('');
     grid.onclick = (e) => {
@@ -926,9 +926,9 @@ async function showPlansPage() {
 }
 
 const _ROLE_DESCS = {
-    admin:   'Toàn quyền: thêm thành viên, tạo/xóa/sửa hồ sơ và nhóm.',
-    manager: 'Có thể tạo, sửa hồ sơ và nhóm. Không thể xóa hoặc thêm thành viên.',
-    member:  'Không thể thêm thành viên và chỉ được xem hồ sơ của nhóm thành viên.',
+    admin:   L('Toàn quyền: thêm thành viên, tạo/xóa/sửa hồ sơ và nhóm.', 'Full access: manage members, create/edit/delete profiles and groups.'),
+    manager: L('Có thể tạo, sửa hồ sơ và nhóm. Không thể xóa hoặc thêm thành viên.', 'Can create and edit profiles and groups. Cannot delete or add members.'),
+    member:  L('Không thể thêm thành viên và chỉ được xem hồ sơ của nhóm thành viên.', 'Cannot add members and can only view profiles in their assigned group.'),
 };
 const _ROLE_PERMS = {
     admin:   { profile: { launch:true, create:true, delete:true, editProxy:true, editFingerprint:true, editNote:true }, group: { create:true, edit:true, delete:true } },
@@ -1143,7 +1143,7 @@ function renderTeamMemberList() {
     const tbody = document.getElementById('teamMemberList');
     if (!tbody) return;
     if (_teamMembers.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#555;padding:40px;font-size:14px;">Chưa có thành viên nào</td></tr>';
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#555;padding:40px;font-size:14px;">${L('Chưa có thành viên nào', 'No members yet')}</td></tr>`;
         return;
     }
     tbody.innerHTML = _teamMembers.map(m => {
@@ -1180,7 +1180,7 @@ function openInviteMemberForm() {
 
 async function submitInviteMember() {
     const email = document.getElementById('inviteEmail')?.value?.trim();
-    if (!email) { alert('Nhập email thành viên'); return; }
+    if (!email) { alert(L('Nhập email thành viên', 'Enter member email')); return; }
 
     const role = document.querySelector('input[name="inviteRole"]:checked')?.value || 'member';
     const permissions = _ROLE_PERMS[role] || _ROLE_PERMS.member;
@@ -1194,15 +1194,15 @@ async function submitInviteMember() {
         closeInviteMemberModal();
         await refreshTeamMembers();
     } else {
-        alert(result.error || 'Lỗi mời thành viên');
+        alert(result.error || L('Lỗi mời thành viên', 'Failed to invite member'));
     }
 }
 
 async function removeTeamMember(memberId) {
-    if (!confirm('Xóa thành viên này khỏi nhóm?')) return;
+    if (!confirm(L('Xóa thành viên này khỏi nhóm?', 'Remove this member from the group?'))) return;
     const result = await window.electronAPI.teamRemoveMember(memberId);
     if (result.success) await refreshTeamMembers();
-    else alert(result.error || 'Lỗi xóa thành viên');
+    else alert(result.error || L('Lỗi xóa thành viên', 'Failed to remove member'));
 }
 
 let _editingMemberId = null;
@@ -1263,7 +1263,7 @@ async function submitEditMember() {
         closeEditMemberModal();
         await refreshTeamMembers();
     } else {
-        alert(result.error || 'Lỗi cập nhật thành viên');
+        alert(result.error || L('Lỗi cập nhật thành viên', 'Failed to update member'));
     }
 }
 
@@ -1285,7 +1285,7 @@ async function openPaymentModal(planId, price, planName) {
     // Hide plans page while payment modal is open
     document.getElementById('plansPage').style.display = 'none';
     paymentModal.style.display = 'flex';
-    content.innerHTML = '<div style="color:#aaa;padding:20px 0;">Đang tải thông tin...</div>';
+    content.innerHTML = `<div style="color:#aaa;padding:20px 0;">${L('Đang tải thông tin...', 'Loading...')}</div>`;
 
     // Bắt đầu poll ngay khi modal mở — không chờ user đóng
     startPaymentPoll();
@@ -1303,14 +1303,15 @@ async function openPaymentModal(planId, price, planName) {
             : null;
         const bankName = activeBank.bankAcqId === '970422' ? 'MB Bank' : 'Vietinbank';
         const stripeInfo = (info.stripe?.available) ? info.stripe : null;
+        const isViLang = window.curLang !== 'en';
 
         // Build tabs: Tab 1 = thanh toán gói, Tab 2 = thêm thiết bị (chỉ khi có)
-        const hasDeviceTab = !!deviceQrUrl;
-        const hasIntlTab   = !!stripeInfo;
+        const hasDeviceTab = !!deviceQrUrl && isViLang;
+        const hasIntlTab   = !!stripeInfo && !isViLang;
 
         content.innerHTML = `
             <div style="margin-bottom:14px;">
-                <div style="font-size:13px;color:#aaa;margin-bottom:4px;">Gói đã chọn</div>
+                <div style="font-size:13px;color:#aaa;margin-bottom:4px;">${L('Gói đã chọn', 'Selected Plan')}</div>
                 <div style="font-size:18px;font-weight:700;color:#00e0ff;">${planName} — ${fmt(price)}đ</div>
             </div>
 
@@ -1321,6 +1322,7 @@ async function openPaymentModal(planId, price, planName) {
             </div>` : ''}
 
             <div id="pmPane0">
+                ${isViLang ? `
                 <img src="${qrUrl}" alt="QR" style="width:200px;height:200px;border-radius:10px;margin-bottom:14px;background:#fff;" onerror="this.style.display='none'">
                 <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:14px;text-align:left;font-size:13px;line-height:1.8;color:#ccc;margin-bottom:4px;">
                     <div><span style="color:#888;">Ngân hàng:</span> <strong style="color:#fff;">${bankName}</strong></div>
@@ -1330,14 +1332,15 @@ async function openPaymentModal(planId, price, planName) {
                     <div><span style="color:#888;">Nội dung:</span> <strong style="color:#ff9800;font-family:monospace;font-size:14px;">${activeBank.transferContent}</strong></div>
                 </div>
                 <div style="font-size:11px;color:#666;margin-top:10px;">Hệ thống tự động gia hạn sau khi nhận được chuyển khoản (thường trong vài phút)</div>
+                ` : ''}
                 ${hasIntlTab ? `
-                <div style="margin-top:16px;border-top:1px solid rgba(255,255,255,0.07);padding-top:14px;">
-                    <div style="font-size:12px;color:#888;margin-bottom:8px;">🌍 Hoặc thanh toán quốc tế (thẻ/PayPal)</div>
+                <div style="margin-top:8px;">
+                    <div style="font-size:12px;color:#888;margin-bottom:12px;">💳 Pay with card (Stripe)</div>
                     <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
-                        ${stripeInfo?.monthly ? `<button data-stripe-plan="monthly" style="padding:8px 16px;border-radius:8px;border:1px solid #7c5cff;background:rgba(124,92,255,0.1);color:#b09cff;font-size:13px;cursor:pointer;">$${stripeInfo.monthly.price}/tháng (Stripe)</button>` : ''}
-                        ${stripeInfo?.annual ? `<button data-stripe-plan="annual" style="padding:8px 16px;border-radius:8px;border:1px solid #7c5cff;background:rgba(124,92,255,0.1);color:#b09cff;font-size:13px;cursor:pointer;">$${stripeInfo.annual.price}/năm (Stripe)</button>` : ''}
+                        ${stripeInfo?.monthlyOnetime ? `<button data-stripe-plan="monthly_onetime" style="padding:10px 20px;border-radius:8px;border:1px solid #7c5cff;background:rgba(124,92,255,0.15);color:#b09cff;font-size:14px;cursor:pointer;">$${stripeInfo.monthlyOnetime.price}/month · one-time</button>` : ''}
+                        ${stripeInfo?.annual ? `<button data-stripe-plan="annual" style="padding:10px 20px;border-radius:8px;border:1px solid #7c5cff;background:rgba(124,92,255,0.15);color:#b09cff;font-size:14px;cursor:pointer;">$${stripeInfo.annual.price}/year</button>` : ''}
                     </div>
-                    <div style="font-size:11px;color:#666;margin-top:8px;">Mở trình duyệt để thanh toán an toàn — hệ thống tự động kích hoạt sau khi xác nhận</div>
+                    <div style="font-size:11px;color:#666;margin-top:10px;">Opens browser for secure payment — subscription activates automatically after confirmation</div>
                 </div>` : ''}
             </div>
 
@@ -1354,7 +1357,7 @@ async function openPaymentModal(planId, price, planName) {
                 <div style="font-size:11px;color:#666;margin-top:8px;">${deviceInfo.note || 'Ví dụ: nội dung D2 = thêm 2 thiết bị, D3 = 3 thiết bị…'}</div>
             </div>` : ''}
 
-            <button onclick="closePaymentModal(true)" style="margin-top:14px;padding:8px 20px;border-radius:8px;border:1px solid #444;background:transparent;color:#aaa;font-size:13px;cursor:pointer;">← Quay lại</button>
+            <button onclick="closePaymentModal(true)" style="margin-top:14px;padding:8px 20px;border-radius:8px;border:1px solid #444;background:transparent;color:#aaa;font-size:13px;cursor:pointer;">← ${L('Quay lại', 'Back')}</button>
         `;
 
         // Tab switching logic (inline, injected into window scope)
@@ -1374,16 +1377,16 @@ async function openPaymentModal(planId, price, planName) {
         content.querySelectorAll('[data-stripe-plan]').forEach(btn => {
             btn.addEventListener('click', async () => {
                 btn.disabled = true;
-                btn.textContent = 'Đang tạo link...';
+                btn.textContent = L('Đang tạo link...', 'Creating link...');
                 try {
                     const result = await window.electronAPI.bncStripeCreateCheckout(btn.dataset.stripePlan);
                     if (result?.url) {
                         window.electronAPI.invoke('open-url', result.url);
                         startPaymentPoll();
                     } else {
-                        showBncToast('❌ ' + (result?.error || 'Không tạo được link thanh toán'), 4000);
+                        showBncToast('❌ ' + (result?.error || L('Không tạo được link thanh toán', 'Failed to create payment link')), 4000);
                         btn.disabled = false;
-                        btn.textContent = btn.dataset.stripePlan === 'annual' ? `$${stripeInfo.annual.price}/năm (Stripe)` : `$${stripeInfo.monthly.price}/tháng (Stripe)`;
+                        btn.textContent = btn.dataset.stripePlan === 'annual' ? `$${stripeInfo.annual.price}/year (Stripe)` : `$${stripeInfo.monthlyOnetime.price}/month · one-time (Stripe)`;
                     }
                 } catch (_) {
                     btn.disabled = false;
@@ -1391,7 +1394,7 @@ async function openPaymentModal(planId, price, planName) {
             });
         });
     } catch (e) {
-        content.innerHTML = `<div style="color:#f44336;padding:20px 0;">Lỗi tải thông tin thanh toán.<br><button onclick="closePaymentModal(true)" style="margin-top:12px;padding:8px 20px;border-radius:8px;border:1px solid #444;background:transparent;color:#aaa;font-size:13px;cursor:pointer;">← Quay lại</button></div>`;
+        content.innerHTML = `<div style="color:#f44336;padding:20px 0;">${L('Lỗi tải thông tin thanh toán.', 'Failed to load payment info.')}<br><button onclick="closePaymentModal(true)" style="margin-top:12px;padding:8px 20px;border-radius:8px;border:1px solid #444;background:transparent;color:#aaa;font-size:13px;cursor:pointer;">← ${L('Quay lại', 'Back')}</button></div>`;
     }
 }
 
@@ -1412,7 +1415,7 @@ function startPaymentPoll() {
     const MAX = 60; // 60 × 5s = 5 phút
 
     // Hiện toast báo đang chờ
-    showBncToast('⏳ Đang chờ xác nhận thanh toán...', 0);
+    showBncToast(L('⏳ Đang chờ xác nhận thanh toán...', '⏳ Waiting for payment confirmation...'), 0);
 
     _paymentPollTimer && clearInterval(_paymentPollTimer);
     _paymentPollTimer = setInterval(async () => {
@@ -1437,7 +1440,7 @@ function startPaymentPoll() {
                     bncRenderUserInfo(_bncAuth);
                 }
 
-                showBncToast(`✅ Nạp thành công! +${added} slots mới. Còn: ${slots.canRun ?? slots.available} slots.`, 5000);
+                showBncToast(L(`✅ Nạp thành công! +${added} slots mới. Còn: ${slots.canRun ?? slots.available} slots.`, `✅ Activated! +${added} new slots. Available: ${slots.canRun ?? slots.available} slots.`), 5000);
                 // BUG #6 FIX: sync profiles ngay để recompute isLocked với available mới
                 window.electronAPI.bncSyncProfiles().then(() => loadProfiles()).catch(() => {});
                 return;
@@ -1447,7 +1450,7 @@ function startPaymentPoll() {
         if (attempts >= MAX) {
             clearInterval(_paymentPollTimer);
             _paymentPollTimer = null;
-            showBncToast('⚠ Không nhận được xác nhận. Kiểm tra lại sau vài phút.', 6000);
+            showBncToast(L('⚠ Không nhận được xác nhận. Kiểm tra lại sau vài phút.', '⚠ Payment not confirmed yet. Please check again in a few minutes.'), 6000);
         }
     }, 5000);
 }
@@ -1883,6 +1886,7 @@ function renderHelpContent() {
 
 function applyLang() {
     document.querySelectorAll('[data-i18n]').forEach(el => { el.innerText = t(el.getAttribute('data-i18n')); });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.getAttribute('data-i18n-placeholder')); });
     document.querySelectorAll('.running-badge').forEach(el => { el.innerText = t('runningStatus'); });
     const themeSel = document.getElementById('themeSelect');
     if (themeSel) { themeSel.options[0].text = t('themeGeek'); themeSel.options[1].text = t('themeLight'); themeSel.options[2].text = t('themeDark'); }
@@ -2045,14 +2049,15 @@ async function init() {
     // offer a one-click repair (backup + reset, then relaunch through the normal flow).
     window.electronAPI.onProfileRepairSuggested(({ id, name, streak }) => {
         showConfirm(
-            `Profile "${name}" không mở lên được ${streak} lần liên tiếp.\n\nCó thể do dữ liệu trình duyệt (cache/profile Chrome) bị hỏng. Sửa bằng cách reset dữ liệu?\n\nNếu profile này đã từng đồng bộ cloud, phiên đăng nhập sẽ được khôi phục tự động sau khi mở lại.`,
+            L(`Profile "${name}" không mở lên được ${streak} lần liên tiếp.\n\nCó thể do dữ liệu trình duyệt (cache/profile Chrome) bị hỏng. Sửa bằng cách reset dữ liệu?\n\nNếu profile này đã từng đồng bộ cloud, phiên đăng nhập sẽ được khôi phục tự động sau khi mở lại.`,
+                `Profile "${name}" failed to launch ${streak} times in a row.\n\nBrowser data may be corrupted. Fix by resetting browser data?\n\nIf this profile was cloud-synced, your session will be restored automatically after relaunch.`),
             async () => {
                 const res = await window.electronAPI.repairProfile(id);
                 if (res?.success) {
-                    showAlert('Đã sửa xong, đang mở lại profile...');
+                    showAlert(L('Đã sửa xong, đang mở lại profile...', 'Repair complete, relaunching profile...'));
                     launch(id);
                 } else {
-                    showAlert('Sửa lỗi thất bại: ' + (res?.error || 'Lỗi không xác định'));
+                    showAlert(L('Sửa lỗi thất bại: ', 'Repair failed: ') + (res?.error || L('Lỗi không xác định', 'Unknown error')));
                 }
             }
         );
@@ -2529,13 +2534,13 @@ async function loadProfiles() {
             const proxyProto = isDirect ? 'DIRECT' : (hasProto ? rawProxy.split('://')[0].toUpperCase() : 'PROXY');
             const proxyBody = hasProto ? rawProxy.split('://')[1] : rawProxy;
             const proxyParts = proxyBody.split(':');
-            const proxyHost = isDirect ? 'Mạng máy tính' : proxyParts.slice(0, 2).join(':');
+            const proxyHost = isDirect ? L('Mạng máy tính', 'Local Network') : proxyParts.slice(0, 2).join(':');
 
             // Sync status badge
             const ss = p.syncedToServer;
             const syncColor = ss === true ? '#22c55e' : ss === false ? '#ef4444' : '#9ca3af';
             const syncIcon  = ss === true ? '✔' : ss === false ? '✘' : '?';
-            const syncTitle = ss === true ? 'Đã sync lên yttool.vn' : ss === false ? 'Chưa sync lên server' : 'Chưa rõ trạng thái sync';
+            const syncTitle = ss === true ? L('Đã sync lên yttool.vn', 'Synced to yttool.vn') : ss === false ? L('Chưa sync lên server', 'Not synced to server') : L('Chưa rõ trạng thái sync', 'Unknown sync state');
             const syncBadge = `<span id="sync-${p.id}" title="${syncTitle}"
                 style="display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:600;margin-left:5px;padding:1px 5px;border-radius:10px;background:${syncColor}22;color:${syncColor};border:1px solid ${syncColor}66;flex-shrink:0;cursor:default;line-height:1.4;">
                 ☁ ${syncIcon}
@@ -2552,7 +2557,7 @@ async function loadProfiles() {
                 </div>
                 <!-- Col 1: identity -->
                 <div class="pi-main">
-                    <div class="pi-name-row">${flagHtml}<h4>${p.name}</h4><span id="status-${p.id}" class="running-badge ${isRunning ? 'active' : ''}">${t('runningStatus')}</span>${groupBadge}${syncBadge}${isLocked ? `<span title="Profile bị khóa — hết slot" style="margin-left:5px;font-size:11px;padding:1px 6px;border-radius:10px;background:#f4433622;color:#f44336;border:1px solid #f4433666;">🔒 Hết slot</span>` : ''}</div>
+                    <div class="pi-name-row">${flagHtml}<h4>${p.name}</h4><span id="status-${p.id}" class="running-badge ${isRunning ? 'active' : ''}">${t('runningStatus')}</span>${groupBadge}${syncBadge}${isLocked ? `<span title="${L('Profile bị khóa — hết slot', 'Profile locked — no slot')}" style="margin-left:5px;font-size:11px;padding:1px 6px;border-radius:10px;background:#f4433622;color:#f44336;border:1px solid #f4433666;">🔒 ${L('Hết slot', 'No slot')}</span>` : ''}</div>
                     <div class="pi-sub-row">
                         ${notePill}
                         <div class="pi-tags-wrap no-drag" onclick="openTagsDialogInline('${p.id}')" title="Edit tags">${tagsPills}</div>
@@ -2577,7 +2582,7 @@ async function loadProfiles() {
                 <!-- Col 4: actions -->
                 <div class="actions" style="${isLocked ? 'pointer-events:auto;' : ''}">
                     ${isLocked
-                        ? `<button class="no-drag" disabled style="opacity:0.4;cursor:not-allowed;" onclick="event.stopPropagation();showConfirm('Profile bị khóa do hết slot.\\n\\nMua thêm gói để mở khóa?',()=>openPlansModal())">${t('launch')}</button>`
+                        ? `<button class="no-drag" disabled style="opacity:0.4;cursor:not-allowed;" onclick="event.stopPropagation();showConfirm(${JSON.stringify(L('Profile bị khóa do hết slot.\n\nMua thêm gói để mở khóa?','Profile is locked (no slot).\n\nBuy a plan to unlock?'))},()=>openPlansModal())">${t('launch')}</button>`
                         : `<button onclick="launch('${p.id}', this)" class="no-drag">${t('launch')}</button>`
                     }
                     ${(() => { const wp = window._activeWorkspacePerm?.profile || null;
@@ -2605,8 +2610,8 @@ function openAddModal() {
     const slots = _bncAuth?.slots;
     if (slots !== undefined && slots.available <= 0) {
         const msg = slots.totalGranted === 0
-            ? 'Bạn chưa có slot profile nào.\n\nMua gói để bắt đầu tạo profile?'
-            : `Bạn đã dùng hết ${slots.totalGranted} slot profile.\n\nMua thêm slots để tạo profile mới?`;
+            ? L('Bạn chưa có slot profile nào.\n\nMua gói để bắt đầu tạo profile?', 'You have no profile slots.\n\nBuy a plan to start creating profiles?')
+            : L(`Bạn đã dùng hết ${slots.totalGranted} slot profile.\n\nMua thêm slots để tạo profile mới?`, `All ${slots.totalGranted} profile slots are used.\n\nBuy more slots to create new profiles?`);
         showConfirm(msg, () => openPlansModal());
         return;
     }
@@ -2752,13 +2757,13 @@ async function launch(id, btnEl) {
     const profiles = await window.electronAPI.getProfiles();
     const profile = profiles.find(p => p.id === id);
     if (profile?.isLocked) {
-        showConfirm('Profile này bị khóa do hết slot.\n\nMua thêm gói để mở khóa?', () => openPlansModal());
+        showConfirm(L('Profile này bị khóa do hết slot.\n\nMua thêm gói để mở khóa?', 'Profile is locked (no slot).\n\nBuy a plan to unlock?'), () => openPlansModal());
         return;
     }
     // Fallback: kiểm tra canRun — bỏ qua nếu đang ở team workspace (dùng slot của owner)
     const slots = _bncAuth?.slots;
     if (ws === 'own' && slots !== undefined && (slots.canRun ?? slots.available) <= 0) {
-        showConfirm('Bạn đã hết slot — không thể mở profile.\n\nMua thêm gói để tiếp tục sử dụng?', () => openPlansModal());
+        showConfirm(L('Bạn đã hết slot — không thể mở profile.\n\nMua thêm gói để tiếp tục sử dụng?', 'No slot available — cannot open profile.\n\nBuy a plan to continue?'), () => openPlansModal());
         return;
     }
     _setLaunchBtnLoading(btnEl, true);

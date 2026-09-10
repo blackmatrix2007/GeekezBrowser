@@ -1279,13 +1279,13 @@
                 <span>Tôi đã đọc, hiểu và đồng ý tuân thủ toàn bộ điều khoản nêu trên.</span>
             </label>
             <div style="display:flex;gap:10px;margin-top:18px;justify-content:flex-end;">
-                <button onclick="bncDeclineTerms()" style="padding:9px 18px;border-radius:8px;border:1px solid #444;background:transparent;color:#aaa;font-size:13px;cursor:pointer;">Từ chối &amp; Đăng xuất</button>
+                <button onclick="bncDeclineTerms()" style="padding:9px 18px;border-radius:8px;border:1px solid #444;background:transparent;color:#aaa;font-size:13px;cursor:pointer;" data-i18n="termsDecline">Decline &amp; Sign Out</button>
                 <!-- Not a native `disabled` button: a disabled button swallows clicks entirely, so we
                      can't tell "user clicked while locked" apart from "nothing happened" — which is the
                      exact confusion a customer reported (thought the popup was simply stuck). Instead
                      this stays clickable and always styled the same; bncAcceptTerms() itself checks the
                      checkbox and shakes it into view when the click doesn't count yet. -->
-                <button id="bncTermsAcceptBtn" onclick="bncAcceptTerms()" class="terms-btn-locked" style="padding:9px 22px;border-radius:8px;border:none;background:#00e0ff;color:#0d0d1a;font-size:13px;font-weight:700;cursor:pointer;">Đồng ý &amp; Tiếp tục</button>
+                <button id="bncTermsAcceptBtn" onclick="bncAcceptTerms()" class="terms-btn-locked" style="padding:9px 22px;border-radius:8px;border:none;background:#00e0ff;color:#0d0d1a;font-size:13px;font-weight:700;cursor:pointer;" data-i18n="termsAccept">Agree &amp; Continue</button>
             </div>
         </div>
     </div>
@@ -1327,8 +1327,8 @@
             <!-- ── Login form ─────────────────────────────────────────── -->
             <div id="bncLoginNotice" style="display:none;margin-bottom:16px;padding:10px 14px;border-radius:8px;font-size:13px;font-weight:500;"></div>
             <div id="bncLoginForm">
-                <h2 style="margin:0 0 4px 0;font-size:18px;font-weight:700;color:#fff;">Đăng nhập</h2>
-                <p style="margin:0 0 24px 0;font-size:13px;color:#667;">Người dùng mới? <a id="bncRegisterLink" href="#" style="color:#00e0ff;text-decoration:none;font-weight:600;">Tạo tài khoản</a></p>
+                <h2 style="margin:0 0 4px 0;font-size:18px;font-weight:700;color:#fff;" data-i18n="loginTitle">Sign In</h2>
+                <p style="margin:0 0 24px 0;font-size:13px;color:#667;"><span data-i18n="newUser">New user?</span> <a id="bncRegisterLink" href="#" style="color:#00e0ff;text-decoration:none;font-weight:600;" data-i18n="createAccount">Create Account</a></p>
 
 
                 <div style="display:flex;flex-direction:column;gap:12px;">
@@ -1337,48 +1337,50 @@
                         onfocus="this.style.borderColor='#00e0ff'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'"
                         onkeydown="if(event.key==='Enter')document.getElementById('bncPasswordInput').focus()">
                     <div style="position:relative;">
-                        <input id="bncPasswordInput" type="password" placeholder="Mật khẩu" autocomplete="current-password"
+                        <input id="bncPasswordInput" type="password" placeholder="Password" autocomplete="current-password"
+                            data-i18n-placeholder="passwordPlaceholder"
                             style="width:100%;box-sizing:border-box;padding:11px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.3);color:#fff;font-size:14px;outline:none;transition:border .2s;padding-right:44px;"
                             onfocus="this.style.borderColor='#00e0ff'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'"
                             onkeydown="if(event.key==='Enter')doBncLogin()">
-                        <span onclick="toggleBncPassword()" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;color:#667;font-size:16px;user-select:none;" title="Hiện/ẩn mật khẩu">👁</span>
+                        <span onclick="toggleBncPassword()" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;color:#667;font-size:16px;user-select:none;">👁</span>
                     </div>
                     <div style="text-align:right;">
-                        <a id="bncForgotLink" href="#" style="color:#667;font-size:12px;text-decoration:none;">Quên mật khẩu?</a>
+                        <a id="bncForgotLink" href="#" style="color:#667;font-size:12px;text-decoration:none;" data-i18n="forgotPassword">Forgot password?</a>
                     </div>
                 </div>
 
                 <div id="bncLoginError" style="display:none;margin-top:12px;padding:10px 14px;background:rgba(246,78,96,0.12);border:1px solid rgba(246,78,96,0.3);border-radius:8px;font-size:13px;color:#f64e60;"></div>
 
                 <button id="bncLoginBtn" onclick="doBncLogin()"
-                    style="margin-top:20px;width:100%;padding:12px;border-radius:8px;border:none;background:linear-gradient(135deg,#00e0ff,#0055ff);color:#fff;font-size:14px;font-weight:700;cursor:pointer;transition:opacity .2s;letter-spacing:.3px;">
-                    Đăng nhập
+                    style="margin-top:20px;width:100%;padding:12px;border-radius:8px;border:none;background:linear-gradient(135deg,#00e0ff,#0055ff);color:#fff;font-size:14px;font-weight:700;cursor:pointer;transition:opacity .2s;letter-spacing:.3px;"
+                    data-i18n="loginBtn">Sign In
                 </button>
 
                 <p style="margin:16px 0 0 0;text-align:center;font-size:11px;color:#444;">
-                    Bằng cách đăng nhập, bạn đồng ý với <a href="#" style="color:#00e0ff;text-decoration:none;">Điều khoản sử dụng</a>
+                    <span data-i18n="loginTerms">By signing in, you agree to our</span> <a href="#" style="color:#00e0ff;text-decoration:none;" data-i18n="termsOfUse">Terms of Service</a>
                 </p>
             </div>
             <!-- ── Expired box (hiện khi sub hết hạn) ──────────────────── -->
             <div id="bncExpiredBox" style="display:none;text-align:center;">
                 <div style="font-size:48px;margin-bottom:12px;">⏰</div>
-                <h2 style="margin:0 0 8px 0;font-size:18px;font-weight:700;color:#fff;">Gói đã hết hạn</h2>
-                <p style="margin:0 0 24px 0;font-size:13px;color:#aaa;line-height:1.6;">Gói BNC Browser của bạn đã hết hạn.<br>Vui lòng gia hạn để tiếp tục sử dụng.</p>
+                <h2 style="margin:0 0 8px 0;font-size:18px;font-weight:700;color:#fff;" data-i18n="expiredTitle">Plan Expired</h2>
+                <p style="margin:0 0 24px 0;font-size:13px;color:#aaa;line-height:1.6;" data-i18n="expiredMsg">Your BNC Browser plan has expired.<br>Please renew to continue using.</p>
                 <button onclick="hideBncExpiredOverlay();openPlansModal()"
-                    style="width:100%;padding:12px;border-radius:8px;border:none;background:linear-gradient(135deg,#00e0ff,#0055ff);color:#fff;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px;">
-                    💎 Gia hạn ngay
+                    style="width:100%;padding:12px;border-radius:8px;border:none;background:linear-gradient(135deg,#00e0ff,#0055ff);color:#fff;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px;"
+                    data-i18n="expiredRenewBtn">💎 Renew Now
                 </button>
                 <button onclick="hideBncExpiredOverlay();doBncLogout()"
-                    style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:#888;font-size:13px;cursor:pointer;">
-                    Đăng xuất
+                    style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:#888;font-size:13px;cursor:pointer;"
+                    data-i18n="btnSignOut">Sign Out
                 </button>
             </div>
             <!-- ── Register form ──────────────────────────────────────── -->
             <div id="bncRegisterForm" style="display:none;">
-                <h2 style="margin:0 0 4px 0;font-size:18px;font-weight:700;color:#fff;">Tạo tài khoản</h2>
-                <p style="margin:0 0 20px 0;font-size:13px;color:#667;">Đã có tài khoản? <a id="bncBackToLoginLink" href="#" style="color:#00e0ff;text-decoration:none;font-weight:600;">Đăng nhập</a></p>
+                <h2 style="margin:0 0 4px 0;font-size:18px;font-weight:700;color:#fff;" data-i18n="createAccount">Create Account</h2>
+                <p style="margin:0 0 20px 0;font-size:13px;color:#667;"><span data-i18n="alreadyAccount">Already have an account?</span> <a id="bncBackToLoginLink" href="#" style="color:#00e0ff;text-decoration:none;font-weight:600;" data-i18n="signInLink">Sign In</a></p>
                 <div style="display:flex;flex-direction:column;gap:12px;">
-                    <input id="bncRegNameInput" type="text" placeholder="Họ và tên" autocomplete="name"
+                    <input id="bncRegNameInput" type="text" placeholder="Full Name" autocomplete="name"
+                        data-i18n-placeholder="fullNamePlaceholder"
                         style="width:100%;box-sizing:border-box;padding:11px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.3);color:#fff;font-size:14px;outline:none;transition:border .2s;"
                         onfocus="this.style.borderColor='#00e0ff'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'"
                         onkeydown="if(event.key==='Enter')document.getElementById('bncRegEmailInput').focus()">
@@ -1386,22 +1388,24 @@
                         style="width:100%;box-sizing:border-box;padding:11px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.3);color:#fff;font-size:14px;outline:none;transition:border .2s;"
                         onfocus="this.style.borderColor='#00e0ff'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'"
                         onkeydown="if(event.key==='Enter')document.getElementById('bncRegPwInput').focus()">
-                    <input id="bncRegPwInput" type="password" placeholder="Mật khẩu (tối thiểu 6 ký tự)" autocomplete="new-password"
+                    <input id="bncRegPwInput" type="password" placeholder="Password (min 6 characters)" autocomplete="new-password"
+                        data-i18n-placeholder="regPasswordPlaceholder"
                         style="width:100%;box-sizing:border-box;padding:11px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.3);color:#fff;font-size:14px;outline:none;transition:border .2s;"
                         onfocus="this.style.borderColor='#00e0ff'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'"
                         onkeydown="if(event.key==='Enter')document.getElementById('bncRegPwConfirmInput').focus()">
-                    <input id="bncRegPwConfirmInput" type="password" placeholder="Xác nhận mật khẩu" autocomplete="new-password"
+                    <input id="bncRegPwConfirmInput" type="password" placeholder="Confirm password" autocomplete="new-password"
+                        data-i18n-placeholder="confirmPasswordPlaceholder"
                         style="width:100%;box-sizing:border-box;padding:11px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.3);color:#fff;font-size:14px;outline:none;transition:border .2s;"
                         onfocus="this.style.borderColor='#00e0ff'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'"
                         onkeydown="if(event.key==='Enter')doBncRegister()">
                 </div>
                 <div id="bncRegError" style="display:none;margin-top:12px;padding:10px 14px;background:rgba(246,78,96,0.12);border:1px solid rgba(246,78,96,0.3);border-radius:8px;font-size:13px;color:#f64e60;"></div>
                 <button id="bncRegBtn" onclick="doBncRegister()"
-                    style="margin-top:20px;width:100%;padding:12px;border-radius:8px;border:none;background:linear-gradient(135deg,#00e0ff,#0055ff);color:#fff;font-size:14px;font-weight:700;cursor:pointer;transition:opacity .2s;letter-spacing:.3px;">
-                    Đăng ký
+                    style="margin-top:20px;width:100%;padding:12px;border-radius:8px;border:none;background:linear-gradient(135deg,#00e0ff,#0055ff);color:#fff;font-size:14px;font-weight:700;cursor:pointer;transition:opacity .2s;letter-spacing:.3px;"
+                    data-i18n="registerBtn">Sign Up
                 </button>
                 <p style="margin:16px 0 0 0;text-align:center;font-size:11px;color:#444;">
-                    Bằng cách đăng ký, bạn đồng ý với <a href="#" style="color:#00e0ff;text-decoration:none;">Điều khoản sử dụng</a>
+                    <span data-i18n="registerTerms">By signing up, you agree to our</span> <a href="#" style="color:#00e0ff;text-decoration:none;" data-i18n="termsOfUse">Terms of Service</a>
                 </p>
             </div>
             <!-- ─────────────────────────────────────────────────────────── -->
@@ -1463,24 +1467,24 @@
 
         <div class="sidebar-item" id="nav-team" style="display:none;" onclick="showTeamPage()">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            <span>Thành Viên</span>
+            <span data-i18n="navTeam">Team</span>
         </div>
 
         <div class="sidebar-item" id="nav-notifications" onclick="showNotificationsPage()">
             <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-            <span>Thông Báo</span>
+            <span data-i18n="navNotifications">Notifications</span>
         </div>
         <div class="sidebar-item" id="nav-plans" onclick="showPlansPage()">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-            <span>Mua Gói</span>
+            <span data-i18n="navPlans">Plans</span>
         </div>
         <div class="sidebar-item" id="nav-buy-proxy" onclick="openProxyAffiliateLink()">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
-            <span>Mua Proxy</span>
+            <span data-i18n="navBuyProxy">Buy Proxy</span>
         </div>
         <div class="sidebar-item" id="nav-tools" onclick="showToolsPage()">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-            <span>Công Cụ</span>
+            <span data-i18n="navTools">Tools</span>
         </div>
 
         <!-- Sidebar workspace selector -->
@@ -1491,7 +1495,7 @@
                     style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;color:#00e0ff;background:rgba(0,224,255,0.12);border:1px solid rgba(0,224,255,0.35);font-size:11px;font-weight:600;padding:4px 10px;border-radius:6px;transition:all .15s;line-height:1;"
                     onmouseover="this.style.background='rgba(0,224,255,0.22)';this.style.borderColor='rgba(0,224,255,0.6)';this.style.color='#5beaff';this.style.boxShadow='0 0 8px rgba(0,224,255,0.35)'"
                     onmouseout="this.style.background='rgba(0,224,255,0.12)';this.style.borderColor='rgba(0,224,255,0.35)';this.style.color='#00e0ff';this.style.boxShadow='none'">
-                    <span style="font-size:13px;">↻</span><span>Tải lại</span>
+                    <span style="font-size:13px;">↻</span><span data-i18n="dropReloadWs">Reload Workspace</span>
                 </button>
             </div>
             <div id="sbWsOwn" onclick="_switchWorkspace('own')" style="display:flex;align-items:center;gap:7px;padding:7px 8px;border-radius:7px;cursor:pointer;font-size:12px;color:#e0e0e0;transition:background .15s;" onmouseover="this.style.background='rgba(255,255,255,0.07)'" onmouseout="this.style.background=window._activeWorkspace==='own'?'rgba(0,224,255,0.08)':'transparent'">
@@ -1596,10 +1600,10 @@
             <!-- Notification panel -->
             <div id="bncNotifPanel" style="display:none;position:fixed;width:320px;max-height:420px;display:none;flex-direction:column;background:#1e2535;border:1px solid rgba(255,255,255,0.1);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,0.6);z-index:9200;-webkit-app-region:no-drag;">
                 <div style="padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.07);display:flex;justify-content:space-between;align-items:center;flex-shrink:0;background:#1e2535;border-radius:10px 10px 0 0;">
-                    <span style="font-size:13px;font-weight:600;color:#e0e0e0;">Thông báo</span>
+                    <span style="font-size:13px;font-weight:600;color:#e0e0e0;" data-i18n="navNotifications">Notifications</span>
                     <div style="display:flex;gap:10px;align-items:center;">
-                        <span onclick="markAllNotifsRead()" style="font-size:11px;color:#00e0ff;cursor:pointer;padding:2px 6px;border-radius:4px;" onmouseover="this.style.background='rgba(0,224,255,0.1)'" onmouseout="this.style.background='transparent'">Đọc tất cả</span>
-                        <span onclick="document.getElementById('bncNotifPanel').style.display='none';showNotificationsPage();" style="font-size:11px;color:#aaa;cursor:pointer;padding:2px 6px;border-radius:4px;" onmouseover="this.style.background='rgba(255,255,255,0.07)'" onmouseout="this.style.background='transparent'">Xem tất cả →</span>
+                        <span onclick="markAllNotifsRead()" style="font-size:11px;color:#00e0ff;cursor:pointer;padding:2px 6px;border-radius:4px;" onmouseover="this.style.background='rgba(0,224,255,0.1)'" onmouseout="this.style.background='transparent'" data-i18n="markAllRead">Mark all read</span>
+                        <span onclick="document.getElementById('bncNotifPanel').style.display='none';showNotificationsPage();" style="font-size:11px;color:#aaa;cursor:pointer;padding:2px 6px;border-radius:4px;" onmouseover="this.style.background='rgba(255,255,255,0.07)'" onmouseout="this.style.background='transparent'">View all →</span>
                     </div>
                 </div>
                 <div id="bncNotifList" style="overflow-y:auto;overflow-x:hidden;flex:1;min-height:0;max-height:370px;-webkit-app-region:no-drag;-webkit-overflow-scrolling:touch;"></div>
@@ -1622,20 +1626,20 @@
                 <div id="bncSubList" style="display:none;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.07);"></div>
                 <!-- Menu items -->
                 <div id="dropPlansItem" onclick="openPlansModal()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
-                    <span>💎</span> Mua Gói / Gia hạn
+                    <span>💎</span> <span data-i18n="wsMenuPlans">Buy Plan / Renew</span>
                 </div>
                 <div id="dropSyncItem" onclick="syncBncProfiles()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
-                    <span>🔄</span> Đồng bộ Profile
+                    <span>🔄</span> <span data-i18n="dropSyncProfiles">Sync Profiles</span>
                 </div>
                 <div onclick="refreshBncTeams()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
-                    <span>↻</span> Tải lại Workspace
+                    <span>↻</span> <span data-i18n="dropReloadWs">Reload Workspace</span>
                 </div>
                 <div onclick="openBncPaymentHistory()" style="padding:11px 16px;font-size:13px;color:#ccc;cursor:pointer;display:flex;align-items:center;gap:9px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
-                    <span>📋</span> Lịch sử giao dịch
+                    <span>📋</span> <span data-i18n="dropPayHistory">Payment History</span>
                 </div>
                 <div style="border-top:1px solid rgba(255,255,255,0.07);margin:2px 0;"></div>
                 <div onclick="doBncLogout()" style="padding:11px 16px;font-size:13px;color:#f64e60;cursor:pointer;display:flex;align-items:center;gap:9px;font-weight:600;" onmouseover="this.style.background='rgba(246,78,96,0.07)'" onmouseout="this.style.background='transparent'">
-                    <span>↪</span> Đăng xuất
+                    <span>↪</span> <span data-i18n="dropSignOut">Sign Out</span>
                 </div>
             </div>
         </div>
@@ -1653,7 +1657,7 @@
             </button>
             <button class="outline" onclick="openArrangeWindow()" title="Sắp xếp cửa sổ" style="display:flex;align-items:center;gap:5px;">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8"/><rect x="13" y="3" width="8" height="8"/><rect x="3" y="13" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/></svg>
-                Sắp xếp
+                <span data-i18n="arrangeWindows">Arrange</span>
             </button>
         </div>
         <div class="sub-right">
@@ -1675,7 +1679,7 @@
     <!-- Bulk action bar (hidden by default) -->
     <div id="bulkActionBar" style="display:none;align-items:center;gap:12px;flex-shrink:0;padding:8px 20px;background:rgba(0,224,255,0.07);border-bottom:1px solid rgba(0,224,255,0.15);">
         <span id="bulkCountLabel" style="font-size:13px;color:#00e0ff;font-weight:600;"></span>
-        <button onclick="_bulkMoveToGroup()" style="padding:5px 14px;background:rgba(0,224,255,0.15);border:1px solid rgba(0,224,255,0.4);color:#00e0ff;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">📁 Chuyển nhóm</button>
+        <button onclick="_bulkMoveToGroup()" style="padding:5px 14px;background:rgba(0,224,255,0.15);border:1px solid rgba(0,224,255,0.4);color:#00e0ff;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" data-i18n="bulkMoveGroup">📁 Move to Group</button>
         <button onclick="_bulkExportSelected()" style="padding:5px 14px;background:rgba(0,224,255,0.15);border:1px solid rgba(0,224,255,0.4);color:#00e0ff;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">📤 Export</button>
         <button onclick="_clearProfileSelection()" style="padding:5px 14px;background:transparent;border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;cursor:pointer;font-size:12px;">✕ Bỏ chọn</button>
     </div>
@@ -1740,8 +1744,8 @@
     <!-- PLANS PAGE -->
     <div id="plansPage" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0;margin:-15px -20px;padding:0;">
         <div style="padding:20px 24px 16px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;">
-            <h2 style="margin:0;font-size:18px;font-weight:700;color:var(--text-color);">💎 Mua Gói / Nạp Slots</h2>
-            <div style="font-size:12px;color:#666;margin-top:2px;">Chọn gói để thêm slots profile</div>
+            <h2 style="margin:0;font-size:18px;font-weight:700;color:var(--text-color);" data-i18n="plansTitle">💎 Plans / Top Up Slots</h2>
+            <div style="font-size:12px;color:#666;margin-top:2px;" data-i18n="plansSubtitle">Choose a plan to add profile slots</div>
         </div>
         <div style="flex:1;min-height:0;overflow-y:auto;padding:20px 24px;">
             <div id="bncPlansGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;max-width:900px;"></div>
@@ -1752,12 +1756,12 @@
     <!-- TOOLS PAGE -->
     <div id="toolsPage" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0;margin:-15px -20px;padding:0;">
         <div style="padding:20px 24px 16px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;">
-            <h2 style="margin:0;font-size:18px;font-weight:700;color:var(--text-color);">🛠️ Công Cụ</h2>
-            <div style="font-size:12px;color:#666;margin-top:2px;">Các tiện ích hỗ trợ làm kênh YouTube</div>
+            <h2 style="margin:0;font-size:18px;font-weight:700;color:var(--text-color);" data-i18n="toolsTitle">🛠️ Tools</h2>
+            <div style="font-size:12px;color:#666;margin-top:2px;" data-i18n="toolsSubtitle">Utilities for YouTube channel management</div>
         </div>
         <div style="flex:1;min-height:0;overflow-y:auto;padding:20px 24px;">
             <div id="toolsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;max-width:900px;">
-                <div style="grid-column:1/-1;color:#666;font-size:12px;">Đang tải...</div>
+                <div style="grid-column:1/-1;color:#666;font-size:12px;" data-i18n="loading">Loading...</div>
             </div>
         </div>
     </div>
@@ -1768,14 +1772,14 @@
          own persist:tool-{id} partition so sessions/cookies never mix between tools. -->
     <div id="embeddedToolPage" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0;margin:-15px -20px;padding:0;">
         <div style="padding:10px 16px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;display:flex;align-items:center;gap:10px;-webkit-app-region:no-drag;">
-            <button onclick="closeEmbeddedTool()" style="padding:6px 12px;font-size:12px;background:transparent;color:#aaa;border:1px solid rgba(255,255,255,0.15);border-radius:6px;cursor:pointer;">← Quay lại</button>
+            <button onclick="closeEmbeddedTool()" style="padding:6px 12px;font-size:12px;background:transparent;color:#aaa;border:1px solid rgba(255,255,255,0.15);border-radius:6px;cursor:pointer;" data-i18n="btnBack">← Back</button>
             <span id="embeddedToolTitle" style="font-size:13px;font-weight:600;color:#fff;flex:1;"></span>
-            <button onclick="reloadEmbeddedTool()" title="Tải lại" style="padding:6px 10px;font-size:12px;background:transparent;color:#aaa;border:1px solid rgba(255,255,255,0.15);border-radius:6px;cursor:pointer;">⟳</button>
+            <button onclick="reloadEmbeddedTool()" style="padding:6px 10px;font-size:12px;background:transparent;color:#aaa;border:1px solid rgba(255,255,255,0.15);border-radius:6px;cursor:pointer;">⟳</button>
         </div>
         <div id="embeddedToolWebviewContainer" style="flex:1;min-height:0;display:flex;position:relative;-webkit-app-region:no-drag;">
             <div id="embeddedToolLoading" style="display:none;position:absolute;inset:0;background:#1e1e2d;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:5;">
                 <div style="width:28px;height:28px;border:3px solid rgba(0,224,255,0.2);border-top-color:#00e0ff;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
-                <div style="font-size:12px;color:#888;">Đang tải...</div>
+                <div style="font-size:12px;color:#888;" data-i18n="loading">Loading...</div>
             </div>
         </div>
     </div>
@@ -1804,11 +1808,11 @@
     <!-- NOTIFICATIONS PAGE -->
     <div id="notificationsPage" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0;margin:-15px -20px;padding:0;">
         <div style="padding:20px 24px 14px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;display:flex;align-items:center;gap:12px;">
-            <h2 style="margin:0;font-size:18px;font-weight:700;color:var(--text-color);flex:1;">🔔 Thông báo</h2>
-            <button onclick="markAllNotifsRead();_loadNotifPage()" style="font-size:12px;background:none;border:1px solid rgba(255,255,255,0.15);color:#aaa;padding:4px 12px;border-radius:6px;cursor:pointer;">Đọc tất cả</button>
+            <h2 style="margin:0;font-size:18px;font-weight:700;color:var(--text-color);flex:1;" data-i18n="notifPageTitle">🔔 Notifications</h2>
+            <button onclick="markAllNotifsRead();_loadNotifPage()" style="font-size:12px;background:none;border:1px solid rgba(255,255,255,0.15);color:#aaa;padding:4px 12px;border-radius:6px;cursor:pointer;" data-i18n="markAllRead">Mark all read</button>
         </div>
         <div style="flex:1;min-height:0;overflow-y:scroll;padding:12px 24px 24px;-webkit-app-region:no-drag;-webkit-overflow-scrolling:touch;" id="notifPageList">
-            <div style="text-align:center;color:#555;padding:40px 0;">Đang tải...</div>
+            <div style="text-align:center;color:#555;padding:40px 0;" data-i18n="loading">Loading...</div>
         </div>
         <div id="notifPagePager" style="flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:10px;padding:10px 24px;border-top:1px solid rgba(255,255,255,0.06);font-size:13px;color:#888;"></div>
     </div>
@@ -1817,7 +1821,7 @@
     <!-- SETTINGS PAGE -->
     <div id="settingsPage" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0;margin:-15px -20px;padding:0;">
         <div style="padding:18px 24px 0;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;">
-            <h2 style="margin:0 0 14px;font-size:18px;font-weight:700;color:var(--text-color);">⚙️ Cài đặt</h2>
+            <h2 style="margin:0 0 14px;font-size:18px;font-weight:700;color:var(--text-color);" data-i18n="settingsTitle">⚙️ Settings</h2>
             <div class="tab-header" id="settingsTabHeader" style="margin:0;">
                 <div class="tab-btn dev-only active" onclick="switchSettingsTab('extensions', this)" data-i18n="settingsTabExtensions">Extensions</div>
                 <div class="tab-btn dev-only" onclick="switchSettingsTab('chrome', this)">Chrome</div>
@@ -1980,17 +1984,17 @@
             <div id="settings-license" class="settings-section" style="display:none;">
                 <h3 style="margin-bottom:15px; color:var(--accent);">💻 Thiết bị đang đăng nhập</h3>
                 <div style="background:rgba(0,0,0,0.2); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:16px;">
-                    <div style="font-size:11px; color:var(--text-secondary); margin-bottom:6px;">Device ID máy này:</div>
-                    <div id="licenseDeviceId" style="font-size:11px; font-family:monospace; color:var(--accent); background:rgba(0,0,0,0.3); padding:6px 10px; border-radius:6px; word-break:break-all;">Đang tải...</div>
+                    <div style="font-size:11px; color:var(--text-secondary); margin-bottom:6px;" data-i18n="deviceIdLabel">This device ID:</div>
+                    <div id="licenseDeviceId" style="font-size:11px; font-family:monospace; color:var(--accent); background:rgba(0,0,0,0.3); padding:6px 10px; border-radius:6px; word-break:break-all;" data-i18n="loading">Loading...</div>
                 </div>
                 <div style="background:rgba(0,0,0,0.2); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:16px;">
                     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
-                        <h4 style="margin:0; font-size:13px; color:var(--text-primary);">Thiết bị đang active</h4>
-                        <button onclick="loadBncDevices()" style="padding:4px 12px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); cursor:pointer; font-size:11px;">🔄 Làm mới</button>
+                        <h4 style="margin:0; font-size:13px; color:var(--text-primary);" data-i18n="activeDevices">Active Devices</h4>
+                        <button onclick="loadBncDevices()" style="padding:4px 12px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); cursor:pointer; font-size:11px;" data-i18n="btnRefresh">🔄 Refresh</button>
                     </div>
-                    <div id="bncDevicesList" style="font-size:12px; color:var(--text-secondary);">Đang tải...</div>
+                    <div id="bncDevicesList" style="font-size:12px; color:var(--text-secondary);" data-i18n="loading">Loading...</div>
                     <div style="margin-top:10px; font-size:11px; color:var(--text-secondary);">
-                        Số thiết bị tối đa: <strong id="bncMaxDevices" style="color:var(--accent);">-</strong> (theo gói subscription hiện tại)
+                        Max devices: <strong id="bncMaxDevices" style="color:var(--accent);">-</strong>
                     </div>
                 </div>
                 <div style="background:rgba(0,0,0,0.2); border:1px solid var(--border); border-radius:10px; padding:16px;">
@@ -2003,7 +2007,7 @@
                             <button onclick="selectDataDirectory()" style="padding:7px 14px; border-radius:6px; border:1px solid var(--border); background:var(--input-bg); color:var(--text-primary); cursor:pointer; font-size:12px; white-space:nowrap; display:flex; align-items:center; gap:6px;">📂 <span data-i18n="dataPathBrowse">Thay đổi</span></button>
                             <button onclick="resetDataDirectory()" id="resetDataPathBtn2" style="display:none; padding:7px 12px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); cursor:pointer; font-size:11px; white-space:nowrap;" data-i18n="dataPathReset">↩️ Mặc định</button>
                         </div>
-                        <div id="currentDataPath2" style="width:100%; font-size:11px; font-family:monospace; background:rgba(0,0,0,0.25); padding:7px 10px; border-radius:6px; border:1px solid var(--border); color:var(--accent); word-break:break-all; box-sizing:border-box;">Đang tải...</div>
+                        <div id="currentDataPath2" style="width:100%; font-size:11px; font-family:monospace; background:rgba(0,0,0,0.25); padding:7px 10px; border-radius:6px; border:1px solid var(--border); color:var(--accent); word-break:break-all; box-sizing:border-box;" data-i18n="loading">Loading...</div>
                     </div>
                 </div>
             </div>
@@ -2042,11 +2046,9 @@
                     <button type="button" id="autoDetectBtn" style="padding:6px 12px; font-size:11px; background:#4CAF50; color:white; border:none; border-radius:4px; cursor:pointer;">
                         🔍 Auto-Detect Location
                     </button>
-                    <button type="button" onclick="document.getElementById('addProxy').value=''" style="padding:6px 12px; font-size:11px; background:transparent; color:var(--text-secondary); border:1px solid var(--border); border-radius:4px; cursor:pointer;" title="Không dùng proxy — dùng mạng máy trực tiếp">
-                        🌐 Không dùng proxy
+                    <button type="button" onclick="document.getElementById('addProxy').value=''" style="padding:6px 12px; font-size:11px; background:transparent; color:var(--text-secondary); border:1px solid var(--border); border-radius:4px; cursor:pointer;" data-i18n="noProxy">🌐 No Proxy
                     </button>
-                    <button type="button" onclick="openProxyAffiliateLink()" style="padding:6px 12px; font-size:11px; background:transparent; color:#00b8d4; border:1px solid #00b8d4; border-radius:4px; cursor:pointer;" title="Chưa có proxy? Mua ngay">
-                        🛒 Mua Proxy
+                    <button type="button" onclick="openProxyAffiliateLink()" style="padding:6px 12px; font-size:11px; background:transparent; color:#00b8d4; border:1px solid #00b8d4; border-radius:4px; cursor:pointer;" data-i18n="buyProxy">🛒 Buy Proxy
                     </button>
                 </div>
                 <div style="font-size:10px; opacity:0.5; margin-bottom:8px;" data-i18n="batchHint">Multiple links =
@@ -2142,11 +2144,9 @@
                     <button type="button" id="editAutoDetectBtn" style="padding:6px 12px; font-size:11px; background:#4CAF50; color:white; border:none; border-radius:4px; cursor:pointer;">
                         🔍 Auto-Detect Location
                     </button>
-                    <button type="button" onclick="document.getElementById('editProxy').value=''" style="padding:5px 10px;font-size:11px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;cursor:pointer;" title="Xóa proxy — dùng mạng máy trực tiếp">
-                        🌐 Không dùng proxy
+                    <button type="button" onclick="document.getElementById('editProxy').value=''" style="padding:5px 10px;font-size:11px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;cursor:pointer;" data-i18n="noProxy">🌐 No Proxy
                     </button>
-                    <button type="button" onclick="openProxyAffiliateLink()" style="padding:5px 10px;font-size:11px;background:transparent;color:#00b8d4;border:1px solid #00b8d4;border-radius:4px;cursor:pointer;" title="Chưa có proxy? Mua ngay">
-                        🛒 Mua Proxy
+                    <button type="button" onclick="openProxyAffiliateLink()" style="padding:5px 10px;font-size:11px;background:transparent;color:#00b8d4;border:1px solid #00b8d4;border-radius:4px;cursor:pointer;" data-i18n="buyProxy">🛒 Buy Proxy
                     </button>
                 </div>
                 <div style="display:flex; gap:10px;">
@@ -2306,17 +2306,17 @@
                 <span style="cursor:pointer" onclick="closePasswordModal()">✕</span>
             </div>
             <div class="modal-body">
-                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 15px;">
-                    Backup đầy đủ chứa dữ liệu nhạy cảm (Cookie, mật khẩu...), sẽ được mã hóa AES-256.
+                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 15px;" data-i18n="backupPasswordNote">
+                    Full backup contains sensitive data (Cookies, passwords...), it will be AES-256 encrypted.
                 </p>
-                <label style="font-size: 12px;">Mật khẩu</label>
-                <input type="password" id="backupPassword" placeholder="Nhập mật khẩu..." style="margin-bottom: 10px;">
-                <label style="font-size: 12px;" id="confirmPasswordLabel">Xác nhận mật khẩu</label>
-                <input type="password" id="backupPasswordConfirm" placeholder="Nhập lại mật khẩu...">
+                <label style="font-size: 12px;" data-i18n="backupPasswordLabel">Password</label>
+                <input type="password" id="backupPassword" placeholder="Enter password..." data-i18n-placeholder="backupPasswordPlaceholder" style="margin-bottom: 10px;">
+                <label style="font-size: 12px;" id="confirmPasswordLabel" data-i18n="backupPasswordConfirmLabel">Confirm Password</label>
+                <input type="password" id="backupPasswordConfirm" placeholder="Re-enter password..." data-i18n-placeholder="backupPasswordConfirmPlaceholder">
             </div>
             <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px;">
-                <button class="outline" onclick="closePasswordModal()">Hủy</button>
-                <button onclick="submitPassword()">Xác nhận</button>
+                <button class="outline" onclick="closePasswordModal()" data-i18n="cancel">Cancel</button>
+                <button onclick="submitPassword()" data-i18n="confirmBtn">Confirm</button>
             </div>
         </div>
     </div>
@@ -2347,8 +2347,8 @@
                 style="display: none; max-height: 200px; overflow-y: auto; text-align: left; font-size: 12px; margin-bottom: 20px; padding: 10px; background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary);">
             </div>
             <div style="display: flex; justify-content: center; gap: 15px;"><button class="outline"
-                    onclick="closeConfirm(false)" id="confirmNo">Huỷ</button><button class="primary"
-                    onclick="closeConfirm(true)" id="confirmYes">Xác nhận</button></div>
+                    onclick="closeConfirm(false)" id="confirmNo" data-i18n="cancel">Cancel</button><button class="primary"
+                    onclick="closeConfirm(true)" id="confirmYes" data-i18n="confirmBtn">Confirm</button></div>
         </div>
     </div>
     <div id="alertModal" class="modal-overlay" style="z-index: 2001;">

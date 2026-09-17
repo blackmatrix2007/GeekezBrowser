@@ -228,6 +228,14 @@ async function bncInit() {
         }
     });
 
+    // Heartbeat cập nhật tên gói/thời hạn từ server (vd: gói vừa hết hạn, vừa gia hạn)
+    window.electronAPI.onBncSubscriptionUpdated((subscription) => {
+        if (_bncAuth) {
+            _bncAuth.subscription = subscription;
+            _renderSubscriptionInfo(_bncAuth).catch(() => {});
+        }
+    });
+
     // ── Auto-updater events ───────────────────────────────────────────────────
     window.electronAPI.onUpdateDownloading(({ version }) => {
         const bar = document.getElementById('updateBar');
@@ -510,6 +518,49 @@ function toggleBncUserMenu() {
     dd.style.display = 'block';
 }
 
+// Plan id → display name (e.g. "monthly" → "Gói 1 tháng"), lazily fetched once
+// from GET /api/bnc/plans and cached — used to turn subscription.planType
+// (a raw slug) into something the customer recognizes.
+let _bncPlanNameCache = null;
+async function _ensureBncPlanNamesLoaded() {
+    if (_bncPlanNameCache) return _bncPlanNameCache;
+    try {
+        const plans = await window.electronAPI.bncGetPlans();
+        _bncPlanNameCache = {};
+        (plans || []).forEach(p => { _bncPlanNameCache[p.id] = p.name; });
+    } catch (_) { _bncPlanNameCache = {}; }
+    return _bncPlanNameCache;
+}
+
+// Fills the previously-unused #bncSubList block in the user dropdown with
+// "which plan + how long left" — this was the actual customer complaint
+// ("không biết đang mua gói nào, dùng bao lâu"): the server already computes
+// planType/daysRemaining/isExpired in every /subscription and /login
+// response, it just never reached this element before.
+async function _renderSubscriptionInfo(auth) {
+    const el = document.getElementById('bncSubList');
+    if (!el) return;
+    const sub = auth?.subscription;
+    if (!sub) {
+        el.style.display = 'none';
+        el.innerHTML = '';
+        return;
+    }
+
+    const names = await _ensureBncPlanNamesLoaded();
+    const planName = names[sub.planType] || sub.planType || 'Gói';
+    const statusColor = sub.isExpired ? '#f44336' : (sub.isWarning ? '#ffb400' : '#00e0ff');
+    const statusText = sub.isExpired
+        ? L('Đã hết hạn', 'Expired')
+        : (sub.daysRemaining != null ? L(`Còn ${sub.daysRemaining} ngày`, `${sub.daysRemaining} days left`) : '');
+
+    el.style.display = 'block';
+    el.innerHTML = `
+        <div style="font-size:12px;font-weight:600;color:#e0e0e0;">${planName}</div>
+        <div style="font-size:11px;color:${statusColor};margin-top:2px;">${statusText}</div>
+    `;
+}
+
 function bncRenderUserInfo(auth) {
     if (!auth?.email) return;
     const initial = (auth.email[0] || '?').toUpperCase();
@@ -540,6 +591,10 @@ function bncRenderUserInfo(auth) {
 
     // Plan pill bên cạnh avatar
     _updatePlanPill(auth);
+
+    // Tên gói + thời hạn còn lại trong dropdown (khách trước đây không biết
+    // đang dùng gói nào / còn bao lâu — dữ liệu server đã có sẵn, chỉ thiếu chỗ hiện)
+    _renderSubscriptionInfo(auth).catch(() => {});
 }
 
 function _updatePlanPill(auth) {

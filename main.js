@@ -379,9 +379,11 @@ async function bncCheckAccess() {
         return { allowed: true, offlineMode: true };
     }
 
-    // Cập nhật slots nếu server trả về
+    // Cập nhật slots + subscription (tên gói/thời hạn) nếu server trả về —
+    // subscription từng bị bỏ qua ở đây, khiến app không có gì để hiện "đang
+    // dùng gói nào, còn bao lâu" dù server đã tính sẵn đầy đủ.
     if (result.slots) {
-        saveBncAuth({ ...auth, slots: result.slots });
+        saveBncAuth({ ...auth, slots: result.slots, subscription: result.subscription ?? auth.subscription ?? null });
     }
 
     return { allowed: true, slots: result.slots };
@@ -2564,12 +2566,15 @@ app.whenReady().then(async () => {
             }).then(() => app.quit());
             return;
         }
-        // Cập nhật slots từ server + recompute isLocked cho profiles local
+        // Cập nhật slots + subscription (tên gói/thời hạn) từ server + recompute isLocked cho profiles local
         if (result.slots) {
             const auth = getSavedBncAuth();
-            if (auth) saveBncAuth({ ...auth, slots: result.slots, teams: result.teams ?? auth.teams ?? [] });
+            if (auth) saveBncAuth({ ...auth, slots: result.slots, teams: result.teams ?? auth.teams ?? [], subscription: result.subscription ?? auth.subscription ?? null });
             if (mainWindow && !mainWindow.isDestroyed() && result.teams) {
                 mainWindow.webContents.send('bnc-teams-updated', result.teams);
+            }
+            if (mainWindow && !mainWindow.isDestroyed() && result.subscription !== undefined) {
+                mainWindow.webContents.send('bnc-subscription-updated', result.subscription);
             }
             // Recompute isLocked: sort theo clientCreatedAt ASC, index < available = active
             try {
@@ -2677,6 +2682,7 @@ ipcMain.handle('bnc-login', async (_, { email, password }) => {
         refreshToken: result.refreshToken || null,
         email, customerId, slots,
         teams,
+        subscription: result.subscription || null,
         activeWorkspace: 'own',
         savedAt: new Date().toISOString(),
     });
@@ -2787,6 +2793,7 @@ ipcMain.handle('bnc-get-auth', async () => {
         customerId: auth.customerId,
         slots: auth.slots || { totalGranted: 0, slotsUsed: 0, available: 0 },
         teams: auth.teams || [],
+        subscription: auth.subscription || null,
         activeWorkspace: auth.activeWorkspace || 'own',
     };
 });
@@ -2796,13 +2803,14 @@ ipcMain.handle('bnc-get-subscriptions', async () => {
     const result = await bncPingServer();
     const auth = getSavedBncAuth();
     const freshSlots = (result?._statusCode === 401 || result?._statusCode === 403) ? null : result?.slots;
-    if (freshSlots && auth) saveBncAuth({ ...auth, slots: freshSlots });
+    if (freshSlots && auth) saveBncAuth({ ...auth, slots: freshSlots, subscription: result.subscription ?? auth.subscription ?? null });
     // Trả thêm latestSubMs để renderer phát hiện sub mới tạo sau khi modal mở
     const latestSubMs = result?.subscriptions?.length
         ? Math.max(...result.subscriptions.map(s => new Date(s.startDate || s.start_date || 0).getTime()))
         : (result?.subscription?.startDate ? new Date(result.subscription.startDate).getTime() : 0);
     return {
         slots: freshSlots || auth?.slots || { totalGranted: 0, slotsUsed: 0, available: 0 },
+        subscription: result?.subscription ?? auth?.subscription ?? null,
         latestSubMs: latestSubMs || 0,
     };
 });

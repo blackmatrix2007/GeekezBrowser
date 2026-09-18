@@ -63,7 +63,7 @@
             "x64",
             "arm64"
           ]
-        },
+        }
       ],
       "icon": "icon.ico",
       "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"

@@ -3337,7 +3337,11 @@ ipcMain.handle('export-full-backup', async (e, { profileIds, password }) => {
 });
 
 // 导入完整备份 (支持 v1 旧格式 + v2 跨平台格式)
-ipcMain.handle('import-full-backup', async (e, { password }) => {
+ipcMain.handle('import-full-backup', async (e, args) => {
+    // Defensive: accept both { password } object and plain string (IPC serialization safety)
+    const password = (typeof args === 'string' ? args : args?.password) ?? '';
+    // Normalize: strip leading/trailing whitespace and convert full-width digits to ASCII
+    const pw = password.trim().replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFF10 + 0x30));
     try {
         const { filePaths } = await dialog.showOpenDialog({
             properties: ['openFile'],
@@ -3349,7 +3353,8 @@ ipcMain.handle('import-full-backup', async (e, { password }) => {
         }
 
         const encrypted = await fs.readFile(filePaths[0]);
-        const decrypted = decryptData(encrypted, password);
+        console.log('[import] file size:', encrypted.length, 'magic:', encrypted.slice(0, 4).toString(), 'pw length:', pw.length);
+        const decrypted = decryptData(encrypted, pw);
         const decompressed = await gunzip(decrypted);
         const backupData = JSON.parse(decompressed.toString('utf8'));
 
@@ -3464,9 +3469,9 @@ ipcMain.handle('import-full-backup', async (e, { password }) => {
 
         return { success: true, count: importedCount };
     } catch (err) {
-        console.error('Import full backup failed:', err);
+        console.error('[import] failed:', err.message);
         if (err.message.includes('Unsupported state') || err.message.includes('bad decrypt')) {
-            return { success: false, error: '密码错误或文件已损坏' };
+            return { success: false, error: 'Sai mật khẩu hoặc file bị hỏng' };
         }
         return { success: false, error: err.message };
     }

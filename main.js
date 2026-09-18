@@ -3342,6 +3342,14 @@ ipcMain.handle('import-full-backup', async (e, args) => {
     const password = (typeof args === 'string' ? args : args?.password) ?? '';
     // Normalize: strip leading/trailing whitespace and convert full-width digits to ASCII
     const pw = password.trim().replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFF10 + 0x30));
+
+    const logFile = path.join(app.getPath('userData'), 'import-debug.log');
+    const writeLog = (msg) => {
+        const line = `[${new Date().toISOString()}] ${msg}\n`;
+        console.log('[import]', msg);
+        try { require('fs').appendFileSync(logFile, line); } catch {}
+    };
+
     try {
         const { filePaths } = await dialog.showOpenDialog({
             properties: ['openFile'],
@@ -3353,7 +3361,7 @@ ipcMain.handle('import-full-backup', async (e, args) => {
         }
 
         const encrypted = await fs.readFile(filePaths[0]);
-        console.log('[import] file size:', encrypted.length, 'magic:', encrypted.slice(0, 4).toString(), 'pw length:', pw.length);
+        writeLog(`file="${filePaths[0]}" size=${encrypted.length} magic="${encrypted.slice(0,4).toString()}" pwLen=${pw.length}`);
         const decrypted = decryptData(encrypted, pw);
         const decompressed = await gunzip(decrypted);
         const backupData = JSON.parse(decompressed.toString('utf8'));
@@ -3469,11 +3477,12 @@ ipcMain.handle('import-full-backup', async (e, args) => {
 
         return { success: true, count: importedCount };
     } catch (err) {
-        console.error('[import] failed:', err.message);
+        writeLog(`ERROR: ${err.message}`);
+        writeLog(`Log file: ${logFile}`);
         if (err.message.includes('Unsupported state') || err.message.includes('bad decrypt')) {
-            return { success: false, error: 'Sai mật khẩu hoặc file bị hỏng' };
+            return { success: false, error: `Sai mật khẩu hoặc file bị hỏng\n\nLog: ${logFile}` };
         }
-        return { success: false, error: err.message };
+        return { success: false, error: `${err.message}\n\nLog: ${logFile}` };
     }
 });
 

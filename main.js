@@ -4722,8 +4722,11 @@ async function moveWindowsBatch(moves) {
                 systemPreferences.isTrustedAccessibilityClient(true);
                 return;
             }
+            // AXRaise sau khi set bounds — nếu không, cửa sổ chỉ đổi vị trí/kích thước
+            // nhưng vẫn nằm dưới cửa sổ app BNC (đang có focus lúc bấm nút), khiến
+            // người dùng không thấy gì thay đổi và tưởng nút sắp xếp không hoạt động.
             const script = moves.map(m =>
-                `tell application "System Events"\n  try\n    set p to first process whose unix id is ${m.pid}\n    set bounds of first window of p to {${m.x}, ${m.y}, ${m.x + m.w}, ${m.y + m.h}}\n  end try\nend tell`
+                `tell application "System Events"\n  try\n    set p to first process whose unix id is ${m.pid}\n    set bounds of first window of p to {${m.x}, ${m.y}, ${m.x + m.w}, ${m.y + m.h}}\n    perform action "AXRaise" of (first window of p)\n  end try\nend tell`
             ).join('\n');
             const tmpScpt = path.join(os.tmpdir(), `bnc_wpos_batch_${Date.now()}.applescript`);
             fs.writeFileSync(tmpScpt, script);
@@ -4735,8 +4738,13 @@ async function moveWindowsBatch(moves) {
                 });
             });
         } else if (process.platform === 'win32') {
+            // Windows chặn ứng dụng nền tự chiếm foreground (focus-stealing prevention),
+            // nên chỉ SetWindowPos với SWP_SHOWWINDOW là không đủ để cửa sổ nổi lên trên
+            // app BNC đang có focus — thêm bước bật/tắt HWND_TOPMOST (SWP_NOMOVE|SWP_NOSIZE,
+            // không đổi vị trí/kích thước vừa set) để buộc z-order lên trên mà không cần
+            // quyền foreground, cửa sổ sẽ hiện ra thay vì "sắp xếp xong mà không thấy gì".
             const psLines = moves.map(m =>
-                `$p=Get-Process -Id ${m.pid} -ErrorAction SilentlyContinue; if($p){$hw=$p.MainWindowHandle;[BncWin32]::ShowWindow($hw,9)|Out-Null;[BncWin32]::SetWindowPos($hw,[IntPtr]::Zero,${m.x},${m.y},${m.w},${m.h},0x40)|Out-Null}`
+                `$p=Get-Process -Id ${m.pid} -ErrorAction SilentlyContinue; if($p){$hw=$p.MainWindowHandle;[BncWin32]::ShowWindow($hw,9)|Out-Null;[BncWin32]::SetWindowPos($hw,[IntPtr]::Zero,${m.x},${m.y},${m.w},${m.h},0x40)|Out-Null;[BncWin32]::SetWindowPos($hw,[IntPtr](-1),0,0,0,0,0x0003)|Out-Null;[BncWin32]::SetWindowPos($hw,[IntPtr](-2),0,0,0,0,0x0003)|Out-Null}`
             ).join('\n');
             const psCode = `
 Add-Type -TypeDefinition @'

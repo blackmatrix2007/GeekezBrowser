@@ -51,7 +51,7 @@ function openEmbeddedTool(id, url, title) {
 }
 
 function closeEmbeddedTool() {
-    showToolsPage();
+    showProfilesPage();
 }
 
 function reloadEmbeddedTool() {
@@ -804,7 +804,7 @@ function _applyWorkspacePermissions(permissions) {
 // ── Team Members UI ──────────────────────────────────────────────────────────
 let _teamMembers = [];
 
-const _ALL_PAGES = ['profilesPage', 'teamPage', 'groupsPage', 'plansPage', 'notificationsPage', 'settingsPage', 'toolsPage', 'embeddedToolPage'];
+const _ALL_PAGES = ['profilesPage', 'teamPage', 'groupsPage', 'plansPage', 'notificationsPage', 'settingsPage', 'embeddedToolPage', 'devicesPage'];
 function _switchPage(activePageId, activeNavId) {
     document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
     document.getElementById(activeNavId)?.classList.add('active');
@@ -905,45 +905,9 @@ function showGroupsPage() {
     document.getElementById('newGroupInput')?.focus();
 }
 
-// Fallback used only if the server is unreachable — keeps the Tools page from
-// being completely empty offline. The real list normally comes from
-// GET /api/bnc/tools (see bnc-get-tools in main.js), so adding/removing tools
-// going forward is a server-side edit, no app update needed.
-const _TOOLS_FALLBACK = [
-    { id: 'yt-thumbnail', title: 'Lấy Thumbnail YouTube', icon: '🖼️', desc: 'Dán link video → lấy ảnh thumbnail full độ phân giải', type: 'native' },
-    { id: '2fa', title: '2FA Generator', icon: '🔐', desc: 'Sinh mã xác thực 2 lớp', type: 'embed', url: 'https://phuc.vn/2fa/' },
-];
-
-function _renderToolsGrid(tools) {
-    const grid = document.getElementById('toolsGrid');
-    if (!grid) return;
-    if (!tools || tools.length === 0) {
-        grid.innerHTML = '<div style="grid-column:1/-1;color:#666;font-size:12px;">Không tải được danh sách công cụ.</div>';
-        return;
-    }
-    grid.innerHTML = tools.map(tool => {
-        const action = tool.type === 'native'
-            ? (tool.id === 'yt-thumbnail' ? 'openYoutubeThumbModal()' : '')
-            : `openEmbeddedTool('${tool.id}', '${(tool.url || '').replace(/'/g, "\\'")}', '${(tool.title || '').replace(/'/g, "\\'")}')`;
-        return `
-        <div onclick="${action}"
-            style="background:rgba(0,0,0,0.2);border:1.5px solid rgba(255,255,255,0.08);border-radius:12px;padding:20px 16px;display:flex;flex-direction:column;gap:8px;cursor:pointer;transition:border-color .15s;-webkit-app-region:no-drag;"
-            onmouseover="this.style.borderColor='rgba(0,224,255,0.4)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.08)'">
-            <div style="font-size:28px;">${tool.icon || '🛠️'}</div>
-            <div style="font-size:14px;font-weight:700;color:#fff;">${tool.title || ''}</div>
-            <div style="font-size:11px;color:#888;">${tool.desc || ''}</div>
-        </div>`;
-    }).join('');
-}
-
-async function showToolsPage() {
-    _switchPage('toolsPage', 'nav-tools');
-    try {
-        const tools = await window.electronAPI.bncGetTools();
-        _renderToolsGrid(tools && tools.length > 0 ? tools : _TOOLS_FALLBACK);
-    } catch (_) {
-        _renderToolsGrid(_TOOLS_FALLBACK);
-    }
+function showDevicesPage() {
+    _switchPage('devicesPage', 'nav-devices');
+    loadBncDevices();
 }
 
 async function showPlansPage() {
@@ -4507,8 +4471,8 @@ async function _bulkMoveToGroup() {
 // ============================================================================
 async function loadBncDevices() {
     const deviceIdEl = document.getElementById('licenseDeviceId');
-    const listEl = document.getElementById('bncDevicesList');
-    const maxEl = document.getElementById('bncMaxDevices');
+    const listEl     = document.getElementById('bncDevicesList');
+    const summaryEl  = document.getElementById('bncDeviceSummary');
 
     try {
         const { deviceId } = await window.electronAPI.licenseGetStatus();
@@ -4516,47 +4480,75 @@ async function loadBncDevices() {
 
         const result = await window.electronAPI.invoke('bnc-get-sessions');
         if (!result || result.error) {
-            if (listEl) listEl.innerHTML = '<div style="color:#aaa;font-size:.85rem;padding:8px 0">Chưa đăng nhập hoặc không thể tải danh sách thiết bị.</div>';
+            if (listEl) listEl.innerHTML = `<div style="color:#aaa;font-size:.85rem;padding:8px 0">${L('Chưa đăng nhập hoặc không thể tải danh sách thiết bị.', 'Not logged in or cannot load device list.')}</div>`;
             return;
         }
 
-        const { sessions = [], maxDevices = 1, currentDeviceId } = result;
+        const { sessions = [], maxDevices = 1, planType = null, currentDeviceId } = result;
+        const used = sessions.length;
+        const atLimit = used >= maxDevices;
+        const pct = Math.min(100, Math.round((used / maxDevices) * 100));
+        const barColor = atLimit ? '#f44336' : used >= maxDevices * 0.8 ? '#ff9800' : '#4CAF50';
 
-        if (maxEl) maxEl.textContent = `${sessions.length} / ${maxDevices} thiết bị`;
+        const planLabel = {
+            solo: 'Solo', small_team: 'Small Team', big_team: 'Big Team',
+            scale: 'Scale', monthly: 'Monthly', quarterly: 'Quarterly',
+            yearly: 'Yearly', resources: 'Resources',
+        }[planType] || (planType || 'Free');
+
+        if (summaryEl) summaryEl.innerHTML = `
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                <div>
+                    <span style="font-size:22px;font-weight:700;color:${barColor}">${used}</span>
+                    <span style="font-size:14px;color:var(--text-secondary)"> / ${maxDevices} ${L('thiết bị', 'devices')}</span>
+                </div>
+                <span style="font-size:11px;background:rgba(255,255,255,0.07);padding:3px 10px;border-radius:12px;color:var(--text-secondary)">
+                    ${L('Gói', 'Plan')}: <strong style="color:var(--accent)">${planLabel}</strong>
+                </span>
+            </div>
+            <div style="height:6px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;margin-bottom:${atLimit ? 10 : 0}px">
+                <div style="height:100%;width:${pct}%;background:${barColor};border-radius:4px;transition:width .3s"></div>
+            </div>
+            ${atLimit ? `<div style="font-size:11px;color:#ff9800;margin-top:6px;">⚠️ ${L('Đã đạt giới hạn thiết bị. Mua thêm để đăng nhập thiết bị mới.', 'Device limit reached. Purchase more to add a new device.')}</div>` : ''}
+        `;
 
         if (!listEl) return;
         if (sessions.length === 0) {
-            listEl.innerHTML = '<div style="color:#aaa;font-size:.85rem;padding:8px 0">Chưa có thiết bị nào đăng nhập.</div>';
+            listEl.innerHTML = `<div style="color:#aaa;font-size:.85rem;padding:8px 0">${L('Chưa có thiết bị nào đăng nhập.', 'No devices logged in.')}</div>`;
             return;
         }
 
         listEl.innerHTML = sessions.map(s => {
             const isCurrent = s.deviceId === currentDeviceId;
             const lastSeen = s.lastSeenAt ? new Date(s.lastSeenAt).toLocaleString('vi-VN') : '-';
+            const platformIcon = (s.platform || '').toLowerCase().includes('win') ? '🪟'
+                : (s.platform || '').toLowerCase().includes('mac') ? '🍎' : '💻';
             return `
               <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:${isCurrent ? 'rgba(76,175,80,0.08)' : 'rgba(255,255,255,0.04)'};border-radius:8px;margin-bottom:6px;border:1px solid ${isCurrent ? 'rgba(76,175,80,0.25)' : 'rgba(255,255,255,0.08)'}">
+                <div style="font-size:18px;flex-shrink:0">${platformIcon}</div>
                 <div style="flex:1;min-width:0">
                   <div style="font-size:.88rem;font-weight:600;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.deviceName || s.deviceId}</div>
-                  <div style="font-size:.75rem;color:#888;margin-top:2px">${s.platform || ''} · Hoạt động: ${lastSeen}</div>
+                  <div style="font-size:.75rem;color:#888;margin-top:2px">${s.platform || ''} ${s.appVersion ? '· v' + s.appVersion : ''} · ${L('Hoạt động', 'Active')}: ${lastSeen}</div>
                 </div>
                 ${isCurrent
-                    ? '<span style="font-size:.75rem;background:rgba(76,175,80,0.2);color:#4CAF50;padding:3px 8px;border-radius:12px;white-space:nowrap">Thiết bị này</span>'
-                    : `<button onclick="kickBncDevice('${s.deviceId}')" style="padding:5px 12px;border-radius:6px;border:1px solid rgba(244,67,54,0.4);background:rgba(244,67,54,0.1);color:#f44336;font-size:.78rem;cursor:pointer">Đăng xuất</button>`
+                    ? `<span style="font-size:.75rem;background:rgba(76,175,80,0.2);color:#4CAF50;padding:3px 8px;border-radius:12px;white-space:nowrap">${L('Thiết bị này', 'This device')}</span>`
+                    : `<button onclick="kickBncDevice('${s.deviceId}')" style="padding:5px 12px;border-radius:6px;border:1px solid rgba(244,67,54,0.4);background:rgba(244,67,54,0.1);color:#f44336;font-size:.78rem;cursor:pointer">${L('Đăng xuất', 'Sign out')}</button>`
                 }
               </div>`;
         }).join('');
     } catch (e) {
-        if (listEl) listEl.innerHTML = '<div style="color:#f44336;font-size:.85rem;padding:8px 0">Lỗi khi tải danh sách thiết bị.</div>';
+        if (listEl) listEl.innerHTML = `<div style="color:#f44336;font-size:.85rem;padding:8px 0">${L('Lỗi khi tải danh sách thiết bị.', 'Error loading device list.')}</div>`;
     }
 }
 
 async function kickBncDevice(deviceId) {
-    if (!confirm('Đăng xuất thiết bị này khỏi tài khoản BNC?')) return;
+    const ok = await showConfirm(L('Đăng xuất thiết bị này khỏi tài khoản BNC?', 'Sign out this device from your BNC account?'));
+    if (!ok) return;
     try {
         await window.electronAPI.invoke('bnc-kick-session', deviceId);
         await loadBncDevices();
     } catch (e) {
-        alert('Lỗi khi đăng xuất thiết bị: ' + (e.message || e));
+        alert(L('Lỗi khi đăng xuất thiết bị: ', 'Error signing out device: ') + (e.message || e));
     }
 }
 

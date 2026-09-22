@@ -2730,11 +2730,14 @@ async function saveNewProfile() {
         }
     }
 
+    // Khi đang lọc theo group cụ thể, gán profile mới vào group đó luôn
+    const autoGroupId = (currentGroupFilter && currentGroupFilter !== '__none__') ? currentGroupFilter : null;
+
     // No proxy — require a name, create single profile with no proxy
     if (proxyLines.length === 0) {
         if (!nameBase) return showAlert(t('inputReq'));
         try {
-            await window.electronAPI.saveProfile({ name: nameBase, proxyStr: '', tags, note, timezone, city, geolocation, language, screen, preProxyOverride });
+            await window.electronAPI.saveProfile({ name: nameBase, proxyStr: '', tags, note, timezone, city, geolocation, language, screen, preProxyOverride, groupId: autoGroupId });
             _decrementSlot();
         } catch (e) {
             console.error(`Failed to create profile ${nameBase}:`, e);
@@ -2762,7 +2765,7 @@ async function saveNewProfile() {
         }
 
         try {
-            await window.electronAPI.saveProfile({ name, proxyStr, tags, note, timezone, city, geolocation, language, screen, preProxyOverride });
+            await window.electronAPI.saveProfile({ name, proxyStr, tags, note, timezone, city, geolocation, language, screen, preProxyOverride, groupId: autoGroupId });
             createdCount++;
             _decrementSlot();
         } catch (e) {
@@ -4442,6 +4445,14 @@ function _updateBulkBar() {
 function _clearProfileSelection() {
     _selectedProfileIds.clear();
     document.querySelectorAll('.profile-select-cb').forEach(cb => cb.checked = false);
+    _updateBulkBar();
+}
+
+function _selectAllProfiles() {
+    document.querySelectorAll('.profile-select-cb').forEach(cb => {
+        cb.checked = true;
+        _selectedProfileIds.add(cb.dataset.id);
+    });
     _updateBulkBar();
 }
 

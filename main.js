@@ -3298,6 +3298,7 @@ ipcMain.handle('save-profile', async (event, data) => {
         note: data.note || '',
         fingerprint: fingerprint,
         preProxyOverride: data.preProxyOverride || 'default',
+        groupId: data.groupId || null,
         isSetup: false,
         createdAt: Date.now(),
         syncedToServer: false,  // pending — cập nhật sau khi server xác nhận

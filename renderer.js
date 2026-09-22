@@ -1365,15 +1365,21 @@ async function openPaymentModal(planId, price, planName) {
 
             ${hasDeviceTab ? `
             <div id="pmPane1" style="display:none;">
-                <div style="font-size:12px;color:#aaa;margin-bottom:12px;">Chuyển khoản riêng để thêm thiết bị vào tài khoản hiện tại</div>
-                <img src="${deviceQrUrl}" alt="QR thiết bị" style="width:190px;height:190px;border-radius:10px;margin-bottom:14px;background:#fff;" onerror="this.style.display='none'">
+                <div style="font-size:12px;color:#aaa;margin-bottom:14px;">Chuyển khoản riêng để thêm thiết bị vào tài khoản hiện tại</div>
+                <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:14px;">
+                    <span style="font-size:13px;color:#888;">Số thiết bị:</span>
+                    <button onclick="pmDeviceCount(Math.max(1,_pmDev-1))" style="width:30px;height:30px;border-radius:6px;border:1px solid #444;background:rgba(255,255,255,0.06);color:#fff;font-size:18px;cursor:pointer;line-height:1">−</button>
+                    <span id="pmDevCount" style="font-size:20px;font-weight:700;color:#00e0ff;min-width:28px;text-align:center">1</span>
+                    <button onclick="pmDeviceCount(_pmDev+1)" style="width:30px;height:30px;border-radius:6px;border:1px solid #444;background:rgba(255,255,255,0.06);color:#fff;font-size:18px;cursor:pointer;line-height:1">+</button>
+                </div>
+                <img id="pmDevQr" src="${deviceQrUrl}" alt="QR thiết bị" style="width:190px;height:190px;border-radius:10px;margin-bottom:14px;background:#fff;" onerror="this.style.display='none'">
                 <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:14px;text-align:left;font-size:13px;line-height:1.8;color:#ccc;margin-bottom:4px;">
                     <div><span style="color:#888;">Ngân hàng:</span> <strong style="color:#fff;">${bankName}</strong></div>
                     <div><span style="color:#888;">Số TK:</span> <strong style="color:#00e0ff;">${activeBank.bankAccountNo}</strong></div>
-                    <div><span style="color:#888;">Số tiền:</span> <strong style="color:#fff;">${fmt(deviceInfo.pricePerDevice)}đ/thiết bị</strong></div>
-                    <div><span style="color:#888;">Nội dung:</span> <strong style="color:#ff9800;font-family:monospace;font-size:14px;">${deviceInfo.transferContent}</strong></div>
+                    <div><span style="color:#888;">Số tiền:</span> <strong id="pmDevAmt" style="color:#fff;">${fmt(deviceInfo.pricePerDevice)}đ</strong></div>
+                    <div><span style="color:#888;">Nội dung:</span> <strong id="pmDevContent" style="color:#ff9800;font-family:monospace;font-size:14px;">${deviceInfo.transferContent}</strong></div>
                 </div>
-                <div style="font-size:11px;color:#666;margin-top:8px;">${deviceInfo.note || 'Ví dụ: nội dung D2 = thêm 2 thiết bị, D3 = 3 thiết bị…'}</div>
+                <div style="font-size:11px;color:#666;margin-top:8px;">${deviceInfo.note}</div>
             </div>` : ''}
 
             <button onclick="closePaymentModal(true)" style="margin-top:14px;padding:8px 20px;border-radius:8px;border:1px solid #444;background:transparent;color:#aaa;font-size:13px;cursor:pointer;">← ${L('Quay lại', 'Back')}</button>
@@ -1390,6 +1396,28 @@ async function openPaymentModal(planId, price, planName) {
                 tab.style.borderBottom  = active ? '2px solid #00e0ff' : '2px solid transparent';
                 pane.style.display      = active ? '' : 'none';
             });
+        };
+
+        // Device count stepper
+        window._pmDev = 1;
+        const _pmDevPrefix = deviceInfo.transferPrefix;
+        const _pmDevPrice  = deviceInfo.pricePerDevice || 250000;
+        const _pmBankAcqId = activeBank.bankAcqId;
+        const _pmBankAccNo = activeBank.bankAccountNo;
+        const _pmBankName  = encodeURIComponent(activeBank.bankAccountName || '');
+        window.pmDeviceCount = function(n) {
+            window._pmDev = Math.max(1, Math.min(20, n));
+            const content = `${_pmDevPrefix}${window._pmDev}`;
+            const total   = window._pmDev * _pmDevPrice;
+            const qrUrl   = `https://img.vietqr.io/image/${_pmBankAcqId}-${_pmBankAccNo}-compact2.png?amount=${total}&addInfo=${encodeURIComponent(content)}&accountName=${_pmBankName}`;
+            const countEl   = document.getElementById('pmDevCount');
+            const amtEl     = document.getElementById('pmDevAmt');
+            const contentEl = document.getElementById('pmDevContent');
+            const qrEl      = document.getElementById('pmDevQr');
+            if (countEl)   countEl.textContent   = window._pmDev;
+            if (amtEl)     amtEl.textContent     = new Intl.NumberFormat('vi-VN').format(total) + 'đ';
+            if (contentEl) contentEl.textContent = content;
+            if (qrEl)      qrEl.src              = qrUrl;
         };
 
         // Mở trình duyệt hệ thống khi bấm nút Stripe

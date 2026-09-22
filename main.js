@@ -2965,6 +2965,7 @@ ipcMain.handle('bnc-get-sessions', async () => {
         return {
             sessions: res.sessions || [],
             maxDevices: sub?.subscription?.maxDevices ?? 1,
+            planType: sub?.subscription?.planType ?? null,
             currentDeviceId: getDeviceId(),
         };
     } catch (e) {

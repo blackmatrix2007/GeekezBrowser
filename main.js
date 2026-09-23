@@ -3413,6 +3413,16 @@ ipcMain.handle('assign-profile-group', async (event, { profileId, groupId }) => 
     return idx > -1;
 });
 
+ipcMain.handle('stop-profile', async (_, id) => {
+    const proc = activeProcesses[id];
+    if (!proc?.chromeProcess?.pid) return { success: false };
+    // Cleanup (xray kill, activeProcesses delete, profile-status broadcast, cookie
+    // sync) is handled by the chromeProcess 'exit' listener registered in
+    // launch-profile — same path as when the user closes the Chrome window by hand.
+    await forceKill(proc.chromeProcess.pid);
+    return { success: true };
+});
+
 ipcMain.handle('delete-profile', async (event, id) => {
     // 关闭正在运行的进程
     if (activeProcesses[id]) {

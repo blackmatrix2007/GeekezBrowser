@@ -2630,7 +2630,9 @@ async function loadProfiles() {
                 <div class="actions" style="${isLocked ? 'pointer-events:auto;' : ''}">
                     ${isLocked
                         ? `<button class="no-drag" disabled style="opacity:0.4;cursor:not-allowed;" onclick="event.stopPropagation();showConfirm(${JSON.stringify(L('Profile bị khóa do hết slot.\n\nMua thêm gói để mở khóa?','Profile is locked (no slot).\n\nBuy a plan to unlock?'))},()=>openPlansModal())">${t('launch')}</button>`
-                        : `<button onclick="launch('${p.id}', this)" class="no-drag">${t('launch')}</button>`
+                        : isRunning
+                            ? `<button onclick="stopProfileBtn('${p.id}', this)" class="no-drag danger">${t('stopProfile')}</button>`
+                            : `<button onclick="launch('${p.id}', this)" class="no-drag">${t('launch')}</button>`
                     }
                     ${(() => { const wp = window._activeWorkspacePerm?.profile || null;
                         const canEdit   = !wp || wp.editProxy !== false || wp.editFingerprint !== false || wp.editNote !== false;
@@ -2821,6 +2823,14 @@ async function launch(id, btnEl) {
         const watermarkStyle = localStorage.getItem('geekez_watermark_style') || 'enhanced';
         const msg = await window.electronAPI.launchProfile(id, watermarkStyle);
         if (msg && msg.includes(':')) showAlert(msg);
+    } catch (e) { showAlert('Error: ' + e.message); }
+    finally { _setLaunchBtnLoading(btnEl, false); }
+}
+
+async function stopProfileBtn(id, btnEl) {
+    _setLaunchBtnLoading(btnEl, true);
+    try {
+        await window.electronAPI.stopProfile(id);
     } catch (e) { showAlert('Error: ' + e.message); }
     finally { _setLaunchBtnLoading(btnEl, false); }
 }

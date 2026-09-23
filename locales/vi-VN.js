@@ -17,6 +17,7 @@ window.viVN = {
     save: "Lưu",
     add: "Thêm",
     launch: "Khởi động",
+    stopProfile: "Tắt",
     edit: "Sửa",
     delete: "Xóa",
     notify: "Thông báo",

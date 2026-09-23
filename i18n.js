@@ -17,6 +17,7 @@ const enTranslations = {
     save: "Save",
     add: "Add",
     launch: "Launch",
+    stopProfile: "Stop",
     edit: "Edit",
     delete: "Delete",
     notify: "Notify",

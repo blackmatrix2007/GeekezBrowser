@@ -333,6 +333,31 @@
             color: #fff;
         }
 
+        /* Bulk-selection bar — theme-aware (was hard-coded #00e0ff, unreadable on the light theme) */
+        #bulkActionBar {
+            background: color-mix(in srgb, var(--accent) 10%, var(--card-bg));
+            border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+        }
+        #bulkActionBar #bulkCountLabel { color: var(--text-primary); }
+        #bulkActionBar .bulk-btn {
+            padding: 5px 14px;
+            background: var(--card-bg);
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        #bulkActionBar .bulk-btn:hover { background: var(--accent); color: var(--card-bg); }
+        #bulkActionBar .bulk-btn.ghost {
+            background: transparent;
+            border-color: var(--border);
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+        #bulkActionBar .bulk-btn.ghost:hover { background: rgba(128, 128, 128, 0.15); color: var(--text-primary); }
+
         .top-actions {
             display: flex;
             gap: 10px;
@@ -1686,12 +1711,12 @@
     </div>
 
     <!-- Bulk action bar (hidden by default) -->
-    <div id="bulkActionBar" style="display:none;align-items:center;gap:12px;flex-shrink:0;padding:8px 20px;background:rgba(0,224,255,0.07);border-bottom:1px solid rgba(0,224,255,0.15);">
-        <span id="bulkCountLabel" style="font-size:13px;color:#00e0ff;font-weight:600;"></span>
-        <button onclick="_selectAllProfiles()" style="padding:5px 14px;background:rgba(0,224,255,0.15);border:1px solid rgba(0,224,255,0.4);color:#00e0ff;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">☑ Chọn tất cả</button>
-        <button onclick="_bulkMoveToGroup()" style="padding:5px 14px;background:rgba(0,224,255,0.15);border:1px solid rgba(0,224,255,0.4);color:#00e0ff;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" data-i18n="bulkMoveGroup">📁 Move to Group</button>
-        <button onclick="_bulkExportSelected()" style="padding:5px 14px;background:rgba(0,224,255,0.15);border:1px solid rgba(0,224,255,0.4);color:#00e0ff;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">📤 Export</button>
-        <button onclick="_clearProfileSelection()" style="padding:5px 14px;background:transparent;border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;cursor:pointer;font-size:12px;">✕ Bỏ chọn</button>
+    <div id="bulkActionBar" style="display:none;align-items:center;gap:12px;flex-shrink:0;padding:8px 20px;">
+        <span id="bulkCountLabel" style="font-size:13px;font-weight:700;"></span>
+        <button class="bulk-btn" onclick="_selectAllProfiles()">☑ Chọn tất cả</button>
+        <button class="bulk-btn" onclick="_bulkMoveToGroup()" data-i18n="bulkMoveGroup">📁 Move to Group</button>
+        <button class="bulk-btn" onclick="_bulkExportSelected()">📤 Export</button>
+        <button class="bulk-btn ghost" onclick="_clearProfileSelection()">✕ Bỏ chọn</button>
     </div>
 
     <div class="layout">

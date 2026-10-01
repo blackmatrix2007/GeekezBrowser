@@ -3416,6 +3416,7 @@ ipcMain.handle('assign-profile-group', async (event, { profileId, groupId }) => 
 ipcMain.handle('stop-profile', async (_, id) => {
     const proc = activeProcesses[id];
     if (!proc?.chromeProcess?.pid) return { success: false };
+    proc.userStopped = true;
     // Cleanup (xray kill, activeProcesses delete, profile-status broadcast, cookie
     // sync) is handled by the chromeProcess 'exit' listener registered in
     // launch-profile — same path as when the user closes the Chrome window by hand.
@@ -5321,7 +5322,9 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle, window
         chromeProcess.on('exit', async (code, signal) => {
             const uptimeMs = Date.now() - (activeProcesses[profileId]?.startedAt || Date.now());
             console.log(`[Launch][${profileId}] Chrome exited code=${code} signal=${signal} uptime=${uptimeMs}ms log=${chromeLogPath}`);
-            const isCrash = uptimeMs < 5000;
+            // A user clicking "Tắt" within 5s is not a crash — without this check it got a
+            // false crash report, a crash-streak bump, and possibly a bogus repair prompt.
+            const isCrash = uptimeMs < 5000 && !activeProcesses[profileId]?.userStopped;
             // < 5 s uptime is virtually always an instant crash on Windows. Flag it so the UI
             // can surface a "Chrome failed to start" message instead of a silent "stopped".
             if (isCrash && !sender.isDestroyed()) {

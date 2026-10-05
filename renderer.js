@@ -3932,6 +3932,7 @@ function switchSettingsTab(tabName, clickedBtn) {
     });
     document.getElementById('settings-' + tabName).style.display = 'block';
     if (tabName === 'chrome') loadChromePath();
+    if (tabName === 'extensions') loadUserExtensions();
     if (tabName === 'license') { loadBncDevices(); loadDataPathSetting(); }
     if (tabName === 'advanced') loadDataPathSetting();
 }

@@ -5013,17 +5013,33 @@ let _gcWs = null;
 let _gcConnected = false;
 let _gcConnecting = false;
 let _gcMsgId = 1;
+let _gcConnectId = null;
+let _gcBusy = false;
+let _gcDeepSignals = null;
+let _gcDeepOpened = false;
+let _gcDeepInited = false;
 let _gcSessionKey = null;
 let _gcPanelOpen = false;
 let _gcSettingsOpen = false;
 let _gcCurrentAiEl = null;
 let _gcCurrentAiText = '';
 
+// Token nhúng sẵn để khách khỏi phải nhập (demo). Để trống = phải nhập token trong ⚙️.
+const GC_DEFAULT_TOKEN = '';
+// user_id ổn định theo máy — v3 bắt buộc có user_id; nếu API key gắn owner thì server tự ghi đè.
+function _gcUserId() {
+    let u = localStorage.getItem('geekez_goclaw_uid');
+    if (!u) { u = 'bnc-' + Math.random().toString(36).slice(2, 10); localStorage.setItem('geekez_goclaw_uid', u); }
+    return u;
+}
 function _gcGetConfig() {
+    let agentId = localStorage.getItem('geekez_goclaw_agentid') || 'oa-bani';
+    // Agent 'default' không tồn tại trên gateway bani → ép về agent thật (migrate máy cũ)
+    if (agentId === 'default') { agentId = 'oa-bani'; localStorage.setItem('geekez_goclaw_agentid', agentId); }
     return {
-        token: localStorage.getItem('geekez_goclaw_token') || '',
-        agentId: localStorage.getItem('geekez_goclaw_agentid') || 'default',
-        wsUrl: 'wss://agent.ymm.vn/ws'
+        token: localStorage.getItem('geekez_goclaw_token') || GC_DEFAULT_TOKEN,
+        agentId: agentId,
+        wsUrl: 'wss://agent.bani.vn/ws'
     };
 }
 
@@ -5042,6 +5058,15 @@ function toggleGcChatPanel() {
     const navBtn = document.getElementById('nav-goclaw');
     if (_gcPanelOpen) {
         panel.classList.add('open');
+        _gcInitDeepChat();
+        // Khôi phục trạng thái mở rộng đã lưu
+        try {
+            if (localStorage.getItem('geekez_goclaw_expanded') === '1') {
+                panel.classList.add('expanded');
+                const eb = document.getElementById('gcExpandBtn');
+                if (eb) { eb.textContent = '⤡'; eb.title = 'Thu nhỏ'; }
+            }
+        } catch (_) {}
         navBtn && navBtn.classList.add('active');
         // Lazy connect: only when first opened and token is set
         if (!_gcConnected && !_gcConnecting) {
@@ -5059,6 +5084,15 @@ function toggleGcChatPanel() {
         panel.classList.remove('open');
         navBtn && navBtn.classList.remove('active');
     }
+}
+
+function gcToggleExpand() {
+    const panel = document.getElementById('gcChatPanel');
+    if (!panel) return;
+    const expanded = panel.classList.toggle('expanded');
+    const btn = document.getElementById('gcExpandBtn');
+    if (btn) { btn.textContent = expanded ? '⤡' : '⤢'; btn.title = expanded ? 'Thu nhỏ' : 'Mở rộng'; }
+    try { localStorage.setItem('geekez_goclaw_expanded', expanded ? '1' : '0'); } catch (_) {}
 }
 
 function gcToggleSettings() {
@@ -5082,7 +5116,7 @@ function gcToggleSettings() {
 
 function gcSaveSettings() {
     const token = (document.getElementById('gcTokenInput')?.value || '').trim();
-    const agentId = (document.getElementById('gcAgentInput')?.value || '').trim() || 'default';
+    const agentId = (document.getElementById('gcAgentInput')?.value || '').trim() || 'oa-bani';
     const show = document.getElementById('gcShowInSidebar')?.checked !== false;
     localStorage.setItem('geekez_goclaw_token', token);
     localStorage.setItem('geekez_goclaw_agentid', agentId);
@@ -5121,7 +5155,8 @@ function _gcConnect() {
     }
 
     _gcWs.onopen = () => {
-        _gcWsSend({ type: 'req', method: 'connect', params: { token: cfg.token }, id: _gcMsgId++ });
+        _gcConnectId = String(_gcMsgId++);
+        _gcWsSend({ type: 'req', method: 'connect', params: { token: cfg.token, user_id: _gcUserId() }, id: _gcConnectId });
     };
     _gcWs.onmessage = (e) => {
         try { _gcOnMessage(JSON.parse(e.data)); } catch (_) {}
@@ -5139,6 +5174,7 @@ function _gcConnect() {
         _gcUpdateStatusDot('#444');
         // Finish any pending AI response
         if (_gcCurrentAiEl) { _gcCurrentAiEl = null; }
+        _gcSetBusy(false);
     };
 }
 
@@ -5150,14 +5186,81 @@ function _gcWsSend(obj) {
     return false;
 }
 
+// ─── deep-chat (UI chat nhúng, thử nghiệm) ───────────────────────────────
+function _gcInitDeepChat() {
+    if (_gcDeepInited) return;
+    _gcDeepInited = true;
+    if (!window.customElements) return;
+    // Bundle nạp dạng ES module (deferred) → đợi element định nghĩa xong mới set config
+    customElements.whenDefined('deep-chat').then(_gcApplyDeepChatConfig).catch(function () {});
+}
+function _gcApplyDeepChatConfig() {
+    const el = document.getElementById('gcDeepChat');
+    if (!el) return;
+    el.messageStyles = {
+        default: {
+            user: { bubble: { backgroundColor: 'rgba(0,224,255,0.15)', color: '#e6f7ff', borderRadius: '14px 14px 4px 14px' } },
+            ai:   { bubble: { backgroundColor: 'rgba(255,255,255,0.06)', color: '#d6d6d6', borderRadius: '4px 14px 14px 14px' } }
+        }
+    };
+    el.textInput = {
+        placeholder: { text: 'Nhập câu hỏi...', style: { color: '#777' } },
+        styles: { text: { color: '#e0e0e0' }, container: { backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px' } }
+    };
+    el.submitButtonStyles = {
+        submit: { container: { default: { backgroundColor: 'rgba(0,224,255,0.2)' } } },
+        loading: { container: { default: { backgroundColor: 'rgba(0,224,255,0.12)' } } },
+        stop: { container: { default: { backgroundColor: 'rgba(255,255,255,0.1)' } } }
+    };
+    el.avatars = { ai: { styles: { avatar: { display: 'none' } } }, user: { styles: { avatar: { display: 'none' } } } };
+    el.introMessage = { text: 'Xin chào! Mình là trợ lý BANI 👋 Bạn cần hỗ trợ gì về kênh, khoá học hay AI?' };
+    el.connect = {
+        stream: true,
+        handler: (body, signals) => {
+            try {
+                const msgs = (body && body.messages) || [];
+                const last = msgs[msgs.length - 1] || {};
+                const text = (last.text || '').trim();
+                if (!text) { signals.onResponse({ error: 'Tin rỗng' }); return; }
+                const cfg = _gcGetConfig();
+                if (!cfg.token) { signals.onResponse({ error: 'Chưa cấu hình token GoClaw (⚙️)' }); return; }
+                _gcDeepSignals = signals;
+                _gcDeepOpened = false;
+                if (signals.stopClicked) signals.stopClicked.listener = () => { _gcDeepClose(); };
+                const doSend = () => _gcWsSend({ type: 'req', method: 'chat.send', params: { message: text, agentId: cfg.agentId, sessionKey: _gcSessionKey, stream: true }, id: String(_gcMsgId++) });
+                if (_gcConnected) { doSend(); return; }
+                if (!_gcConnecting) _gcConnect();
+                let waited = 0;
+                const poll = setInterval(() => {
+                    waited += 150;
+                    if (_gcConnected) { clearInterval(poll); doSend(); }
+                    else if (waited > 6000) { clearInterval(poll); signals.onResponse({ error: 'Không kết nối được GoClaw' }); _gcDeepClose(); }
+                }, 150);
+            } catch (e) {
+                try { signals.onResponse({ error: 'Lỗi: ' + (e.message || e) }); } catch (_) {}
+            }
+        }
+    };
+}
+function _gcDeepOpen() {
+    if (_gcDeepSignals && !_gcDeepOpened) { _gcDeepOpened = true; try { _gcDeepSignals.onOpen(); } catch (_) {} }
+}
+function _gcDeepClose() {
+    if (_gcDeepSignals) { try { _gcDeepSignals.onClose(); } catch (_) {} }
+    _gcDeepSignals = null; _gcDeepOpened = false;
+}
+
 function _gcOnMessage(data) {
-    // connect ack
-    if (data.type === 'res' && data.method === 'connect') {
-        if (data.error) {
+    if (!data || typeof data !== 'object') return;
+
+    // connect ack (v3): res khớp id của req connect — v3 không còn trường "method"
+    if (data.type === 'res' && data.id === _gcConnectId) {
+        if (data.error || data.ok === false) {
+            _gcConnected = false;
             _gcConnecting = false;
             _gcSetStatus('Auth thất bại', '#ef4444');
             _gcUpdateStatusDot('#ef4444');
-            _gcAppendSystemMsg('⚠ Kết nối thất bại: ' + (data.error.message || 'sai token'));
+            _gcAppendSystemMsg('⚠ Kết nối thất bại: ' + (data.error?.message || 'sai token'));
             return;
         }
         _gcConnected = true;
@@ -5166,26 +5269,60 @@ function _gcOnMessage(data) {
         _gcUpdateStatusDot('#22c55e');
         return;
     }
-    // streaming chunk
-    if (data.type === 'event' && data.method === 'chunk') {
-        const delta = data.params?.delta || '';
-        if (delta) _gcAppendChunk(delta);
+
+    // agent events (v3): { type:'event', event:'agent', payload:{ type, payload, ... } }
+    if (data.type === 'event' && data.event === 'agent') {
+        const ev = data.payload || {};
+        const pt = ev.type;
+        // Đang dùng deep-chat → đẩy sự kiện vào deep-chat, bỏ qua UI cũ
+        if (_gcDeepSignals) {
+            if (pt === 'run.started') { _gcDeepOpen(); return; }
+            if (pt === 'chunk') {
+                const inner = ev.payload;
+                const delta = (typeof inner === 'string') ? inner : (inner && (inner.content || inner.delta || inner.text)) || '';
+                if (delta) { _gcDeepOpen(); _gcDeepSignals.onResponse({ text: delta }); }
+                return;
+            }
+            if (pt === 'run.completed') { _gcDeepClose(); return; }
+            if (pt === 'run.failed' || pt === 'run.cancelled') {
+                _gcDeepSignals.onResponse({ error: (ev.payload && (ev.payload.error || ev.payload.message)) || 'Agent gặp lỗi' });
+                _gcDeepClose();
+                return;
+            }
+            return;
+        }
+        if (pt === 'run.started') {
+            if (!_gcCurrentAiEl) _gcPrepareAiMessage();
+            return;
+        }
+        if (pt === 'chunk') {
+            const inner = ev.payload;
+            const delta = (typeof inner === 'string') ? inner
+                : (inner && (inner.content || inner.delta || inner.text)) || '';
+            if (delta) {
+                if (!_gcCurrentAiEl) _gcPrepareAiMessage();
+                _gcAppendChunk(delta);
+            }
+            return;
+        }
+        if (pt === 'run.completed') { _gcFinishResponse(); return; }
+        if (pt === 'run.failed' || pt === 'run.cancelled') {
+            _gcFinishResponse();
+            const em = ev.payload && (ev.payload.error || ev.payload.message);
+            _gcAppendSystemMsg('⚠ ' + (em || 'Agent gặp lỗi'));
+            return;
+        }
         return;
     }
-    // run started (first chunk trigger)
-    if (data.type === 'event' && data.method === 'run.started') {
-        if (!_gcCurrentAiEl) _gcPrepareAiMessage();
+
+    // res khác (vd chat.send): chỉ báo khi lỗi — res ok đến sau run.completed thì bỏ qua
+    if (data.type === 'res' && data.id !== _gcConnectId) {
+        if (data.error || data.ok === false) {
+            if (_gcDeepSignals) { _gcDeepSignals.onResponse({ error: data.error?.message || 'Gửi tin thất bại' }); _gcDeepClose(); return; }
+            _gcFinishResponse();
+            _gcAppendSystemMsg('⚠ ' + (data.error?.message || 'Gửi tin thất bại'));
+        }
         return;
-    }
-    // run done
-    if (data.type === 'event' && data.method === 'run.completed') {
-        _gcFinishResponse();
-        return;
-    }
-    // chat.send error
-    if (data.type === 'res' && data.method === 'chat.send' && data.error) {
-        _gcFinishResponse();
-        _gcAppendSystemMsg('⚠ ' + (data.error.message || 'Gửi tin thất bại'));
     }
 }
 
@@ -5193,20 +5330,23 @@ function gcSendMessage() {
     const input = document.getElementById('gcInput');
     const msg = (input?.value || '').trim();
     if (!msg) return;
-    input.value = '';
+    // Đang chờ AI trả lời thì không gửi dồn — gửi nhiều tin cùng session làm gateway nghẽn/treo
+    if (_gcBusy) return;
 
     const cfg = _gcGetConfig();
     if (!cfg.token) { gcToggleSettings(); return; }
 
+    input.value = '';
     _gcAddUserMessage(msg);
     _gcPrepareAiMessage();
+    _gcSetBusy(true);
 
     const doSend = () => {
         _gcWsSend({
             type: 'req',
             method: 'chat.send',
             params: { message: msg, agentId: cfg.agentId, sessionKey: _gcSessionKey, stream: true },
-            id: _gcMsgId++
+            id: String(_gcMsgId++)
         });
     };
 
@@ -5281,6 +5421,20 @@ function _gcFinishResponse() {
     }
     _gcCurrentAiEl = null;
     _gcCurrentAiText = '';
+    _gcSetBusy(false);
+}
+
+// Khoá gửi khi đang chờ AI trả lời (chống gửi dồn làm nghẽn session)
+function _gcSetBusy(b) {
+    _gcBusy = !!b;
+    const btn = document.getElementById('gcSendBtn');
+    const inp = document.getElementById('gcInput');
+    if (btn) { btn.style.opacity = b ? '0.45' : ''; btn.style.pointerEvents = b ? 'none' : ''; }
+    if (inp) {
+        inp.disabled = !!b;
+        inp.placeholder = b ? 'Đang trả lời... chờ xong rồi gửi tiếp' : 'Nhập câu hỏi... (Enter gửi, Shift+Enter xuống dòng)';
+        if (!b) setTimeout(() => { try { inp.focus(); } catch (_) {} }, 50);
+    }
 }
 
 function _gcAppendSystemMsg(text) {

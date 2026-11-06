@@ -62,6 +62,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     bncRefreshTeams: () => ipcRenderer.invoke('bnc-refresh-teams'),
     onBncTeamsUpdated: (cb) => ipcRenderer.on('bnc-teams-updated', (_, data) => cb(data)),
     bncGetAuth: () => ipcRenderer.invoke('bnc-get-auth'),
+    bncGoclawToken: () => ipcRenderer.invoke('bnc-goclaw-token'),
     bncGetPlans: () => ipcRenderer.invoke('bnc-get-plans'),
     bncGetTools: () => ipcRenderer.invoke('bnc-get-tools'),
     bncGetPaymentInfo: () => ipcRenderer.invoke('bnc-get-payment-info'),

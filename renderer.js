@@ -5068,15 +5068,9 @@ function toggleGcChatPanel() {
             }
         } catch (_) {}
         navBtn && navBtn.classList.add('active');
-        // Lazy connect: only when first opened and token is set
+        // Lazy connect: tự lấy token (keyless) nếu chưa có, rồi kết nối
         if (!_gcConnected && !_gcConnecting) {
-            const cfg = _gcGetConfig();
-            if (cfg.token) {
-                _gcConnect();
-            } else {
-                // Show settings if no token configured
-                if (!_gcSettingsOpen) gcToggleSettings();
-            }
+            _gcAutoAuthThenConnect();
         }
         // Focus input
         setTimeout(() => { const inp = document.getElementById('gcInput'); inp && inp.focus(); }, 250);
@@ -5136,6 +5130,23 @@ function gcToggleSidebarBtn(show) {
     const btn = document.getElementById('nav-goclaw');
     if (btn) btn.style.display = show ? 'flex' : 'none';
     localStorage.setItem('geekez_goclaw_show', show ? '1' : '0');
+}
+
+// Keyless: nếu chưa có token thì xin token GoClaw từ backend (dùng phiên đăng nhập BNC sẵn có)
+async function _gcAutoAuthThenConnect() {
+    let cfg = _gcGetConfig();
+    if (!cfg.token) {
+        try {
+            const r = await (window.electronAPI.bncGoclawToken ? window.electronAPI.bncGoclawToken() : null);
+            if (r && r.token) {
+                localStorage.setItem('geekez_goclaw_token', r.token);
+                if (r.agentId) localStorage.setItem('geekez_goclaw_agentid', r.agentId);
+                cfg = _gcGetConfig();
+            }
+        } catch (_) {}
+    }
+    if (cfg.token) _gcConnect();
+    else if (!_gcSettingsOpen) gcToggleSettings();
 }
 
 function _gcConnect() {

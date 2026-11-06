@@ -2798,6 +2798,37 @@ ipcMain.handle('bnc-get-auth', async () => {
     };
 });
 
+// Lấy token GoClaw từ backend (keyless) — khách không phải nhập token
+ipcMain.handle('bnc-goclaw-token', async () => {
+    const auth = getSavedBncAuth();
+    if (!auth || !auth.accessToken) return null;
+    try {
+        return await new Promise((resolve) => {
+            const url = new URL(BNC_API + '/goclaw-token');
+            const req = https.request({
+                hostname: url.hostname,
+                path: url.pathname,
+                method: 'GET',
+                headers: {
+                    'Authorization': 'Bearer ' + auth.accessToken,
+                    'x-device-id': getDeviceId(),
+                    'x-app-version': app.getVersion(),
+                },
+            }, (res) => {
+                let data = '';
+                res.on('data', c => data += c);
+                res.on('end', () => {
+                    if (res.statusCode !== 200) { resolve(null); return; }
+                    try { resolve(JSON.parse(data)); } catch (_) { resolve(null); }
+                });
+            });
+            req.on('error', () => resolve(null));
+            req.setTimeout(8000, () => { req.destroy(); resolve(null); });
+            req.end();
+        });
+    } catch (_) { return null; }
+});
+
 // Poll sau thanh toán — trả về slots mới nhất từ server (webhook đã grantSlots)
 ipcMain.handle('bnc-get-subscriptions', async () => {
     const result = await bncPingServer();

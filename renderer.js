@@ -5033,9 +5033,9 @@ function _gcUserId() {
     return u;
 }
 function _gcGetConfig() {
-    let agentId = localStorage.getItem('geekez_goclaw_agentid') || 'oa-bani';
+    let agentId = localStorage.getItem('geekez_goclaw_agentid') || 'bnc-tu-van';
     // Agent 'default' không tồn tại trên gateway bani → ép về agent thật (migrate máy cũ)
-    if (agentId === 'default') { agentId = 'oa-bani'; localStorage.setItem('geekez_goclaw_agentid', agentId); }
+    if (agentId === 'default') { agentId = 'bnc-tu-van'; localStorage.setItem('geekez_goclaw_agentid', agentId); }
     return {
         token: localStorage.getItem('geekez_goclaw_token') || GC_DEFAULT_TOKEN,
         agentId: agentId,
@@ -5110,7 +5110,7 @@ function gcToggleSettings() {
 
 function gcSaveSettings() {
     const token = (document.getElementById('gcTokenInput')?.value || '').trim();
-    const agentId = (document.getElementById('gcAgentInput')?.value || '').trim() || 'oa-bani';
+    const agentId = (document.getElementById('gcAgentInput')?.value || '').trim() || 'bnc-tu-van';
     const show = document.getElementById('gcShowInSidebar')?.checked !== false;
     localStorage.setItem('geekez_goclaw_token', token);
     localStorage.setItem('geekez_goclaw_agentid', agentId);

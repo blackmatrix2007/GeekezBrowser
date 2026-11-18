@@ -5258,6 +5258,10 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle, window
         if (isFingerprintChromium(chromePath)) {
             launchArgs.push('--fingerprint-platform=windows');
             launchArgs.push('--fingerprint-brand=Chrome');
+            // Ép brand version = CHROME_VERSION (143) để HTTP Sec-CH-UA header của engine khớp
+            // navigator.userAgent + Sec-CH-UA JS (extension đọc version từ stored UA = 143).
+            // Không set → engine tự báo version thật (150) = lệch với UA/extension 143.
+            launchArgs.push('--fingerprint-brand-version=143.0.0.0');
             if (profile.fingerprint?.hardwareConcurrency) {
                 launchArgs.push(`--fingerprint-hardware-concurrency=${profile.fingerprint.hardwareConcurrency}`);
             }
@@ -5281,9 +5285,10 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle, window
         //   to a UA that matches the actual host OS, so Sec-CH-UA-Platform is consistent.
         let spawnUA;
         if (isFingerprintChromium(chromePath)) {
-            // Engine adryfish/fingerprint-chromium latest = Chrome 150 → UA phải khớp,
-            // nếu không navigator.userAgent(150) vs profile UA cũ sẽ lệch Sec-CH-UA do --fingerprint-brand sinh.
-            spawnUA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36`;
+            // Trình bày Chrome 143 ĐỒNG BỘ (= CHROME_VERSION): stored UA, Sec-CH-UA JS (extension),
+            // HTTP Sec-CH-UA (--fingerprint-brand-version) đều 143. Engine binary là 150 nhưng
+            // present 143 — an toàn, tránh lệch 3 nguồn. Muốn present 150 phải bump cả CfT lên 150.
+            spawnUA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36`;
         } else {
             // CfT engine = setup.js BUILD_ID 143.x → fallback UA phải báo 143
             spawnUA = profile.fingerprint?.userAgent || (

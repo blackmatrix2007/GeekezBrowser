@@ -2,7 +2,7 @@ const os = require('os');
 
 // Chrome version used when generating UA strings for new profiles.
 // Update this to match the CfT/FP-Chromium version you distribute.
-const CHROME_VERSION = '136.0.0.0';
+const CHROME_VERSION = '143.0.0.0'; // khớp Chrome-for-Testing engine (setup.js BUILD_ID 143.x) — tránh lệch UA/Sec-CH-UA
 
 // dpr = devicePixelRatio — must be consistent with resolution to avoid Pixelscan "2049x1152" bug
 // (Pixelscan computes physical pixels = screen.width * devicePixelRatio)
@@ -623,7 +623,7 @@ function getInjectScript(fp, profileName, watermarkStyle, fpChromiumMode = false
             (function() {
                 if (!navigator.userAgentData) return;
                 const ua = fp.userAgent || navigator.userAgent || '';
-                const chromeVer = (ua.match(/Chrome\/([\d]+)/) || [])[1] || '136';
+                const chromeVer = (ua.match(/Chrome\/([\d]+)/) || [])[1] || '143';
                 const brands = [
                     { brand: 'Google Chrome',  version: chromeVer },
                     { brand: 'Chromium',        version: chromeVer },

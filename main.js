@@ -5281,14 +5281,17 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle, window
         //   to a UA that matches the actual host OS, so Sec-CH-UA-Platform is consistent.
         let spawnUA;
         if (isFingerprintChromium(chromePath)) {
-            spawnUA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36`;
+            // Engine adryfish/fingerprint-chromium latest = Chrome 150 → UA phải khớp,
+            // nếu không navigator.userAgent(150) vs profile UA cũ sẽ lệch Sec-CH-UA do --fingerprint-brand sinh.
+            spawnUA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36`;
         } else {
+            // CfT engine = setup.js BUILD_ID 143.x → fallback UA phải báo 143
             spawnUA = profile.fingerprint?.userAgent || (
                 process.platform === 'darwin'
-                    ? `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36`
+                    ? `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36`
                     : process.platform === 'win32'
-                        ? `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36`
-                        : `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36`
+                        ? `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36`
+                        : `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36`
             );
         }
         launchArgs.push(`--user-agent=${spawnUA}`);

@@ -231,14 +231,20 @@ const WEBGPU_LIMITS_DISCRETE = {
     maxComputeWorkgroupsPerDimension: 65535
 };
 
-function generateFingerprint() {
+function generateFingerprint(opts = {}) {
+    const poolEntry = (opts && opts.poolEntry) || null;
     const platform = os.platform();
     const arch = os.arch();
 
+    // OS của fingerprint: nếu có pool entry thì theo pool (vd Windows), không thì theo host.
+    // => webgl/webgpu/UA/mediaDevices đều nhất quán theo cùng 1 OS, độc lập máy build.
+    const fpOS = poolEntry && poolEntry.os ? poolEntry.os : (platform === 'win32' ? 'windows' : platform === 'darwin' ? 'mac' : 'linux');
+    const platKey = fpOS === 'windows' ? 'win32' : fpOS === 'mac' ? 'darwin' : 'linux';
+
     let osData = {};
-    if (platform === 'win32') {
+    if (fpOS === 'windows') {
         osData = { platform: 'Win32' };
-    } else if (platform === 'darwin') {
+    } else if (fpOS === 'mac') {
         osData = { platform: 'MacIntel', isArm: arch === 'arm64' };
     } else {
         osData = { platform: 'Linux x86_64' };
@@ -249,8 +255,16 @@ function generateFingerprint() {
     const prng = makePRNG(noiseSeed);
 
     // Pick GPU preset based on host OS
-    const gpuPool = GPU_PRESETS[platform] || GPU_PRESETS.linux;
-    const gpuPreset = gpuPool[Math.floor(prng() * gpuPool.length)];
+    const gpuPool = GPU_PRESETS[platKey] || GPU_PRESETS.linux;
+    let gpuPreset = gpuPool[Math.floor(prng() * gpuPool.length)];
+    // Server fingerprint pool: chọn preset local CÙNG VENDOR để webgpu/glParams vẫn khớp,
+    // rồi thay renderer bằng chuỗi máy thật (kèm device-id) từ pool bên dưới.
+    if (poolEntry && poolEntry.webgl && poolEntry.webgl.vendor) {
+        const famOf = (v) => /NVIDIA/.test(v) ? 'nvidia' : /AMD/.test(v) ? 'amd' : /Intel/.test(v) ? 'intel' : 'other';
+        const want = famOf(poolEntry.webgl.vendor);
+        const matched = gpuPool.filter(p => famOf(p.webgl.vendor) === want);
+        if (matched.length) gpuPreset = matched[Math.floor(prng() * matched.length)];
+    }
 
     // Determine WebGPU limits tier
     const isDiscrete = gpuPreset.webgpu.info.vendor === 'nvidia' || gpuPreset.webgpu.info.vendor === 'amd';
@@ -260,14 +274,22 @@ function generateFingerprint() {
     const mergedGlParams = Object.assign({}, COMMON_GL_PARAMS, gpuPreset.glParams);
 
     // Build mediaDevices list deterministically from noiseSeed
-    const mediaDevices = buildMediaDevices(platform, noiseSeed);
+    const mediaDevices = buildMediaDevices(platKey, noiseSeed);
+
+    // Pool override cho phần cứng máy thật (GPU renderer / độ phân giải / nhân / RAM / fonts).
+    // UA GIỮ theo engine (CHROME_VERSION) — KHÔNG ép UA pool để tránh lệch version engine.
+    const scr = poolEntry && poolEntry.screen ? { w: poolEntry.screen.width, h: poolEntry.screen.height, dpr: 1 } : res;
+    const webglVendor = poolEntry && poolEntry.webgl ? poolEntry.webgl.vendor : gpuPreset.webgl.vendor;
+    const webglRenderer = poolEntry && poolEntry.webgl ? poolEntry.webgl.renderer : gpuPreset.webgl.renderer;
+    const hwConc = poolEntry && poolEntry.hardwareConcurrency ? poolEntry.hardwareConcurrency : [4, 8, 12, 16][Math.floor(prng() * 4)];
+    const devMem = poolEntry && poolEntry.deviceMemory ? poolEntry.deviceMemory : [4, 8, 16][Math.floor(prng() * 3)];
 
     // Generate UA string matching host platform so CfT Sec-CH-UA-Platform is consistent.
     // FP-Chromium overrides this at spawn time via --fingerprint-platform=windows.
     let userAgent;
-    if (platform === 'darwin') {
+    if (fpOS === 'mac') {
         userAgent = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VERSION} Safari/537.36`;
-    } else if (platform === 'win32') {
+    } else if (fpOS === 'windows') {
         userAgent = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VERSION} Safari/537.36`;
     } else {
         userAgent = `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VERSION} Safari/537.36`;
@@ -276,19 +298,19 @@ function generateFingerprint() {
     return {
         platform: osData.platform,
         userAgent,
-        screen: { width: res.w, height: res.h },
-        window: { width: res.w, height: res.h },
+        screen: { width: scr.w, height: scr.h },
+        window: { width: scr.w, height: scr.h },
         languages: ['en-US', 'en'],
-        hardwareConcurrency: [4, 8, 12, 16][Math.floor(prng() * 4)],
-        deviceMemory: [4, 8, 16][Math.floor(prng() * 3)],
+        hardwareConcurrency: hwConc,
+        deviceMemory: devMem,
         canvasNoise: { r: Math.floor(prng() * 5) - 2, g: Math.floor(prng() * 5) - 2, b: Math.floor(prng() * 5) - 2 },
         audioNoise: (prng() * 0.000001 + 0.0000001),
         noiseSeed,
-        devicePixelRatio: res.dpr,
+        devicePixelRatio: scr.dpr,
         timezone: 'Auto',
         webgl: {
-            vendor: gpuPreset.webgl.vendor,
-            renderer: gpuPreset.webgl.renderer,
+            vendor: webglVendor,
+            renderer: webglRenderer,
             params: mergedGlParams
         },
         webgpu: {
@@ -296,7 +318,9 @@ function generateFingerprint() {
             features: gpuPreset.webgpu.features,
             limits: webgpuLimits
         },
-        mediaDevices
+        mediaDevices,
+        fonts: poolEntry && Array.isArray(poolEntry.fonts) ? poolEntry.fonts : undefined,
+        fpSource: poolEntry ? 'server-pool' : 'local'
     };
 }
 

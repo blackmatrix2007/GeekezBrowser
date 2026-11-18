@@ -1017,7 +1017,7 @@ async function handleApiRequest(method, pathname, body, params) {
     if (method === 'POST' && pathname === '/api/profiles') {
         const data = JSON.parse(body);
         const id = uuidv4();
-        const fingerprint = await generateFingerprint({});
+        const fingerprint = await generateFingerprint({ poolEntry: await pickPoolFingerprintEntry() });
         const baseName = data.name || `Profile-${Date.now()}`;
         const uniqueName = generateUniqueName(baseName);
         const newProfile = {
@@ -2799,6 +2799,55 @@ ipcMain.handle('bnc-get-auth', async () => {
 });
 
 // Lấy token GoClaw từ backend (keyless) — khách không phải nhập token
+// ─── BNC fingerprint pool (máy thật, lấy từ server CÓ AUTH) ─────────────────
+// Pool sinh từ gl_catalog_deep.json, phục vụ qua /api/bnc/fingerprint-pool (bncAuth).
+// Dùng để tạo fingerprint profile giống máy Windows thật thay cho preset local ít ỏi.
+let _fpPool = null;
+let _fpPoolTs = 0;
+const FP_POOL_TTL = 24 * 3600 * 1000;
+function _fpPoolCachePath() { try { return path.join(app.getPath('userData'), 'fingerprint-pool.json'); } catch (_) { return null; } }
+
+async function ensureFingerprintPool(force = false) {
+    if (!force && _fpPool && (Date.now() - _fpPoolTs) < FP_POOL_TTL) return _fpPool;
+    const auth = getSavedBncAuth();
+    if (auth && auth.accessToken) {
+        const fetched = await new Promise((resolve) => {
+            try {
+                const url = new URL(BNC_API + '/fingerprint-pool');
+                const req = https.request({
+                    hostname: url.hostname, path: url.pathname, method: 'GET',
+                    headers: { 'Authorization': 'Bearer ' + auth.accessToken, 'x-device-id': getDeviceId(), 'x-app-version': app.getVersion() },
+                }, (res) => {
+                    let d = ''; res.on('data', c => d += c); res.on('end', () => {
+                        if (res.statusCode !== 200) { resolve(null); return; }
+                        try { const j = JSON.parse(d); resolve(Array.isArray(j.pool) ? j.pool : null); } catch (_) { resolve(null); }
+                    });
+                });
+                req.on('error', () => resolve(null));
+                req.setTimeout(8000, () => { req.destroy(); resolve(null); });
+                req.end();
+            } catch (_) { resolve(null); }
+        });
+        if (fetched && fetched.length) {
+            _fpPool = fetched; _fpPoolTs = Date.now();
+            const p = _fpPoolCachePath();
+            if (p) { try { fs.writeFileSync(p, JSON.stringify({ ts: _fpPoolTs, pool: fetched })); } catch (_) {} }
+            return _fpPool;
+        }
+    }
+    // offline / chưa auth: dùng cache đĩa nếu có
+    if (!_fpPool) {
+        const p = _fpPoolCachePath();
+        if (p && fs.existsSync(p)) { try { const j = JSON.parse(fs.readFileSync(p, 'utf8')); if (Array.isArray(j.pool)) { _fpPool = j.pool; _fpPoolTs = j.ts || Date.now(); } } catch (_) {} }
+    }
+    return _fpPool;
+}
+
+async function pickPoolFingerprintEntry() {
+    try { const pool = await ensureFingerprintPool(); if (pool && pool.length) return pool[Math.floor(Math.random() * pool.length)]; } catch (_) {}
+    return null;
+}
+
 ipcMain.handle('bnc-goclaw-token', async () => {
     const auth = getSavedBncAuth();
     if (!auth || !auth.accessToken) return null;
@@ -3301,7 +3350,7 @@ ipcMain.handle('update-profile', async (event, updatedProfile) => {
 });
 ipcMain.handle('save-profile', async (event, data) => {
     const profiles = fs.existsSync(PROFILES_FILE) ? await fs.readJson(PROFILES_FILE) : [];
-    const fingerprint = data.fingerprint || generateFingerprint();
+    const fingerprint = data.fingerprint || generateFingerprint({ poolEntry: await pickPoolFingerprintEntry() });
 
     // Apply timezone — "Auto" means geo-detect from proxy IP at launch time
     if (data.timezone) fingerprint.timezone = data.timezone;

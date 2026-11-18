@@ -5265,7 +5265,21 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle, window
             if (profile.fingerprint?.hardwareConcurrency) {
                 launchArgs.push(`--fingerprint-hardware-concurrency=${profile.fingerprint.hardwareConcurrency}`);
             }
-            console.log(`[FP-Chromium] platform=windows, brand=Chrome (no canvas noise)`);
+            // ─── PHASE 2 (THỬ NGHIỆM — CẦN TEST WINDOWS + PIXELSCAN) ───────────────
+            // Engine 150 (adryfish) bật font + audio masking THEO SEED `--fingerprint`.
+            // Trước đây bỏ seed vì canvas noise lệch main-frame vs Web Worker → Pixelscan
+            // "Masking detected". Giờ engine 150 có `--disable-spoofing` CHỌN LỌC (Chrome 144+):
+            //   → bật seed cho FONT + AUDIO + clientrects, nhưng GIỮ canvas + gpu THẬT
+            //     để né đúng lỗi cross-context canvas cũ.
+            // CHƯA MERGE cho tới khi test trên Windows + pixelscan.com + browserleaks/fonts.
+            if (profile.fingerprint?.noiseSeed) {
+                const fpSeed = getFingerprintSeed(profile.fingerprint.noiseSeed) >>> 0;
+                launchArgs.push(`--fingerprint=${fpSeed}`);
+                launchArgs.push('--disable-spoofing=canvas,gpu');
+                console.log(`[FP-Chromium] seed=${fpSeed} → font+audio masking ON, canvas+gpu REAL`);
+            } else {
+                console.log(`[FP-Chromium] platform=windows, brand=Chrome (no seed — fonts off)`);
+            }
         }
 
         // Timezone setup:

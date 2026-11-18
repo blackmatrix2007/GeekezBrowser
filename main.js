@@ -2800,7 +2800,7 @@ ipcMain.handle('bnc-get-auth', async () => {
 
 // Lấy token GoClaw từ backend (keyless) — khách không phải nhập token
 // ─── BNC fingerprint pool (máy thật, lấy từ server CÓ AUTH) ─────────────────
-// Pool sinh từ gl_catalog_deep.json, phục vụ qua /api/bnc/fingerprint-pool (bncAuth).
+// Pool sinh từ gl_catalog_deep.json, phục vụ qua /api/bnc/v2/fingerprint-pool (bncAuth).
 // Dùng để tạo fingerprint profile giống máy Windows thật thay cho preset local ít ỏi.
 let _fpPool = null;
 let _fpPoolTs = 0;
@@ -2813,7 +2813,7 @@ async function ensureFingerprintPool(force = false) {
     if (auth && auth.accessToken) {
         const fetched = await new Promise((resolve) => {
             try {
-                const url = new URL(BNC_API + '/fingerprint-pool');
+                const url = new URL(BNC_API + '/v2/fingerprint-pool');
                 const req = https.request({
                     hostname: url.hostname, path: url.pathname, method: 'GET',
                     headers: { 'Authorization': 'Bearer ' + auth.accessToken, 'x-device-id': getDeviceId(), 'x-app-version': app.getVersion() },

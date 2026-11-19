@@ -561,6 +561,11 @@ async function dispatch(msg, ctx, tools, state) {
                 const name = params.name;
                 const fn = tools[name];
                 if (!fn) return rpcError(msg.id, -32602, `Unknown tool: ${name}`);
+                // Same rule as the UI: nothing works until the user is signed in to BNC
+                // (slot limits and server sync depend on the account).
+                if (!ctx.isLoggedIn()) {
+                    return { jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: 'BNC is not signed in. Open BNC and log in first, then retry.' }], isError: true } };
+                }
                 const args = params.arguments || {};
                 ctx.log({ tool: name, args: { ...args, proxy: args.proxy ? maskProxy(args.proxy) : undefined } });
                 try {

@@ -897,6 +897,7 @@ const mcpHandler = createMcpHandler({
     },
     releasePort: (profileId) => { delete mcpLaunchOpts[profileId]; },
     requestLaunch: requestRendererLaunch,
+    isLoggedIn: () => !!getSavedBncAuth()?.accessToken,
     refreshUI: () => notifyUIRefresh(),
     log: (obj) => debugLog('MCP', { level: 'info', ...obj }),
 });
@@ -4905,6 +4906,12 @@ ipcMain.handle('arrange-opening-profiles', async (_, settings) => arrangeRunning
 // --- 核心启动逻辑 ---
 ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle, windowOverride) => {
     const sender = event.sender;
+
+    // The UI only reaches this after login, but REST /api/open and MCP start_profile go
+    // through the renderer even while the login screen is up — require a session here.
+    if (!getSavedBncAuth()?.accessToken) {
+        throw new Error('BNC chưa đăng nhập — đăng nhập trước khi mở profile');
+    }
 
     if (activeProcesses[profileId]) {
         const proc = activeProcesses[profileId];

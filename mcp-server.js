@@ -24,34 +24,45 @@ const S = {
     int: (d, extra = {}) => ({ type: 'integer', description: d, ...extra }),
 };
 
+// Field names follow the de-facto convention of other anti-detect browsers' local APIs
+// (snake_case: raw_proxy, timezone_base_on_ip, fixed_language, addition_args, startup_urls…)
+// so existing automation scripts/prompts carry over. Older BNC names stay as aliases.
+const PROFILE_FIELDS = {
+    name: S.str('Profile name'),
+    group_id: S.str('Group ID ("" = no group)'),
+    raw_proxy: S.str('Proxy, e.g. socks5://user:pass@host:port, http://host:port, host:port:user:pass, or a vmess/vless/trojan/ss link. "" = direct. (alias: proxy)'),
+    timezone: S.str('IANA timezone, e.g. Asia/Ho_Chi_Minh'),
+    timezone_base_on_ip: { type: 'boolean', description: 'true = detect timezone from proxy IP at launch (overrides timezone)' },
+    fixed_language: S.str('Browser language, e.g. vi-VN (alias: language)'),
+    is_language_base_on_ip: { type: 'boolean', description: 'true = automatic language (overrides fixed_language)' },
+    custom_user_agent: S.str('Override User-Agent. Keep the Chrome major version equal to the BNC engine, otherwise UA and Client Hints disagree'),
+    tags: { type: 'array', items: { type: 'string' } },
+    note: S.str('Free-text note'),
+};
+
 const TOOLS = [
     {
         name: 'list_profiles',
-        description: 'List BNC browser profiles (paginated). Each item: id, name, group, tags, has_proxy, running.',
+        description: 'List BNC browser profiles (paginated). Each item: id, name, group, tags, has_proxy, status (online/offline).',
         inputSchema: { type: 'object', properties: {
             page: S.int('Page number, starts at 1', { minimum: 1, default: 1 }),
-            page_size: S.int('Items per page (max 200)', { minimum: 1, maximum: 200, default: 50 }),
+            per_page: S.int('Items per page, max 200 (alias: page_size)', { minimum: 1, maximum: 200, default: 50 }),
             search: S.str('Case-insensitive filter on name, tags and note'),
+            sort: { type: 'string', enum: ['created_desc', 'created_asc', 'name_asc', 'name_desc'], default: 'created_desc' },
             group_id: S.str('Only profiles in this group ("none" = ungrouped)'),
             running_only: { type: 'boolean', description: 'Only running profiles' },
         } },
     },
     {
         name: 'get_profile',
-        description: 'Get one profile: settings, proxy, key fingerprint fields, running state and CDP endpoint if running.',
+        description: 'Get one profile: settings, proxy, key fingerprint fields, status and CDP endpoint if running.',
         inputSchema: { type: 'object', properties: { id: S.id }, required: ['id'] },
     },
     {
         name: 'create_profile',
-        description: 'Create a new profile with a freshly generated fingerprint (same path as the "New profile" button).',
+        description: 'Create a new profile with a freshly generated fingerprint (same path as the "New profile" button). Default: timezone from proxy IP, automatic language.',
         inputSchema: { type: 'object', properties: {
-            name: S.str('Profile name'),
-            proxy: S.str('Proxy string, e.g. socks5://user:pass@host:port, http://host:port, host:port:user:pass, or a vmess/vless/trojan/ss link. Empty = direct'),
-            group_id: S.str('Group ID to put the profile in'),
-            tags: { type: 'array', items: { type: 'string' } },
-            note: S.str('Free-text note'),
-            timezone: S.str('IANA timezone, e.g. Asia/Ho_Chi_Minh. Omit = "Auto" (from proxy IP at launch)'),
-            language: S.str('Browser language, e.g. vi-VN. Omit = auto'),
+            ...PROFILE_FIELDS,
             screen_width: S.int('Custom screen width (needs screen_height)'),
             screen_height: S.int('Custom screen height (needs screen_width)'),
         }, required: ['name'] },
@@ -59,16 +70,7 @@ const TOOLS = [
     {
         name: 'update_profile',
         description: 'Update profile settings. Only the given fields change. Takes effect on next start.',
-        inputSchema: { type: 'object', properties: {
-            id: S.id,
-            name: S.str('New name'),
-            proxy: S.str('New proxy string ("" = direct)'),
-            group_id: S.str('Group ID ("" = remove from group)'),
-            tags: { type: 'array', items: { type: 'string' } },
-            note: S.str('Note'),
-            timezone: S.str('IANA timezone or "Auto"'),
-            language: S.str('Browser language or "auto"'),
-        }, required: ['id'] },
+        inputSchema: { type: 'object', properties: { id: S.id, ...PROFILE_FIELDS }, required: ['id'] },
     },
     {
         name: 'delete_profile',
@@ -80,10 +82,15 @@ const TOOLS = [
     },
     {
         name: 'start_profile',
-        description: 'Start a profile and return its Chrome DevTools Protocol endpoint. Connect with Playwright chromium.connectOverCDP(websocket_debugging_url), puppeteer.connect({browserWSEndpoint}), or raw CDP. Respects slot/lock limits of the BNC account.',
+        description: 'Start a profile and return its Chrome DevTools Protocol endpoint. Connect with Playwright chromium.connectOverCDP(websocket_debugging_url), puppeteer.connect({browserWSEndpoint}), Selenium (goog:chromeOptions.debuggerAddress = 127.0.0.1:<remote_debugging_port>), or raw CDP. Respects slot/lock limits of the BNC account.',
         inputSchema: { type: 'object', properties: {
             id: S.id,
-            allow_origins: S.str('Value for --remote-allow-origins, only needed by clients that send an Origin header on the CDP websocket (e.g. Python websocket-client). Example: "http://localhost". Avoid "*".'),
+            remote_debugging_port: S.int('Fixed CDP port (default: random free port)', { minimum: 1024, maximum: 65535 }),
+            addition_args: S.str('Extra Chrome switches separated by spaces, e.g. "--start-maximized --mute-audio". Switches BNC manages itself (user-data-dir, proxy, extensions, debugging port, fingerprint, timezone, language) are rejected. "--remote-allow-origins=<origins>" is accepted (needed by CDP clients that send an Origin header, e.g. Python websocket-client).'),
+            startup_urls: { description: 'URL(s) to open after start: array or comma-separated string (http/https only)', anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+            window_position: S.str('Window position "x,y", e.g. "0,0"'),
+            window_size: S.str('Window size "width,height", e.g. "1280,800"'),
+            allow_origins: S.str('Same as --remote-allow-origins in addition_args, e.g. "http://localhost". Avoid "*": any website open on this machine could then control the browser.'),
             timeout_sec: S.int('Max seconds to wait for the browser (default 90)', { minimum: 10, maximum: 300 }),
         }, required: ['id'] },
     },
@@ -136,6 +143,81 @@ function maskProxy(p) {
     return String(p).replace(/\/\/[^@\/]+@/, '//***@').replace(/^([^:\/]+:\d+):.+$/, '$1:***');
 }
 
+// Switches BNC sets itself — overriding them would break isolation, proxying or the fingerprint.
+const MANAGED_SWITCH_RE = /^--(user-data-dir|profile-directory|remote-debugging-(port|pipe|address)|load-extension|disable-extensions-except|disable-extensions|proxy-server|proxy-bypass-list|proxy-pac-url|no-proxy-server|proxy-auto-detect|fingerprint[\w-]*|disable-spoofing|timezone|lang|accept-lang|user-agent|disable-web-security|no-sandbox|disable-site-isolation-trials|enable-automation)(=|$)/i;
+const ORIGIN_LIST_RE = /^(\*|https?:\/\/[A-Za-z0-9.\-\[\]:]+)$/;
+
+function validateOrigins(value) {
+    const list = String(value).split(',').map(s => s.trim()).filter(Boolean);
+    if (!list.length || !list.every(o => ORIGIN_LIST_RE.test(o))) {
+        throw new ToolError('remote-allow-origins must be a comma-separated list of origins like http://localhost:3000');
+    }
+    return list.join(',');
+}
+
+/** "--a --b=1 --c=\"x y\"" → { args: [...], allowOrigins } ; rejects managed/unsafe switches. */
+function parseAdditionArgs(str) {
+    const out = { args: [], allowOrigins: null };
+    if (!str) return out;
+    const tokens = String(str).match(/--[^\s=]+(?:=(?:"[^"]*"|'[^']*'|\S*))?|\S+/g) || [];
+    for (let t of tokens) {
+        if (!t.startsWith('--')) throw new ToolError(`addition_args: "${t}" is not a --switch (use startup_urls for URLs)`);
+        t = t.replace(/=(["'])(.*)\1$/, '=$2');
+        const m = t.match(/^--remote-allow-origins=(.+)$/i);
+        if (m) { out.allowOrigins = validateOrigins(m[1]); continue; }
+        if (MANAGED_SWITCH_RE.test(t)) throw new ToolError(`addition_args: ${t.split('=')[0]} is managed by BNC and cannot be overridden`);
+        if (/[\r\n\0]/.test(t)) throw new ToolError('addition_args: invalid characters');
+        out.args.push(t);
+    }
+    if (out.args.length > 30) throw new ToolError('addition_args: too many switches');
+    return out;
+}
+
+function parsePair(value, label) {
+    if (value === undefined || value === null || value === '') return null;
+    const m = String(value).trim().match(/^(-?\d{1,5})\s*[,x×]\s*(-?\d{1,5})$/i);
+    if (!m) throw new ToolError(`${label} must look like "a,b" (e.g. "1280,800")`);
+    return [parseInt(m[1]), parseInt(m[2])];
+}
+
+function parseStartupUrls(v) {
+    if (!v) return [];
+    const list = (Array.isArray(v) ? v : String(v).split(',')).map(s => String(s).trim()).filter(Boolean);
+    for (const u of list) {
+        let ok = false;
+        try { ok = ['http:', 'https:'].includes(new URL(u).protocol); } catch (_) {}
+        if (!ok) throw new ToolError(`startup_urls: not an http(s) URL: ${u}`);
+    }
+    if (list.length > 20) throw new ToolError('startup_urls: at most 20 URLs');
+    return list;
+}
+
+const SORTS = {
+    created_desc: (a, b) => (b.createdAt || 0) - (a.createdAt || 0),
+    created_asc: (a, b) => (a.createdAt || 0) - (b.createdAt || 0),
+    name_asc: (a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true }),
+    name_desc: (a, b) => String(b.name || '').localeCompare(String(a.name || ''), undefined, { numeric: true }),
+};
+function normalizeSort(s) {
+    if (!s) return 'created_desc';
+    // accept created_desc / CreatedDesc / created-desc
+    const k = String(s).replace(/([a-z])([A-Z])/g, '$1_$2').replace(/-/g, '_').toLowerCase();
+    if (!SORTS[k]) throw new ToolError(`sort must be one of: ${Object.keys(SORTS).join(', ')}`);
+    return k;
+}
+
+function httpRequest(method, url, timeoutMs = 3000) {
+    return new Promise((resolve, reject) => {
+        const req = http.request(url, { method, timeout: timeoutMs }, (res) => {
+            res.resume();
+            res.on('end', () => resolve(res.statusCode));
+        });
+        req.on('timeout', () => req.destroy(new Error('timeout')));
+        req.on('error', reject);
+        req.end();
+    });
+}
+
 function httpGetJson(url, timeoutMs = 2000) {
     return new Promise((resolve, reject) => {
         const req = http.get(url, { timeout: timeoutMs }, (res) => {
@@ -165,11 +247,17 @@ function cdpInfo(port, version) {
     if (!port) return null;
     return {
         remote_debugging_port: port,
-        http_endpoint: `http://127.0.0.1:${port}`,
         websocket_debugging_url: version?.webSocketDebuggerUrl || null,
+        http_endpoint: `http://127.0.0.1:${port}`,
+        // BNC ships no WebDriver binary — Selenium users attach with debuggerAddress instead.
+        driver_path: '',
+        selenium_debugger_address: `127.0.0.1:${port}`,
         browser: version?.Browser || null,
     };
 }
+
+// Accept both `id` and `profile_id` (and `proxy`/`raw_proxy`, `language`/`fixed_language`…).
+const pick = (a, ...keys) => { for (const k of keys) if (a[k] !== undefined) return a[k]; return undefined; };
 
 // ─── Tool implementations ───────────────────────────────────────────────────
 function createTools(ctx) {
@@ -198,8 +286,37 @@ function createTools(ctx) {
         note: p.note || '',
         has_proxy: !!p.proxyStr,
         locked: !!p.isLocked,
+        status: isRunning(p.id) ? 'online' : 'offline',
         running: isRunning(p.id),
+        created_at: p.createdAt ? new Date(p.createdAt).toISOString() : null,
     });
+    const assertGroup = async (gid) => {
+        if (gid && !(await groupMap())[gid]) throw new ToolError(`Group not found: ${gid}`);
+    };
+    /** Apply GPM-style / BNC-style profile fields onto a profile + fingerprint. Returns changed keys. */
+    const applyProfileFields = (a, prof, fp) => {
+        const changed = [];
+        const name = pick(a, 'name');
+        if (name !== undefined) { const n = String(name).trim(); if (!n) throw new ToolError('name cannot be empty'); prof.name = n; changed.push('name'); }
+        const proxy = pick(a, 'raw_proxy', 'proxy');
+        if (proxy !== undefined) { prof.proxyStr = String(proxy || '').trim(); changed.push('raw_proxy'); }
+        if (a.tags !== undefined) { prof.tags = Array.isArray(a.tags) ? a.tags.map(String) : []; changed.push('tags'); }
+        if (a.note !== undefined) { prof.note = String(a.note); changed.push('note'); }
+        if (a.group_id !== undefined) { prof.groupId = a.group_id || null; changed.push('group_id'); }
+        if (a.timezone_base_on_ip === true) { fp.timezone = 'Auto'; changed.push('timezone'); }
+        else if (a.timezone !== undefined) { fp.timezone = a.timezone || 'Auto'; changed.push('timezone'); }
+        const lang = pick(a, 'fixed_language', 'language');
+        if (a.is_language_base_on_ip === true || (lang !== undefined && (!lang || lang === 'auto'))) { delete fp.language; changed.push('language'); }
+        else if (lang !== undefined) { fp.language = String(lang); changed.push('language'); }
+        if (a.custom_user_agent !== undefined) {
+            if (a.custom_user_agent) {
+                if (!/^Mozilla\/5\.0 \(.+\) AppleWebKit\/.+Chrome\/\d+/.test(a.custom_user_agent)) throw new ToolError('custom_user_agent must be a Chrome User-Agent string');
+                fp.userAgent = String(a.custom_user_agent);
+            }
+            changed.push('custom_user_agent');
+        }
+        return changed;
+    };
     const runningCdp = async (id) => {
         const proc = ctx.activeProcesses()[id];
         if (!proc?.debugPort) return null;
@@ -211,7 +328,8 @@ function createTools(ctx) {
     return {
         async list_profiles(a) {
             const page = Math.max(1, parseInt(a.page) || 1);
-            const size = Math.min(200, Math.max(1, parseInt(a.page_size) || 50));
+            const size = Math.min(200, Math.max(1, parseInt(pick(a, 'per_page', 'page_size')) || 50));
+            const sort = normalizeSort(a.sort);
             const groups = await groupMap();
             let list = await loadProfiles();
             if (a.search) {
@@ -220,21 +338,23 @@ function createTools(ctx) {
             }
             if (a.group_id) list = list.filter(p => a.group_id === 'none' ? !p.groupId : p.groupId === a.group_id);
             if (a.running_only) list = list.filter(p => isRunning(p.id));
+            list = list.slice().sort(SORTS[sort]);
             const total = list.length;
             return {
-                total, page, page_size: size, total_pages: Math.max(1, Math.ceil(total / size)),
+                total, page, per_page: size, total_pages: Math.max(1, Math.ceil(total / size)), sort,
                 profiles: list.slice((page - 1) * size, page * size).map(p => summary(p, groups)),
             };
         },
 
         async get_profile(a) {
-            const p = await findProfile(a.id);
+            const p = await findProfile(pick(a, 'id', 'profile_id'));
             const fp = p.fingerprint || {};
             return {
                 ...summary(p, await groupMap()),
-                proxy: maskProxy(p.proxyStr),
+                raw_proxy: maskProxy(p.proxyStr),
                 pre_proxy: p.preProxyOverride || 'default',
-                created_at: p.createdAt ? new Date(p.createdAt).toISOString() : null,
+                timezone_base_on_ip: !fp.timezone || fp.timezone === 'Auto',
+                is_language_base_on_ip: !fp.language,
                 fingerprint: {
                     platform: fp.platform, user_agent: fp.userAgent,
                     timezone: fp.timezone, language: fp.language || (fp.languages || [])[0],
@@ -247,73 +367,85 @@ function createTools(ctx) {
         },
 
         async create_profile(a) {
-            const name = String(a.name || '').trim();
-            if (!name) throw new ToolError('name is required');
-            if (a.group_id) {
-                const groups = await groupMap();
-                if (!groups[a.group_id]) throw new ToolError(`Group not found: ${a.group_id}`);
-            }
+            if (!String(a.name || '').trim()) throw new ToolError('name is required');
+            await assertGroup(a.group_id);
+            // Map onto the same payload the "New profile" form sends to save-profile.
+            const prof = {}, fp = {};
+            applyProfileFields(a, prof, fp);
             const data = {
-                name,
-                proxyStr: a.proxy || '',
-                tags: Array.isArray(a.tags) ? a.tags.map(String) : [],
-                note: a.note || '',
-                timezone: a.timezone || undefined,
-                language: a.language || undefined,
-                groupId: a.group_id || null,
+                name: prof.name,
+                proxyStr: prof.proxyStr || '',
+                tags: prof.tags || [],
+                note: prof.note || '',
+                timezone: fp.timezone && fp.timezone !== 'Auto' ? fp.timezone : undefined, // undefined → "Auto"
+                language: fp.language || undefined,
+                groupId: prof.groupId || null,
                 preProxyOverride: 'default',
             };
             if (a.screen_width && a.screen_height) data.screen = { width: parseInt(a.screen_width), height: parseInt(a.screen_height) };
-            const p = await ctx.invoke('save-profile', data);
+            let p = await ctx.invoke('save-profile', data);
+            if (fp.userAgent) {
+                // save-profile has no UA field — patch it in afterwards.
+                p = { ...p, fingerprint: { ...(p.fingerprint || {}), userAgent: fp.userAgent } };
+                await ctx.invoke('update-profile', p);
+            }
             ctx.refreshUI();
-            return { created: true, profile: summary(p, await groupMap()) };
+            return { success: true, profile: summary(p, await groupMap()) };
         },
 
         async update_profile(a) {
-            const p = await findProfile(a.id);
+            const p = await findProfile(pick(a, 'id', 'profile_id'));
             const next = { ...p, fingerprint: { ...(p.fingerprint || {}) } };
-            const changed = [];
-            if (a.name !== undefined) { const n = String(a.name).trim(); if (!n) throw new ToolError('name cannot be empty'); next.name = n; changed.push('name'); }
-            if (a.proxy !== undefined) { next.proxyStr = String(a.proxy); changed.push('proxy'); }
-            if (a.tags !== undefined) { next.tags = Array.isArray(a.tags) ? a.tags.map(String) : []; changed.push('tags'); }
-            if (a.note !== undefined) { next.note = String(a.note); changed.push('note'); }
-            if (a.group_id !== undefined) {
-                if (a.group_id && !(await groupMap())[a.group_id]) throw new ToolError(`Group not found: ${a.group_id}`);
-                next.groupId = a.group_id || null; changed.push('group_id');
-            }
-            if (a.timezone !== undefined) { next.fingerprint.timezone = a.timezone || 'Auto'; changed.push('timezone'); }
-            if (a.language !== undefined) {
-                if (!a.language || a.language === 'auto') delete next.fingerprint.language; else next.fingerprint.language = a.language;
-                changed.push('language');
-            }
+            await assertGroup(a.group_id);
+            const changed = applyProfileFields(a, next, next.fingerprint);
             if (!changed.length) throw new ToolError('Nothing to update');
             const ok = await ctx.invoke('update-profile', next);
             if (!ok) throw new ToolError('Update failed');
             ctx.refreshUI();
-            return { updated: changed, running: isRunning(p.id), note: isRunning(p.id) ? 'Profile is running — changes apply after restart' : undefined };
+            const running = isRunning(p.id);
+            return { success: true, updated: changed, message: running ? 'Profile is running — changes apply after restart' : 'Updated' };
         },
 
         async delete_profile(a) {
-            if (a.confirm !== true) throw new ToolError('Refused: deleting is permanent. Ask the user, then call again with confirm=true.');
-            const p = await findProfile(a.id);
+            if (a.confirm !== true) throw new ToolError('Refused: deleting is permanent (browser data, cookies, logins). Ask the user, then call again with confirm=true.');
+            const p = await findProfile(pick(a, 'id', 'profile_id'));
             await ctx.invoke('delete-profile', p.id);
             ctx.refreshUI();
-            return { deleted: true, id: p.id, name: p.name };
+            return { success: true, message: 'Deleted', profile_id: p.id, profile_name: p.name };
         },
 
         async start_profile(a) {
-            const p = await findProfile(a.id);
+            const p = await findProfile(pick(a, 'id', 'profile_id'));
+            const base = { success: true, message: 'Started', warning_message: '', profile_id: p.id, profile_name: p.name };
             if (p.isLocked) throw new ToolError('Profile is locked (no slot). Buy/upgrade a plan in BNC to unlock it.');
             if (isRunning(p.id)) {
                 const cdp = await runningCdp(p.id);
-                if (cdp) return { id: p.id, name: p.name, already_running: true, ...cdp };
-                throw new ToolError('Profile is already running without a CDP port (started from the UI). Call stop_profile, then start_profile again.');
+                const pid = ctx.activeProcesses()[p.id]?.chromeProcess?.pid || null;
+                if (cdp) return { ...base, message: 'Already running', process_id: pid, ...cdp };
+                throw new ToolError('Profile is already running without a CDP port (opened from the BNC window). Call stop_profile, then start_profile again.');
             }
-            if (a.allow_origins && !String(a.allow_origins).split(',').every(o => o === '*' || /^https?:\/\/[A-Za-z0-9.\-\[\]:]+$/.test(o.trim()))) {
-                throw new ToolError('allow_origins must be a comma-separated list of origins like http://localhost:3000');
+
+            // Validate everything before launching anything.
+            const extra = parseAdditionArgs(a.addition_args);
+            let allowOrigins = extra.allowOrigins;
+            if (a.allow_origins) allowOrigins = validateOrigins(a.allow_origins);
+            const pos = parsePair(a.window_position, 'window_position');
+            const size = parsePair(a.window_size, 'window_size');
+            if (size && (size[0] < 200 || size[1] < 150)) throw new ToolError('window_size too small');
+            const urls = parseStartupUrls(a.startup_urls);
+            const fixedPort = a.remote_debugging_port ? parseInt(a.remote_debugging_port) : null;
+            if (fixedPort !== null && !(fixedPort >= 1024 && fixedPort <= 65535)) throw new ToolError('remote_debugging_port must be 1024-65535');
+            let window = null;
+            if (pos || size) {
+                const fw = p.fingerprint?.window || {};
+                window = {
+                    x: pos ? pos[0] : 0, y: pos ? pos[1] : 0,
+                    w: size ? size[0] : (fw.width || 1280), h: size ? size[1] : (fw.height || 800),
+                };
             }
+
             const timeoutMs = Math.min(300, Math.max(10, parseInt(a.timeout_sec) || 90)) * 1000;
-            const port = await ctx.reservePort(p.id, { allowOrigins: a.allow_origins || null });
+            const port = await ctx.reservePort(p.id, { port: fixedPort, allowOrigins, extraArgs: extra.args, window });
             const result = await ctx.requestLaunch(p.id, timeoutMs);
             if (!result || !result.ok) {
                 ctx.releasePort(p.id);
@@ -322,14 +454,24 @@ function createTools(ctx) {
             const proc = ctx.activeProcesses()[p.id];
             const realPort = proc?.debugPort || port;
             const version = await waitForCdp(realPort, Math.min(30000, timeoutMs));
-            return { id: p.id, name: p.name, pid: proc?.chromeProcess?.pid || null, ...cdpInfo(realPort, version) };
+
+            const warnings = [];
+            if (allowOrigins === '*') warnings.push('remote-allow-origins=* lets any website open on this machine control this browser.');
+            if (result.message && /:/.test(result.message)) warnings.push(result.message);
+            for (const u of urls) {
+                try {
+                    const code = await httpRequest('PUT', `http://127.0.0.1:${realPort}/json/new?${encodeURI(u)}`);
+                    if (code >= 400) warnings.push(`Could not open ${u} (HTTP ${code})`);
+                } catch (e) { warnings.push(`Could not open ${u}: ${e.message}`); }
+            }
+            return { ...base, warning_message: warnings.join(' '), process_id: proc?.chromeProcess?.pid || null, ...cdpInfo(realPort, version) };
         },
 
         async stop_profile(a) {
-            const p = await findProfile(a.id);
-            if (!isRunning(p.id)) return { stopped: false, id: p.id, message: 'Profile is not running' };
+            const p = await findProfile(pick(a, 'id', 'profile_id'));
+            if (!isRunning(p.id)) return { success: false, message: 'Profile is not running', profile_id: p.id };
             const r = await ctx.invoke('stop-profile', p.id);
-            return { stopped: !!r?.success, id: p.id, name: p.name };
+            return { success: !!r?.success, message: r?.success ? 'Stopped' : 'Stop failed', profile_id: p.id, profile_name: p.name };
         },
 
         async list_running_profiles() {
@@ -338,7 +480,7 @@ function createTools(ctx) {
             const out = [];
             for (const id of ids) {
                 const p = profiles.find(x => x.id === id);
-                out.push({ id, name: p?.name || null, cdp: await runningCdp(id) });
+                out.push({ profile_id: id, profile_name: p?.name || null, process_id: ctx.activeProcesses()[id]?.chromeProcess?.pid || null, ...(await runningCdp(id) || { remote_debugging_port: null, note: 'Opened from the BNC window — no CDP port' }) });
             }
             return { count: out.length, profiles: out };
         },
@@ -346,7 +488,7 @@ function createTools(ctx) {
         async list_groups() {
             const groups = (await ctx.invoke('get-groups')) || [];
             const profiles = await loadProfiles();
-            return { groups: groups.map(g => ({ id: g.id, name: g.name, profile_count: profiles.filter(p => p.groupId === g.id).length })) };
+            return { groups: groups.map(g => ({ id: g.id, name: g.name, created_at: g.createdAt ? new Date(g.createdAt).toISOString() : null, profile_count: profiles.filter(p => p.groupId === g.id).length })) };
         },
 
         async create_group(a) {
@@ -354,7 +496,7 @@ function createTools(ctx) {
             if (!name) throw new ToolError('name is required');
             const g = await ctx.invoke('save-group', { name });
             ctx.refreshUI();
-            return { created: true, group: { id: g?.id, name: g?.name || name } };
+            return { success: true, group: { id: g?.id, name: g?.name || name } };
         },
 
         async update_group(a) {
@@ -364,7 +506,7 @@ function createTools(ctx) {
             if (!name) throw new ToolError('name is required');
             await ctx.invoke('update-group', { id: a.id, name });
             ctx.refreshUI();
-            return { updated: true, id: a.id, name };
+            return { success: true, group: { id: a.id, name } };
         },
 
         async delete_group(a) {
@@ -374,7 +516,7 @@ function createTools(ctx) {
             if (!g) throw new ToolError(`Group not found: ${a.id}`);
             await ctx.invoke('delete-group', g.id);
             ctx.refreshUI();
-            return { deleted: true, id: g.id, name: g.name };
+            return { success: true, message: 'Group deleted, its profiles are now ungrouped', group: { id: g.id, name: g.name } };
         },
 
         async list_extensions() {

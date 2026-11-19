@@ -887,9 +887,12 @@ const mcpHandler = createMcpHandler({
     settings: async () => (fs.existsSync(SETTINGS_FILE) ? await fs.readJson(SETTINGS_FILE).catch(() => ({})) : {}),
     invoke: invokeIpcHandler,
     activeProcesses: () => activeProcesses,
-    reservePort: async (profileId, { allowOrigins } = {}) => {
-        const port = await getPort();
-        mcpLaunchOpts[profileId] = { port, allowOrigins: allowOrigins || null, at: Date.now() };
+    reservePort: async (profileId, { port: wanted, allowOrigins, extraArgs, window } = {}) => {
+        const port = wanted ? await getPort({ port: wanted }) : await getPort();
+        if (wanted && port !== wanted) throw new Error(`Port ${wanted} is already in use`);
+        mcpLaunchOpts[profileId] = {
+            port, allowOrigins: allowOrigins || null, extraArgs: extraArgs || [], window: window || null, at: Date.now(),
+        };
         return port;
     },
     releasePort: (profileId) => { delete mcpLaunchOpts[profileId]; },
@@ -4920,6 +4923,8 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle, window
     delete mcpLaunchOpts[profileId];
     const mcpOpt = (_mcpOpt && Date.now() - _mcpOpt.at < 5 * 60 * 1000) ? _mcpOpt : null;
     let debugPort = null;
+    // MCP window_position/window_size → same path as "open & arrange" (skips auto re-tiling)
+    if (!windowOverride && mcpOpt?.window) windowOverride = mcpOpt.window;
 
     await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -5246,6 +5251,11 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle, window
                 launchArgs.push(...customArgsList);
                 console.log('⚡ Custom Args:', customArgsList.join(' '));
             }
+        }
+        // 6b. MCP start_profile addition_args (already validated/filtered in mcp-server.js)
+        if (mcpOpt?.extraArgs?.length) {
+            launchArgs.push(...mcpOpt.extraArgs);
+            console.log('[MCP] addition_args:', mcpOpt.extraArgs.join(' '));
         }
 
         // 5. 启动浏览器

@@ -3516,6 +3516,7 @@ ipcMain.handle('stop-profile', async (_, id) => {
 });
 
 ipcMain.handle('delete-profile', async (event, id) => {
+    _deletedProfileIds.add(id); // stop any pending session push from re-creating the folder
     // 关闭正在运行的进程
     if (activeProcesses[id]) {
         await forceKill(activeProcesses[id].xrayPid);
@@ -3542,6 +3543,13 @@ ipcMain.handle('delete-profile', async (event, id) => {
     await writeProfilesAtomic(profiles);
     // Sync to server (fire-and-forget)
     bncApiCall('DELETE', `/profiles/${id}`).catch(() => {});
+
+    // A session push already running holds browser_data open in a headless Chrome — let it
+    // finish (bounded) before deleting, otherwise removal fails on locked files.
+    const pendingPush = _sessionPushes.get(id);
+    if (pendingPush) {
+        await Promise.race([pendingPush.catch(() => {}), new Promise(r => setTimeout(r, 20000))]);
+    }
 
     // 永久删除 profile 文件夹（带重试机制）
     const profileDir = path.join(DATA_PATH, id);
@@ -4676,7 +4684,18 @@ async function pullAndApplyProfileSession(profileId, userDataDir, chromePath, lo
 // Push this profile's current cookies to the server. Fire-and-forget from the
 // caller — runs its own throwaway headless Chrome the same way the existing
 // full-backup export does.
+// In-flight pushes per profile, and profiles deleted meanwhile. Without this, deleting a
+// profile right after closing it raced the push: its headless Chrome started on the
+// already-deleted browser_data and re-created the whole profile folder on disk.
+const _sessionPushes = new Map();     // profileId -> Promise
+const _deletedProfileIds = new Set();
 async function pushProfileSessionToServer(profileId, userDataDir, chromePath) {
+    const run = _pushProfileSession(profileId, userDataDir, chromePath);
+    _sessionPushes.set(profileId, run);
+    try { return await run; }
+    finally { if (_sessionPushes.get(profileId) === run) _sessionPushes.delete(profileId); }
+}
+async function _pushProfileSession(profileId, userDataDir, chromePath) {
     try {
         const auth = getSavedBncAuth();
         if (!auth?.accessToken) return;
@@ -4684,6 +4703,11 @@ async function pushProfileSessionToServer(profileId, userDataDir, chromePath) {
         // Give OS/AV time to fully release browser_data file locks after Chrome exits.
         // 2s instead of 500ms: SQLite WAL checkpoint on Windows + AV scan can be slow.
         await new Promise(r => setTimeout(r, 2000));
+
+        if (_deletedProfileIds.has(profileId) || !fs.existsSync(userDataDir)) {
+            console.log(`[SessionSync] push skipped for ${profileId}: profile deleted`);
+            return;
+        }
 
         const browser = await puppeteer.launch({
             headless: 'new', executablePath: chromePath, userDataDir,

@@ -37,7 +37,16 @@
       "!package-lock.json",
       "!dist",
       "!_Trash_Bin",
-      "!release"
+      "!release",
+      "!.env",
+      "!.env.*",
+      "!*.md",
+      "!*.sh",
+      "!docs",
+      "!chromium-build",
+      "!electron-builder",
+      "!npm",
+      "!geekez-browser@*"
     ],
     "extraResources": [
       {

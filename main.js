@@ -1370,6 +1370,59 @@ ipcMain.handle('get-api-status', () => {
     return { running: apiServerRunning };
 });
 
+// ─── MCP: register BNC in Claude Code with one click ────────────────────────
+// GUI apps (esp. macOS) don't inherit the shell PATH, so look in the usual install spots too:
+// native installer (~/.local/bin), Homebrew, npm global, and the binary bundled with the
+// VS Code / Cursor extension.
+function findClaudeCli() {
+    const isWin = process.platform === 'win32';
+    const home = os.homedir();
+    const names = isWin ? ['claude.exe', 'claude.cmd'] : ['claude'];
+    const dirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+    dirs.push(path.join(home, '.local', 'bin'), path.join(home, '.claude', 'local'));
+    if (isWin) dirs.push(path.join(process.env.APPDATA || '', 'npm'));
+    else dirs.push('/opt/homebrew/bin', '/usr/local/bin', path.join(home, '.npm-global', 'bin'));
+    const candidates = [];
+    for (const d of dirs) for (const n of names) candidates.push(path.join(d, n));
+    for (const ext of ['.vscode', '.vscode-insiders', '.cursor', '.windsurf']) {
+        const root = path.join(home, ext, 'extensions');
+        try {
+            fs.readdirSync(root)
+                .filter(d => d.startsWith('anthropic.claude-code-'))
+                .sort((a, b) => b.localeCompare(a, undefined, { numeric: true })) // newest first
+                .forEach(d => candidates.push(path.join(root, d, 'resources', 'native-binary', isWin ? 'claude.exe' : 'claude')));
+        } catch (_) {}
+    }
+    return candidates.find(c => { try { return fs.statSync(c).isFile(); } catch (_) { return false; } }) || null;
+}
+
+function runClaudeCli(cli, args) {
+    return new Promise((resolve) => {
+        // .cmd shims (npm on Windows) need a shell; args are validated (fixed words, URL, alnum key).
+        const useShell = /\.cmd$/i.test(cli);
+        const quoted = useShell ? args.map(a => /[\s"]/.test(a) ? `"${a}"` : a) : args;
+        require('child_process').execFile(useShell ? `"${cli}"` : cli, quoted,
+            { timeout: 30000, windowsHide: true, shell: useShell, env: { ...process.env, ELECTRON_RUN_AS_NODE: '' } },
+            (err, stdout, stderr) => resolve({ ok: !err, out: `${stdout || ''}${stderr || ''}`.trim(), err }));
+    });
+}
+
+ipcMain.handle('mcp-install-claude', async () => {
+    const settings = fs.existsSync(SETTINGS_FILE) ? await fs.readJson(SETTINGS_FILE) : {};
+    if (!settings.enableMcp || !settings.apiKey) return { success: false, error: 'MCP chưa bật' };
+    if (!/^[A-Za-z0-9_\-]{8,128}$/.test(settings.apiKey)) return { success: false, error: 'API key có ký tự không hợp lệ — tạo key mới' };
+    const port = parseInt(settings.apiPort) || 12138;
+    const cli = findClaudeCli();
+    if (!cli) return { success: false, reason: 'cli_not_found' };
+    const url = `http://127.0.0.1:${port}/mcp`;
+    // Replace any previous "bnc" entry (old key/port) — ignore "not found".
+    await runClaudeCli(cli, ['mcp', 'remove', 'bnc', '--scope', 'user']);
+    const r = await runClaudeCli(cli, ['mcp', 'add', '--scope', 'user', '--transport', 'http', 'bnc', url,
+        '--header', `Authorization: Bearer ${settings.apiKey}`]);
+    debugLog('MCP', { level: r.ok ? 'info' : 'error', msg: 'install to Claude Code', cli, ok: r.ok, out: r.out.slice(0, 300) });
+    return r.ok ? { success: true, cli } : { success: false, error: r.out || r.err?.message || 'claude mcp add failed', cli };
+});
+
 
 function forceKill(pid) {
     return new Promise((resolve) => {

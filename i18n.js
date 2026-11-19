@@ -175,8 +175,11 @@ const enTranslations = {
     apiToggle: "🔌 API Server",
     apiToggleHint: "Enable REST API for remote profile management",
     mcpToggle: "🤖 MCP (AI control)",
-    mcpToggleHint: "Let Claude Code / Cursor manage and drive profiles via Model Context Protocol. Requires an API key.",
-    mcpCopyCmd: "📋 Copy Claude Code command",
+    mcpToggleHint: "Let Claude Code / Cursor manage and open profiles. One switch — turns on the API and creates the key for you.",
+    mcpInstallBtn: "⚡ Add to Claude Code",
+    mcpManualLabel: "Or run this command in a terminal:",
+    mcpJsonLabel: "Cursor / other MCP clients (JSON)",
+    mcpRestartNote: "After adding, restart your Claude Code session to see the bnc tools.",
     // Sidebar
     navMain: "MAIN",
     navOthers: "OTHERS",

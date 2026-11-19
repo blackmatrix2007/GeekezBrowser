@@ -174,8 +174,11 @@ window.viVN = {
     apiToggle: "🔌 API Server",
     apiToggleHint: "Bật REST API để quản lý profile từ xa",
     mcpToggle: "🤖 MCP (AI điều khiển)",
-    mcpToggleHint: "Cho Claude Code / Cursor quản lý và điều khiển profile qua Model Context Protocol. Bắt buộc có API Key.",
-    mcpCopyCmd: "📋 Copy lệnh Claude Code",
+    mcpToggleHint: "Cho Claude Code / Cursor quản lý và mở profile. Bật là dùng được ngay — tự bật API và tạo key.",
+    mcpInstallBtn: "⚡ Thêm vào Claude Code",
+    mcpManualLabel: "Hoặc chạy lệnh này trong terminal:",
+    mcpJsonLabel: "Cursor / client MCP khác (JSON)",
+    mcpRestartNote: "Sau khi thêm, mở lại session Claude Code để thấy các tool bnc.",
     // Sidebar
     navMain: "CHÍNH",
     navOthers: "KHÁC",

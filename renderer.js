@@ -3771,6 +3771,8 @@ function handleDevToggle(checkbox) {
         saveCustomArgsSetting(checkbox.checked);
     } else if (checkbox.id === 'enableApiServer') {
         saveApiServerSetting(checkbox.checked);
+    } else if (checkbox.id === 'enableMcp') {
+        saveMcpSetting(checkbox.checked);
     }
 }
 
@@ -3849,9 +3851,16 @@ async function saveApiServerSetting(enabled) {
             showAlert((t('apiError') || 'API 启动失败: ') + result.error);
         }
     } else {
-        // Stop API server
+        // Stop API server — MCP lives on it, so it goes off too
         await window.electronAPI.invoke('stop-api-server');
         document.getElementById('apiStatus').style.display = 'none';
+        if (settings.enableMcp) {
+            settings.enableMcp = false;
+            await window.electronAPI.saveSettings(settings);
+            const mcpBox = document.getElementById('enableMcp');
+            if (mcpBox) { mcpBox.checked = false; updateToggleVisual(mcpBox); }
+            _renderMcpInfo(settings);
+        }
         showAlert(t('apiStopped') || 'API 服务已停止');
     }
 }
@@ -3886,6 +3895,7 @@ async function saveApiKey() {
     const settings = await window.electronAPI.getSettings();
     settings.apiKey = key || null;
     await window.electronAPI.saveSettings(settings);
+    _renderMcpInfo(settings); // command/JSON embed the key
     showAlert(key ? 'API key saved. Restart API server to apply.' : 'API key cleared (no auth).');
 }
 
@@ -3932,43 +3942,104 @@ async function loadApiServerSetting() {
     } catch (e) { }
 
     const mcpBox = document.getElementById('enableMcp');
-    if (mcpBox) mcpBox.checked = !!settings.enableMcp;
+    if (mcpBox) { mcpBox.checked = !!settings.enableMcp; updateToggleVisual(mcpBox); }
     _renderMcpInfo(settings);
 }
 
 // ─── MCP (Model Context Protocol) ───────────────────────────────────────────
-function _renderMcpInfo(settings) {
+// One switch: enabling MCP also turns on the API server and creates the key, then shows a
+// ready-made command / JSON and a button that registers BNC in Claude Code directly.
+function _mcpConfig(settings) {
+    const url = `http://127.0.0.1:${settings.apiPort || 12138}/mcp`;
+    const key = settings.apiKey || '';
+    return {
+        url, key,
+        command: `claude mcp add --scope user --transport http bnc ${url} --header "Authorization: Bearer ${key}"`,
+        json: JSON.stringify({ mcpServers: { bnc: { type: 'http', url, headers: { Authorization: `Bearer ${key}` } } } }, null, 2),
+    };
+}
+
+async function _renderMcpInfo(settings) {
+    const on = !!settings.enableMcp;
     const info = document.getElementById('mcpInfo');
-    if (info) info.style.display = settings.enableMcp ? 'block' : 'none';
-    const ep = document.getElementById('mcpEndpoint');
-    if (ep) ep.textContent = `http://127.0.0.1:${settings.apiPort || 12138}/mcp`;
+    if (info) info.style.display = on ? 'block' : 'none';
+    const cfg = _mcpConfig(settings);
+    const cmdEl = document.getElementById('mcpCommand');
+    if (cmdEl) cmdEl.textContent = cfg.command;
+    const jsonEl = document.getElementById('mcpJson');
+    if (jsonEl) jsonEl.textContent = cfg.json;
+    let running = false;
+    try { running = !!(await window.electronAPI.invoke('get-api-status'))?.running; } catch (_) {}
+    const st = document.getElementById('mcpStatus');
+    if (st) st.style.display = on && running ? 'inline-block' : 'none';
+}
+
+function _setApiToggleUi(settings, running) {
+    const cb = document.getElementById('enableApiServer');
+    if (cb) { cb.checked = !!settings.enableApiServer; updateToggleVisual(cb); }
+    const sec = document.getElementById('apiPortSection');
+    if (sec) sec.style.display = settings.enableApiServer ? 'block' : 'none';
+    const st = document.getElementById('apiStatus');
+    if (st) st.style.display = running ? 'inline-block' : 'none';
+    const keyIn = document.getElementById('apiKeyInput');
+    if (keyIn) keyIn.value = settings.apiKey || '';
 }
 
 async function saveMcpSetting(enabled) {
     const settings = await window.electronAPI.getSettings();
     settings.enableMcp = enabled;
-    // MCP gives full control of profiles → an API key is mandatory. Create one if missing.
-    if (enabled && !settings.apiKey) {
-        generateApiKey();
-        settings.apiKey = document.getElementById('apiKeyInput').value;
+    if (enabled) {
+        // MCP gives full control of profiles → an API key is mandatory. Create one if missing.
+        if (!settings.apiKey) {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            const rnd = crypto.getRandomValues(new Uint32Array(32));
+            settings.apiKey = Array.from(rnd, n => chars[n % chars.length]).join('');
+        }
+        settings.enableApiServer = true;
+        settings.apiPort = settings.apiPort || 12138;
     }
     await window.electronAPI.saveSettings(settings);
-    _renderMcpInfo(settings);
-    if (enabled) {
-        showAlert(L('Đã bật MCP. Bấm "Copy lệnh Claude Code" rồi chạy trong terminal, sau đó mở lại session Claude Code.',
-                    'MCP enabled. Click "Copy Claude Code command", run it in a terminal, then restart your Claude Code session.'));
+
+    let running = false;
+    try { running = !!(await window.electronAPI.invoke('get-api-status'))?.running; } catch (_) {}
+    if (enabled && !running) {
+        const r = await window.electronAPI.invoke('start-api-server', { port: settings.apiPort });
+        running = !!r?.success;
+        if (!r?.success) showAlert((t('apiError') || 'API error: ') + (r?.error || ''));
     }
+    _setApiToggleUi(settings, running);
+    const status = document.getElementById('mcpInstallStatus');
+    if (status) status.textContent = '';
+    await _renderMcpInfo(settings);
 }
 
-async function copyMcpCommand() {
-    const settings = await window.electronAPI.getSettings();
-    if (!settings.apiKey) { showAlert(L('Chưa có API Key.', 'No API key set.')); return; }
-    const url = `http://127.0.0.1:${settings.apiPort || 12138}/mcp`;
-    const cmd = `claude mcp add --transport http bnc ${url} --header "Authorization: Bearer ${settings.apiKey}"`;
+async function copyMcpText(elId) {
+    const text = document.getElementById(elId)?.textContent || '';
     try {
-        await navigator.clipboard.writeText(cmd);
-        showAlert(L('Đã copy lệnh vào clipboard.', 'Command copied to clipboard.'));
-    } catch (e) { showAlert(cmd); }
+        await navigator.clipboard.writeText(text);
+        showAlert(L('Đã copy vào clipboard.', 'Copied to clipboard.'));
+    } catch (e) { showAlert(text); }
+}
+
+async function installMcpToClaude() {
+    const btn = document.getElementById('mcpInstallBtn');
+    const status = document.getElementById('mcpInstallStatus');
+    if (btn) btn.disabled = true;
+    if (status) status.textContent = L('Đang thêm…', 'Adding…');
+    try {
+        const r = await window.electronAPI.invoke('mcp-install-claude');
+        if (r?.success) {
+            if (status) status.textContent = '✅ ' + L('Đã thêm vào Claude Code. Mở lại session Claude Code để dùng.', 'Added to Claude Code. Restart your Claude Code session to use it.');
+        } else if (r?.reason === 'cli_not_found') {
+            if (status) status.textContent = '⚠️ ' + L('Không tìm thấy Claude Code trên máy — dùng lệnh bên dưới.', 'Claude Code not found on this machine — use the command below.');
+        } else {
+            if (status) status.textContent = '❌ ' + (r?.error || 'error');
+        }
+    } catch (e) {
+        if (status) status.textContent = '❌ ' + e.message;
+    } finally {
+        if (btn) btn.disabled = false;
+    }
 }
 
 function openApiDocs() {

@@ -1608,6 +1608,18 @@ async function initSettingsTabs() {
 initSettingsTabs();
 
 let globalSettings = { preProxies: [], subscriptions: [], mode: 'single', enablePreProxy: false };
+// globalSettings is a snapshot loaded at startup. Writing it back whole (as applyLang →
+// updateToolbar did on every language switch) reverted everything changed elsewhere since:
+// API key, API server / MCP toggles, remote debugging, extensions… Persist only the
+// proxy-manager keys it owns, on top of the current settings file.
+const GLOBAL_SETTINGS_KEYS = ['preProxies', 'subscriptions', 'mode', 'notify', 'enablePreProxy', 'selectedId'];
+async function saveGlobalSettings() {
+    const current = (await window.electronAPI.getSettings()) || {};
+    for (const k of GLOBAL_SETTINGS_KEYS) {
+        if (globalSettings[k] !== undefined) current[k] = globalSettings[k];
+    }
+    return window.electronAPI.saveSettings(current);
+}
 let currentEditId = null;
 let confirmCallback = null;
 let currentProxyGroup = 'manual';
@@ -2187,7 +2199,7 @@ async function checkSubscriptionUpdates() {
             updated = true;
         }
     }
-    if (updated) await window.electronAPI.saveSettings(globalSettings);
+    if (updated) await saveGlobalSettings();
 }
 
 async function checkUpdates() {
@@ -3089,7 +3101,7 @@ async function savePreProxy() {
     } else {
         globalSettings.preProxies.push({ id: Date.now().toString(), remark, url, enable: true, groupId: 'manual' });
     }
-    resetProxyInput(); renderProxyNodes(); await window.electronAPI.saveSettings(globalSettings);
+    resetProxyInput(); renderProxyNodes(); await saveGlobalSettings();
 }
 
 // --- Subscription Management ---
@@ -3148,7 +3160,7 @@ async function saveSubscription() {
     await updateSubscriptionNodes(sub);
     currentProxyGroup = sub.id;
     renderGroupTabs();
-    await window.electronAPI.saveSettings(globalSettings);
+    await saveGlobalSettings();
 }
 
 async function deleteSubscription() {
@@ -3158,7 +3170,7 @@ async function deleteSubscription() {
         globalSettings.subscriptions = globalSettings.subscriptions.filter(s => s.id !== id);
         globalSettings.preProxies = globalSettings.preProxies.filter(p => p.groupId !== id);
         currentProxyGroup = 'manual';
-        closeSubEditModal(); renderGroupTabs(); await window.electronAPI.saveSettings(globalSettings);
+        closeSubEditModal(); renderGroupTabs(); await saveGlobalSettings();
     });
 }
 
@@ -3235,14 +3247,14 @@ function togP(id) { const p = globalSettings.preProxies.find(x => x.id === id); 
 async function saveProxySettings() {
     globalSettings.mode = document.getElementById('proxyMode').value;
     globalSettings.notify = document.getElementById('notifySwitch').checked;
-    await window.electronAPI.saveSettings(globalSettings);
+    await saveGlobalSettings();
     closeProxyManager(); updateToolbar();
 }
 
 function updateToolbar() {
     const enable = document.getElementById('enablePreProxy').checked;
     globalSettings.enablePreProxy = enable;
-    window.electronAPI.saveSettings(globalSettings);
+    saveGlobalSettings();
     const d = document.getElementById('currentProxyDisplay');
     if (!enable) { d.innerText = "OFF"; d.style.color = "var(--text-secondary)"; d.style.border = "1px solid var(--border)"; return; }
     d.style.color = "var(--accent)"; d.style.border = "1px solid var(--accent)";
@@ -3588,7 +3600,7 @@ async function importSubscription(url) {
                 count++;
             }
         });
-        renderProxyNodes(); await window.electronAPI.saveSettings(globalSettings);
+        renderProxyNodes(); await saveGlobalSettings();
         showAlert(`${t('msgImported')} ${count} ${t('msgNodes')}`);
     } catch (e) { showAlert(t('subErr') + " " + e); }
 }

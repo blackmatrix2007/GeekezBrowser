@@ -1608,6 +1608,18 @@ async function initSettingsTabs() {
 initSettingsTabs();
 
 let globalSettings = { preProxies: [], subscriptions: [], mode: 'single', enablePreProxy: false };
+// globalSettings is a snapshot loaded at startup. Writing it back whole (as applyLang →
+// updateToolbar did on every language switch) reverted everything changed elsewhere since:
+// API key, API server / MCP toggles, remote debugging, extensions… Persist only the
+// proxy-manager keys it owns, on top of the current settings file.
+const GLOBAL_SETTINGS_KEYS = ['preProxies', 'subscriptions', 'mode', 'notify', 'enablePreProxy', 'selectedId'];
+async function saveGlobalSettings() {
+    const current = (await window.electronAPI.getSettings()) || {};
+    for (const k of GLOBAL_SETTINGS_KEYS) {
+        if (globalSettings[k] !== undefined) current[k] = globalSettings[k];
+    }
+    return window.electronAPI.saveSettings(current);
+}
 let currentEditId = null;
 let confirmCallback = null;
 let currentProxyGroup = 'manual';
@@ -2116,9 +2128,11 @@ async function init() {
         loadProfiles();
     });
 
-    window.electronAPI.onApiLaunchProfile((id) => {
+    window.electronAPI.onApiLaunchProfile(async (id, reqId) => {
         console.log('API triggered launch for:', id);
-        launch(id);
+        const result = await launch(id);
+        // MCP start_profile waits for this reply (REST /api/open sends no reqId)
+        if (reqId) window.electronAPI.apiLaunchResult(reqId, result || { ok: false, error: 'unknown' });
     });
 
     // Sau khi kích hoạt license từ dialog khởi động → hỏi chọn thư mục lưu dữ liệu
@@ -2185,7 +2199,7 @@ async function checkSubscriptionUpdates() {
             updated = true;
         }
     }
-    if (updated) await window.electronAPI.saveSettings(globalSettings);
+    if (updated) await saveGlobalSettings();
 }
 
 async function checkUpdates() {
@@ -2808,22 +2822,24 @@ async function launch(id, btnEl) {
     // Kiểm tra isLocked từ profile data
     const profiles = await window.electronAPI.getProfiles();
     const profile = profiles.find(p => p.id === id);
+    if (!profile) return { ok: false, error: 'Profile not found' };
     if (profile?.isLocked) {
         showConfirm(L('Profile này bị khóa do hết slot.\n\nMua thêm gói để mở khóa?', 'Profile is locked (no slot).\n\nBuy a plan to unlock?'), () => openPlansModal());
-        return;
+        return { ok: false, error: 'Profile is locked (no slot)' };
     }
     // Fallback: kiểm tra canRun — bỏ qua nếu đang ở team workspace (dùng slot của owner)
     const slots = _bncAuth?.slots;
     if (ws === 'own' && slots !== undefined && (slots.canRun ?? slots.available) <= 0) {
         showConfirm(L('Bạn đã hết slot — không thể mở profile.\n\nMua thêm gói để tiếp tục sử dụng?', 'No slot available — cannot open profile.\n\nBuy a plan to continue?'), () => openPlansModal());
-        return;
+        return { ok: false, error: 'No slot available on this BNC account' };
     }
     _setLaunchBtnLoading(btnEl, true);
     try {
         const watermarkStyle = localStorage.getItem('geekez_watermark_style') || 'enhanced';
         const msg = await window.electronAPI.launchProfile(id, watermarkStyle);
         if (msg && msg.includes(':')) showAlert(msg);
-    } catch (e) { showAlert('Error: ' + e.message); }
+        return { ok: true, message: msg || null };
+    } catch (e) { showAlert('Error: ' + e.message); return { ok: false, error: e.message }; }
     finally { _setLaunchBtnLoading(btnEl, false); }
 }
 
@@ -3085,7 +3101,7 @@ async function savePreProxy() {
     } else {
         globalSettings.preProxies.push({ id: Date.now().toString(), remark, url, enable: true, groupId: 'manual' });
     }
-    resetProxyInput(); renderProxyNodes(); await window.electronAPI.saveSettings(globalSettings);
+    resetProxyInput(); renderProxyNodes(); await saveGlobalSettings();
 }
 
 // --- Subscription Management ---
@@ -3144,7 +3160,7 @@ async function saveSubscription() {
     await updateSubscriptionNodes(sub);
     currentProxyGroup = sub.id;
     renderGroupTabs();
-    await window.electronAPI.saveSettings(globalSettings);
+    await saveGlobalSettings();
 }
 
 async function deleteSubscription() {
@@ -3154,7 +3170,7 @@ async function deleteSubscription() {
         globalSettings.subscriptions = globalSettings.subscriptions.filter(s => s.id !== id);
         globalSettings.preProxies = globalSettings.preProxies.filter(p => p.groupId !== id);
         currentProxyGroup = 'manual';
-        closeSubEditModal(); renderGroupTabs(); await window.electronAPI.saveSettings(globalSettings);
+        closeSubEditModal(); renderGroupTabs(); await saveGlobalSettings();
     });
 }
 
@@ -3231,14 +3247,14 @@ function togP(id) { const p = globalSettings.preProxies.find(x => x.id === id); 
 async function saveProxySettings() {
     globalSettings.mode = document.getElementById('proxyMode').value;
     globalSettings.notify = document.getElementById('notifySwitch').checked;
-    await window.electronAPI.saveSettings(globalSettings);
+    await saveGlobalSettings();
     closeProxyManager(); updateToolbar();
 }
 
 function updateToolbar() {
     const enable = document.getElementById('enablePreProxy').checked;
     globalSettings.enablePreProxy = enable;
-    window.electronAPI.saveSettings(globalSettings);
+    saveGlobalSettings();
     const d = document.getElementById('currentProxyDisplay');
     if (!enable) { d.innerText = "OFF"; d.style.color = "var(--text-secondary)"; d.style.border = "1px solid var(--border)"; return; }
     d.style.color = "var(--accent)"; d.style.border = "1px solid var(--accent)";
@@ -3584,7 +3600,7 @@ async function importSubscription(url) {
                 count++;
             }
         });
-        renderProxyNodes(); await window.electronAPI.saveSettings(globalSettings);
+        renderProxyNodes(); await saveGlobalSettings();
         showAlert(`${t('msgImported')} ${count} ${t('msgNodes')}`);
     } catch (e) { showAlert(t('subErr') + " " + e); }
 }
@@ -3851,6 +3867,7 @@ async function saveApiPort() {
     settings.apiPort = port;
     await window.electronAPI.saveSettings(settings);
     document.getElementById('apiPortDisplay').textContent = port;
+    _renderMcpInfo(settings);
 
     // Restart API server if enabled
     if (settings.enableApiServer) {
@@ -3875,7 +3892,8 @@ async function saveApiKey() {
 function generateApiKey() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     let key = '';
-    for (let i = 0; i < 32; i++) key += chars[Math.floor(Math.random() * chars.length)];
+    const rnd = crypto.getRandomValues(new Uint32Array(32));
+    for (let i = 0; i < 32; i++) key += chars[rnd[i] % chars.length];
     document.getElementById('apiKeyInput').value = key;
 }
 
@@ -3912,6 +3930,45 @@ async function loadApiServerSetting() {
             apiStatus.style.display = status.running ? 'inline-block' : 'none';
         }
     } catch (e) { }
+
+    const mcpBox = document.getElementById('enableMcp');
+    if (mcpBox) mcpBox.checked = !!settings.enableMcp;
+    _renderMcpInfo(settings);
+}
+
+// ─── MCP (Model Context Protocol) ───────────────────────────────────────────
+function _renderMcpInfo(settings) {
+    const info = document.getElementById('mcpInfo');
+    if (info) info.style.display = settings.enableMcp ? 'block' : 'none';
+    const ep = document.getElementById('mcpEndpoint');
+    if (ep) ep.textContent = `http://127.0.0.1:${settings.apiPort || 12138}/mcp`;
+}
+
+async function saveMcpSetting(enabled) {
+    const settings = await window.electronAPI.getSettings();
+    settings.enableMcp = enabled;
+    // MCP gives full control of profiles → an API key is mandatory. Create one if missing.
+    if (enabled && !settings.apiKey) {
+        generateApiKey();
+        settings.apiKey = document.getElementById('apiKeyInput').value;
+    }
+    await window.electronAPI.saveSettings(settings);
+    _renderMcpInfo(settings);
+    if (enabled) {
+        showAlert(L('Đã bật MCP. Bấm "Copy lệnh Claude Code" rồi chạy trong terminal, sau đó mở lại session Claude Code.',
+                    'MCP enabled. Click "Copy Claude Code command", run it in a terminal, then restart your Claude Code session.'));
+    }
+}
+
+async function copyMcpCommand() {
+    const settings = await window.electronAPI.getSettings();
+    if (!settings.apiKey) { showAlert(L('Chưa có API Key.', 'No API key set.')); return; }
+    const url = `http://127.0.0.1:${settings.apiPort || 12138}/mcp`;
+    const cmd = `claude mcp add --transport http bnc ${url} --header "Authorization: Bearer ${settings.apiKey}"`;
+    try {
+        await navigator.clipboard.writeText(cmd);
+        showAlert(L('Đã copy lệnh vào clipboard.', 'Command copied to clipboard.'));
+    } catch (e) { showAlert(cmd); }
 }
 
 function openApiDocs() {

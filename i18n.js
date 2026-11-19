@@ -174,6 +174,9 @@ const enTranslations = {
     argsToggleHint: "Add custom Chrome launch arguments for each profile",
     apiToggle: "🔌 API Server",
     apiToggleHint: "Enable REST API for remote profile management",
+    mcpToggle: "🤖 MCP (AI control)",
+    mcpToggleHint: "Let Claude Code / Cursor manage and drive profiles via Model Context Protocol. Requires an API key.",
+    mcpCopyCmd: "📋 Copy Claude Code command",
     // Sidebar
     navMain: "MAIN",
     navOthers: "OTHERS",

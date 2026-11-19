@@ -17,6 +17,23 @@ const { promisify } = require('util');
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
 const initSqlJs = require('sql.js');
+const { createMcpHandler } = require('./mcp-server');
+
+// Keep a reference to every ipcMain.handle() handler so in-process callers (MCP server)
+// can reuse the exact UI code paths (server sync, fingerprint generation…) instead of
+// duplicating them. Must run before the first ipcMain.handle() registration.
+const _ipcHandlers = new Map();
+{
+    const _origHandle = ipcMain.handle.bind(ipcMain);
+    ipcMain.handle = (channel, fn) => { _ipcHandlers.set(channel, fn); return _origHandle(channel, fn); };
+}
+async function invokeIpcHandler(channel, ...args) {
+    const fn = _ipcHandlers.get(channel);
+    if (!fn) throw new Error(`No IPC handler: ${channel}`);
+    const sender = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow.webContents
+        : { send() {}, isDestroyed: () => true };
+    return fn({ sender }, ...args);
+}
 
 // ─── Stable userData path: pinned to 'BNC' regardless of productName ──────────
 // MUST be called before any app.getPath('userData') — all constants below depend on it.
@@ -842,6 +859,67 @@ let apiServer = null;
 let apiServerRunning = false;
 let mainWindow = null; // Global reference for API-to-UI communication
 
+// ─── MCP launch plumbing ────────────────────────────────────────────────────
+// start_profile reserves a CDP port, then asks the renderer to launch (so slot / locked
+// checks in renderer.launch() still apply) and waits for the renderer's reply.
+const mcpLaunchOpts = {};          // profileId -> { port, allowOrigins }
+const pendingApiLaunches = new Map(); // reqId -> resolve
+ipcMain.on('api-launch-result', (_, { reqId, result } = {}) => {
+    const resolve = pendingApiLaunches.get(reqId);
+    if (resolve) { pendingApiLaunches.delete(reqId); resolve(result); }
+});
+function requestRendererLaunch(profileId, timeoutMs) {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        return Promise.resolve({ ok: false, error: 'BNC window is not open' });
+    }
+    const reqId = crypto.randomUUID();
+    return new Promise(resolve => {
+        const timer = setTimeout(() => {
+            pendingApiLaunches.delete(reqId);
+            resolve({ ok: false, error: `Launch timed out after ${Math.round(timeoutMs / 1000)}s` });
+        }, timeoutMs);
+        pendingApiLaunches.set(reqId, (r) => { clearTimeout(timer); resolve(r); });
+        mainWindow.webContents.send('api-launch-profile', profileId, reqId);
+    });
+}
+const mcpHandler = createMcpHandler({
+    appVersion: app.getVersion(),
+    settings: async () => (fs.existsSync(SETTINGS_FILE) ? await fs.readJson(SETTINGS_FILE).catch(() => ({})) : {}),
+    invoke: invokeIpcHandler,
+    activeProcesses: () => activeProcesses,
+    reservePort: async (profileId, { port: wanted, allowOrigins, extraArgs, window } = {}) => {
+        // For a fixed port only ask "is something listening on it?" — get-port's trial listen also
+        // fails on lingering TIME_WAIT entries from earlier CDP connections, which Chrome binds
+        // through fine. A browser stopped a moment ago may still be exiting — wait up to ~10s.
+        const isListening = (p) => new Promise(res => {
+            const s = require('net').connect(p, '127.0.0.1');
+            s.setTimeout(800, () => { s.destroy(); res(false); });
+            s.once('connect', () => { s.destroy(); res(true); });
+            s.once('error', () => res(false));
+        });
+        let port = wanted || await getPort();
+        let busy = wanted ? await isListening(wanted) : false;
+        for (let i = 0; busy && i < 20; i++) {
+            await new Promise(r => setTimeout(r, 500));
+            busy = await isListening(wanted);
+        }
+        if (busy) {
+            const e = new Error(`Port ${wanted} is already in use — pick another remote_debugging_port or omit it`);
+            e.isToolError = true;
+            throw e;
+        }
+        mcpLaunchOpts[profileId] = {
+            port, allowOrigins: allowOrigins || null, extraArgs: extraArgs || [], window: window || null, at: Date.now(),
+        };
+        return port;
+    },
+    releasePort: (profileId) => { delete mcpLaunchOpts[profileId]; },
+    requestLaunch: requestRendererLaunch,
+    isLoggedIn: () => !!getSavedBncAuth()?.accessToken,
+    refreshUI: () => notifyUIRefresh(),
+    log: (obj) => debugLog('MCP', { level: 'info', ...obj }),
+});
+
 // ============================================================================
 // REST API Server
 // ============================================================================
@@ -852,6 +930,16 @@ function createApiServer(port, apiKey) {
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Api-Key');
         res.setHeader('Content-Type', 'application/json');
+
+        // MCP endpoint — own auth (Bearer apiKey, mandatory) + Origin/Host checks, see mcp-server.js
+        if (req.url === '/mcp' || req.url.startsWith('/mcp?')) {
+            try { await mcpHandler(req, res); }
+            catch (err) {
+                debugLog('MCP', { level: 'error', msg: err.message });
+                if (!res.headersSent) { res.writeHead(500); res.end(JSON.stringify({ error: err.message })); }
+            }
+            return;
+        }
 
         if (req.method === 'OPTIONS') {
             res.writeHead(200);
@@ -3347,6 +3435,9 @@ async function updateProfileSyncStatus(id, synced) {
 }
 
 ipcMain.handle('get-profiles', async () => {
+    // Wait for any queued atomic write: on Windows fs.move(overwrite) removes the old file
+    // before renaming the tmp one, so a read in between would see no file and return [].
+    await _writeProfilesQueue.catch(() => {});
     if (!fs.existsSync(PROFILES_FILE)) return [];
     try {
         return await fs.readJson(PROFILES_FILE);
@@ -3523,6 +3614,7 @@ ipcMain.handle('stop-profile', async (_, id) => {
 });
 
 ipcMain.handle('delete-profile', async (event, id) => {
+    _deletedProfileIds.add(id); // stop any pending session push from re-creating the folder
     // 关闭正在运行的进程
     if (activeProcesses[id]) {
         await forceKill(activeProcesses[id].xrayPid);
@@ -3549,6 +3641,13 @@ ipcMain.handle('delete-profile', async (event, id) => {
     await writeProfilesAtomic(profiles);
     // Sync to server (fire-and-forget)
     bncApiCall('DELETE', `/profiles/${id}`).catch(() => {});
+
+    // A session push already running holds browser_data open in a headless Chrome — let it
+    // finish (bounded) before deleting, otherwise removal fails on locked files.
+    const pendingPush = _sessionPushes.get(id);
+    if (pendingPush) {
+        await Promise.race([pendingPush.catch(() => {}), new Promise(r => setTimeout(r, 20000))]);
+    }
 
     // 永久删除 profile 文件夹（带重试机制）
     const profileDir = path.join(DATA_PATH, id);
@@ -4683,7 +4782,18 @@ async function pullAndApplyProfileSession(profileId, userDataDir, chromePath, lo
 // Push this profile's current cookies to the server. Fire-and-forget from the
 // caller — runs its own throwaway headless Chrome the same way the existing
 // full-backup export does.
+// In-flight pushes per profile, and profiles deleted meanwhile. Without this, deleting a
+// profile right after closing it raced the push: its headless Chrome started on the
+// already-deleted browser_data and re-created the whole profile folder on disk.
+const _sessionPushes = new Map();     // profileId -> Promise
+const _deletedProfileIds = new Set();
 async function pushProfileSessionToServer(profileId, userDataDir, chromePath) {
+    const run = _pushProfileSession(profileId, userDataDir, chromePath);
+    _sessionPushes.set(profileId, run);
+    try { return await run; }
+    finally { if (_sessionPushes.get(profileId) === run) _sessionPushes.delete(profileId); }
+}
+async function _pushProfileSession(profileId, userDataDir, chromePath) {
     try {
         const auth = getSavedBncAuth();
         if (!auth?.accessToken) return;
@@ -4691,6 +4801,11 @@ async function pushProfileSessionToServer(profileId, userDataDir, chromePath) {
         // Give OS/AV time to fully release browser_data file locks after Chrome exits.
         // 2s instead of 500ms: SQLite WAL checkpoint on Windows + AV scan can be slow.
         await new Promise(r => setTimeout(r, 2000));
+
+        if (_deletedProfileIds.has(profileId) || !fs.existsSync(userDataDir)) {
+            console.log(`[SessionSync] push skipped for ${profileId}: profile deleted`);
+            return;
+        }
 
         const browser = await puppeteer.launch({
             headless: 'new', executablePath: chromePath, userDataDir,
@@ -4932,6 +5047,12 @@ ipcMain.handle('arrange-opening-profiles', async (_, settings) => arrangeRunning
 ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle, windowOverride) => {
     const sender = event.sender;
 
+    // The UI only reaches this after login, but REST /api/open and MCP start_profile go
+    // through the renderer even while the login screen is up — require a session here.
+    if (!getSavedBncAuth()?.accessToken) {
+        throw new Error('BNC chưa đăng nhập — đăng nhập trước khi mở profile');
+    }
+
     if (activeProcesses[profileId]) {
         const proc = activeProcesses[profileId];
         const isAlive = proc.chromeProcess && proc.chromeProcess.exitCode === null;
@@ -4943,6 +5064,14 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle, window
             delete activeProcesses[profileId];
         }
     }
+
+    // CDP port reserved by MCP start_profile (consumed once; ignored if stale)
+    const _mcpOpt = mcpLaunchOpts[profileId];
+    delete mcpLaunchOpts[profileId];
+    const mcpOpt = (_mcpOpt && Date.now() - _mcpOpt.at < 5 * 60 * 1000) ? _mcpOpt : null;
+    let debugPort = null;
+    // MCP window_position/window_size → same path as "open & arrange" (skips auto re-tiling)
+    if (!windowOverride && mcpOpt?.window) windowOverride = mcpOpt.window;
 
     await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -5247,6 +5376,15 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle, window
             console.log(`🔗 Connect: chrome://inspect or ws://localhost:${profile.debugPort}`);
             console.log('⚠️  WARNING: May increase automation detection risk!');
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            debugPort = profile.debugPort;
+        } else if (mcpOpt?.port) {
+            // Launched by MCP start_profile — CDP on a random free port, bound to localhost by Chrome.
+            launchArgs.push(`--remote-debugging-port=${mcpOpt.port}`);
+            debugPort = mcpOpt.port;
+            console.log(`[MCP] Remote debugging on 127.0.0.1:${mcpOpt.port}`);
+        }
+        if (debugPort && mcpOpt?.allowOrigins) {
+            launchArgs.push(`--remote-allow-origins=${mcpOpt.allowOrigins}`);
         }
 
         // 6. Custom Launch Arguments (if enabled)
@@ -5260,6 +5398,11 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle, window
                 launchArgs.push(...customArgsList);
                 console.log('⚡ Custom Args:', customArgsList.join(' '));
             }
+        }
+        // 6b. MCP start_profile addition_args (already validated/filtered in mcp-server.js)
+        if (mcpOpt?.extraArgs?.length) {
+            launchArgs.push(...mcpOpt.extraArgs);
+            console.log('[MCP] addition_args:', mcpOpt.extraArgs.join(' '));
         }
 
         // 5. 启动浏览器
@@ -5395,6 +5538,7 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle, window
             xrayLocalPort: isDirect ? null : localPort,
             chromeProcess,
             logFd: logFd,
+            debugPort,
             startedAt: Date.now()
         };
         sender.send('profile-status', { id: profileId, status: 'running' });

@@ -173,6 +173,9 @@ window.viVN = {
     argsToggleHint: "Thêm tham số Chrome tùy chỉnh cho mỗi profile",
     apiToggle: "🔌 API Server",
     apiToggleHint: "Bật REST API để quản lý profile từ xa",
+    mcpToggle: "🤖 MCP (AI điều khiển)",
+    mcpToggleHint: "Cho Claude Code / Cursor quản lý và điều khiển profile qua Model Context Protocol. Bắt buộc có API Key.",
+    mcpCopyCmd: "📋 Copy lệnh Claude Code",
     // Sidebar
     navMain: "CHÍNH",
     navOthers: "KHÁC",

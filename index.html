@@ -1990,6 +1990,21 @@
                                 <button class="outline" onclick="generateApiKey()" style="padding:6px 14px; font-size:11px;">Generate</button>
                             </div>
                             <p style="margin-top:6px; font-size:11px; opacity:0.5;">Send as <code style="font-size:10px;">X-Api-Key</code> header or <code style="font-size:10px;">?api_key=</code> query param.</p>
+                            <div style="height:1px; background:var(--border); margin:12px 0;"></div>
+                            <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+                                <input type="checkbox" id="enableMcp" style="width:auto; cursor:pointer;" onchange="saveMcpSetting(this.checked)">
+                                <div style="flex:1;">
+                                    <div style="font-size:13px; font-weight:500; color:var(--text-primary);" data-i18n="mcpToggle">🤖 MCP (AI điều khiển)</div>
+                                    <div style="font-size:11px; color:var(--text-secondary); opacity:0.8;" data-i18n="mcpToggleHint">Cho Claude Code / Cursor quản lý và điều khiển profile qua Model Context Protocol. Bắt buộc có API Key.</div>
+                                </div>
+                            </label>
+                            <div id="mcpInfo" style="display:none; margin-top:10px;">
+                                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                                    <code id="mcpEndpoint" style="font-size:12px; color:var(--accent);">http://127.0.0.1:12138/mcp</code>
+                                    <button class="outline" onclick="copyMcpCommand()" style="padding:6px 14px; font-size:11px; margin-left:auto;" data-i18n="mcpCopyCmd">📋 Copy lệnh Claude Code</button>
+                                </div>
+                                <p style="margin-top:6px; font-size:11px; opacity:0.5;">Header <code style="font-size:10px;">Authorization: Bearer &lt;API Key&gt;</code></p>
+                            </div>
                         </div>
                     </div>
                 </div>

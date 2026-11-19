@@ -39,7 +39,14 @@
       "!_Trash_Bin",
       "!release",
       "!.env",
-      "!.env.*"
+      "!.env.*",
+      "!*.md",
+      "!*.sh",
+      "!docs",
+      "!chromium-build",
+      "!electron-builder",
+      "!npm",
+      "!geekez-browser@*"
     ],
     "extraResources": [
       {

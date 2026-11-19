@@ -175,5 +175,8 @@ window.zhCN = {
     argsToggle: "⚡ 自定义启动参数",
     argsToggleHint: "启用后可为每个环境添加自定义 Chrome 启动参数",
     apiToggle: "🔌 API 服务",
-    apiToggleHint: "启用后可通过 REST API 远程管理环境"
+    apiToggleHint: "启用后可通过 REST API 远程管理环境",
+    mcpToggle: "🤖 MCP (AI 控制)",
+    mcpToggleHint: "允许 Claude Code / Cursor 通过 Model Context Protocol 管理和控制环境，需要 API Key",
+    mcpCopyCmd: "📋 复制 Claude Code 命令"
 };

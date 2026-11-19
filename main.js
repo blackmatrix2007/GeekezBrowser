@@ -2814,8 +2814,11 @@ async function ensureFingerprintPool(force = false) {
         const fetched = await new Promise((resolve) => {
             try {
                 const url = new URL(BNC_API + '/v2/fingerprint-pool');
+                // Pool theo đúng OS máy chạy → coherent với engine (Mac/CfT = fingerprint Mac,
+                // Windows/fp-chromium = fingerprint Windows). Server mặc định windows nếu thiếu.
+                url.searchParams.set('platform', process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'windows' : 'linux');
                 const req = https.request({
-                    hostname: url.hostname, path: url.pathname, method: 'GET',
+                    hostname: url.hostname, path: url.pathname + url.search, method: 'GET',
                     headers: { 'Authorization': 'Bearer ' + auth.accessToken, 'x-device-id': getDeviceId(), 'x-app-version': app.getVersion() },
                 }, (res) => {
                     let d = ''; res.on('data', c => d += c); res.on('end', () => {

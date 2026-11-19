@@ -278,7 +278,7 @@ function generateFingerprint(opts = {}) {
 
     // Pool override cho phần cứng máy thật (GPU renderer / độ phân giải / nhân / RAM / fonts).
     // UA GIỮ theo engine (CHROME_VERSION) — KHÔNG ép UA pool để tránh lệch version engine.
-    const scr = poolEntry && poolEntry.screen ? { w: poolEntry.screen.width, h: poolEntry.screen.height, dpr: 1 } : res;
+    const scr = poolEntry && poolEntry.screen ? { w: poolEntry.screen.width, h: poolEntry.screen.height, dpr: poolEntry.dpr || 1 } : res;
     const webglVendor = poolEntry && poolEntry.webgl ? poolEntry.webgl.vendor : gpuPreset.webgl.vendor;
     const webglRenderer = poolEntry && poolEntry.webgl ? poolEntry.webgl.renderer : gpuPreset.webgl.renderer;
     const hwConc = poolEntry && poolEntry.hardwareConcurrency ? poolEntry.hardwareConcurrency : [4, 8, 12, 16][Math.floor(prng() * 4)];

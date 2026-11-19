@@ -2802,53 +2802,68 @@ ipcMain.handle('bnc-get-auth', async () => {
 // ─── BNC fingerprint pool (máy thật, lấy từ server CÓ AUTH) ─────────────────
 // Pool sinh từ gl_catalog_deep.json, phục vụ qua /api/bnc/v2/fingerprint-pool (bncAuth).
 // Dùng để tạo fingerprint profile giống máy Windows thật thay cho preset local ít ỏi.
-let _fpPool = null;
-let _fpPoolTs = 0;
-const FP_POOL_TTL = 24 * 3600 * 1000;
-function _fpPoolCachePath() { try { return path.join(app.getPath('userData'), 'fingerprint-pool.json'); } catch (_) { return null; } }
+// ─── CHỐNG TRÍCH XUẤT POOL ──────────────────────────────────────────────────
+// KHÔNG cache cả pool ra đĩa (trước đây ghi userData/fingerprint-pool.json 24h → ai đọc
+// userData / giải app.asar là lấy sạch 100 máy thật). Thay bằng:
+//  - chỉ fetch 1 BATCH NHỎ (?n=FP_BUF_N) vào RAM, dùng xong POP bỏ, hết thì fetch batch mới;
+//  - TTL ngắn (FP_BUF_TTL) → không giữ asset lâu trong bộ nhớ;
+//  - KHÔNG ghi đĩa, offline/chưa auth → trả null → generateFingerprint fallback local.
+// => Tối đa chỉ FP_BUF_N entry tồn tại trong RAM, ≤ FP_BUF_TTL, không bao giờ chạm đĩa.
+let _fpBuf = [];
+let _fpBufTs = 0;
+const FP_BUF_TTL = 10 * 60 * 1000; // 10 phút
+const FP_BUF_N = 8;                 // số entry lấy mỗi lần (nhỏ, không phải cả pool)
+let _fpLegacyCleaned = false;
 
-async function ensureFingerprintPool(force = false) {
-    if (!force && _fpPool && (Date.now() - _fpPoolTs) < FP_POOL_TTL) return _fpPool;
+// Dọn file cache pool CŨ (bản 24h trước đây) cho user đang có — bịt rò lịch sử.
+function _cleanupLegacyFpCache() {
+    if (_fpLegacyCleaned) return;
+    _fpLegacyCleaned = true;
+    try {
+        const p = path.join(app.getPath('userData'), 'fingerprint-pool.json');
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+    } catch (_) {}
+}
+
+// Fetch 1 batch nhỏ, KHÔNG lưu đĩa. Trả array hoặc null.
+async function fetchFingerprintBatch(n) {
     const auth = getSavedBncAuth();
-    if (auth && auth.accessToken) {
-        const fetched = await new Promise((resolve) => {
-            try {
-                const url = new URL(BNC_API + '/v2/fingerprint-pool');
-                // Pool theo đúng OS máy chạy → coherent với engine (Mac/CfT = fingerprint Mac,
-                // Windows/fp-chromium = fingerprint Windows). Server mặc định windows nếu thiếu.
-                url.searchParams.set('platform', process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'windows' : 'linux');
-                const req = https.request({
-                    hostname: url.hostname, path: url.pathname + url.search, method: 'GET',
-                    headers: { 'Authorization': 'Bearer ' + auth.accessToken, 'x-device-id': getDeviceId(), 'x-app-version': app.getVersion() },
-                }, (res) => {
-                    let d = ''; res.on('data', c => d += c); res.on('end', () => {
-                        if (res.statusCode !== 200) { resolve(null); return; }
-                        try { const j = JSON.parse(d); resolve(Array.isArray(j.pool) ? j.pool : null); } catch (_) { resolve(null); }
-                    });
+    if (!auth || !auth.accessToken) return null;
+    return await new Promise((resolve) => {
+        try {
+            const url = new URL(BNC_API + '/v2/fingerprint-pool');
+            // Pool theo đúng OS máy chạy → coherent với engine (Mac/CfT = fingerprint Mac,
+            // Windows/fp-chromium = fingerprint Windows). Server mặc định windows nếu thiếu.
+            url.searchParams.set('platform', process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'windows' : 'linux');
+            url.searchParams.set('n', String(n));
+            const req = https.request({
+                hostname: url.hostname, path: url.pathname + url.search, method: 'GET',
+                headers: { 'Authorization': 'Bearer ' + auth.accessToken, 'x-device-id': getDeviceId(), 'x-app-version': app.getVersion() },
+            }, (res) => {
+                let d = ''; res.on('data', c => d += c); res.on('end', () => {
+                    if (res.statusCode !== 200) { resolve(null); return; }
+                    try { const j = JSON.parse(d); resolve(Array.isArray(j.pool) ? j.pool : null); } catch (_) { resolve(null); }
                 });
-                req.on('error', () => resolve(null));
-                req.setTimeout(8000, () => { req.destroy(); resolve(null); });
-                req.end();
-            } catch (_) { resolve(null); }
-        });
-        if (fetched && fetched.length) {
-            _fpPool = fetched; _fpPoolTs = Date.now();
-            const p = _fpPoolCachePath();
-            if (p) { try { fs.writeFileSync(p, JSON.stringify({ ts: _fpPoolTs, pool: fetched })); } catch (_) {} }
-            return _fpPool;
-        }
-    }
-    // offline / chưa auth: dùng cache đĩa nếu có
-    if (!_fpPool) {
-        const p = _fpPoolCachePath();
-        if (p && fs.existsSync(p)) { try { const j = JSON.parse(fs.readFileSync(p, 'utf8')); if (Array.isArray(j.pool)) { _fpPool = j.pool; _fpPoolTs = j.ts || Date.now(); } } catch (_) {} }
-    }
-    return _fpPool;
+            });
+            req.on('error', () => resolve(null));
+            req.setTimeout(8000, () => { req.destroy(); resolve(null); });
+            req.end();
+        } catch (_) { resolve(null); }
+    });
 }
 
 async function pickPoolFingerprintEntry() {
-    try { const pool = await ensureFingerprintPool(); if (pool && pool.length) return pool[Math.floor(Math.random() * pool.length)]; } catch (_) {}
-    return null;
+    _cleanupLegacyFpCache();
+    try {
+        // Refill khi buffer rỗng hoặc đã quá hạn (vứt batch cũ, lấy batch tươi).
+        if (!_fpBuf.length || (Date.now() - _fpBufTs) > FP_BUF_TTL) {
+            const batch = await fetchFingerprintBatch(FP_BUF_N);
+            if (batch && batch.length) { _fpBuf = batch; _fpBufTs = Date.now(); }
+            else _fpBuf = [];
+        }
+        if (_fpBuf.length) return _fpBuf.shift(); // dùng xong bỏ, buffer co lại
+    } catch (_) {}
+    return null; // offline/chưa auth → caller fallback local
 }
 
 ipcMain.handle('bnc-goclaw-token', async () => {

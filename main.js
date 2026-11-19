@@ -888,8 +888,26 @@ const mcpHandler = createMcpHandler({
     invoke: invokeIpcHandler,
     activeProcesses: () => activeProcesses,
     reservePort: async (profileId, { port: wanted, allowOrigins, extraArgs, window } = {}) => {
-        const port = wanted ? await getPort({ port: wanted }) : await getPort();
-        if (wanted && port !== wanted) throw new Error(`Port ${wanted} is already in use`);
+        // For a fixed port only ask "is something listening on it?" — get-port's trial listen also
+        // fails on lingering TIME_WAIT entries from earlier CDP connections, which Chrome binds
+        // through fine. A browser stopped a moment ago may still be exiting — wait up to ~10s.
+        const isListening = (p) => new Promise(res => {
+            const s = require('net').connect(p, '127.0.0.1');
+            s.setTimeout(800, () => { s.destroy(); res(false); });
+            s.once('connect', () => { s.destroy(); res(true); });
+            s.once('error', () => res(false));
+        });
+        let port = wanted || await getPort();
+        let busy = wanted ? await isListening(wanted) : false;
+        for (let i = 0; busy && i < 20; i++) {
+            await new Promise(r => setTimeout(r, 500));
+            busy = await isListening(wanted);
+        }
+        if (busy) {
+            const e = new Error(`Port ${wanted} is already in use — pick another remote_debugging_port or omit it`);
+            e.isToolError = true;
+            throw e;
+        }
         mcpLaunchOpts[profileId] = {
             port, allowOrigins: allowOrigins || null, extraArgs: extraArgs || [], window: window || null, at: Date.now(),
         };

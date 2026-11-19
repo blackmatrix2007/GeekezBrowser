@@ -82,7 +82,7 @@ const TOOLS = [
     },
     {
         name: 'start_profile',
-        description: 'Start a profile and return its Chrome DevTools Protocol endpoint. Connect with Playwright chromium.connectOverCDP(websocket_debugging_url), puppeteer.connect({browserWSEndpoint}), Selenium (goog:chromeOptions.debuggerAddress = 127.0.0.1:<remote_debugging_port>), or raw CDP. Respects slot/lock limits of the BNC account.',
+        description: 'Start a profile and return its Chrome DevTools Protocol endpoint. Connect with Playwright chromium.connectOverCDP(websocket_debugging_url), puppeteer.connect({browserWSEndpoint}), Selenium (goog:chromeOptions.debuggerAddress = selenium_debugger_address; needs a ChromeDriver matching the major version in `browser`, e.g. set options.browser_version so Selenium Manager downloads it), or raw CDP. Respects slot/lock limits of the BNC account.',
         inputSchema: { type: 'object', properties: {
             id: S.id,
             remote_debugging_port: S.int('Fixed CDP port (default: random free port)', { minimum: 1024, maximum: 65535 }),
@@ -192,9 +192,19 @@ function parseStartupUrls(v) {
     return list;
 }
 
+// createdAt comes as a number locally but as a numeric string after server sync ("1778693095341").
+function toMs(v) {
+    if (v === undefined || v === null || v === '') return 0;
+    if (typeof v === 'number') return v;
+    if (/^d+$/.test(String(v))) return Number(v);
+    const t = Date.parse(v);
+    return Number.isNaN(t) ? 0 : t;
+}
+function toIso(v) { const ms = toMs(v); return ms ? new Date(ms).toISOString() : null; }
+
 const SORTS = {
-    created_desc: (a, b) => (b.createdAt || 0) - (a.createdAt || 0),
-    created_asc: (a, b) => (a.createdAt || 0) - (b.createdAt || 0),
+    created_desc: (a, b) => toMs(b.createdAt) - toMs(a.createdAt),
+    created_asc: (a, b) => toMs(a.createdAt) - toMs(b.createdAt),
     name_asc: (a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true }),
     name_desc: (a, b) => String(b.name || '').localeCompare(String(a.name || ''), undefined, { numeric: true }),
 };
@@ -288,7 +298,7 @@ function createTools(ctx) {
         locked: !!p.isLocked,
         status: isRunning(p.id) ? 'online' : 'offline',
         running: isRunning(p.id),
-        created_at: p.createdAt ? new Date(p.createdAt).toISOString() : null,
+        created_at: toIso(p.createdAt),
     });
     const assertGroup = async (gid) => {
         if (gid && !(await groupMap())[gid]) throw new ToolError(`Group not found: ${gid}`);
@@ -421,7 +431,8 @@ function createTools(ctx) {
             if (isRunning(p.id)) {
                 const cdp = await runningCdp(p.id);
                 const pid = ctx.activeProcesses()[p.id]?.chromeProcess?.pid || null;
-                if (cdp) return { ...base, message: 'Already running', process_id: pid, ...cdp };
+                if (cdp?.websocket_debugging_url) return { ...base, message: 'Already running', process_id: pid, ...cdp };
+                if (cdp) throw new ToolError('Profile is starting or shutting down (CDP not answering yet). Retry in a few seconds.');
                 throw new ToolError('Profile is already running without a CDP port (opened from the BNC window). Call stop_profile, then start_profile again.');
             }
 
@@ -471,7 +482,11 @@ function createTools(ctx) {
             const p = await findProfile(pick(a, 'id', 'profile_id'));
             if (!isRunning(p.id)) return { success: false, message: 'Profile is not running', profile_id: p.id };
             const r = await ctx.invoke('stop-profile', p.id);
-            return { success: !!r?.success, message: r?.success ? 'Stopped' : 'Stop failed', profile_id: p.id, profile_name: p.name };
+            // stop-profile returns once the kill is issued; the exit handler (cleanup, cookie sync)
+            // runs a bit later. Wait for it so an immediate start_profile sees a stopped profile.
+            for (let i = 0; r?.success && isRunning(p.id) && i < 40; i++) await new Promise(res => setTimeout(res, 250));
+            const stopped = !!r?.success && !isRunning(p.id);
+            return { success: stopped, message: stopped ? 'Stopped' : (r?.success ? 'Stop requested, browser still exiting' : 'Stop failed'), profile_id: p.id, profile_name: p.name };
         },
 
         async list_running_profiles() {
@@ -488,7 +503,7 @@ function createTools(ctx) {
         async list_groups() {
             const groups = (await ctx.invoke('get-groups')) || [];
             const profiles = await loadProfiles();
-            return { groups: groups.map(g => ({ id: g.id, name: g.name, created_at: g.createdAt ? new Date(g.createdAt).toISOString() : null, profile_count: profiles.filter(p => p.groupId === g.id).length })) };
+            return { groups: groups.map(g => ({ id: g.id, name: g.name, created_at: toIso(g.createdAt), profile_count: profiles.filter(p => p.groupId === g.id).length })) };
         },
 
         async create_group(a) {
@@ -572,8 +587,9 @@ async function dispatch(msg, ctx, tools, state) {
                     const out = await fn(args);
                     return { jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }], isError: false } };
                 } catch (e) {
-                    const text = e instanceof ToolError ? e.message : `Internal error: ${e.message}`;
-                    if (!(e instanceof ToolError)) ctx.log({ tool: name, error: e.stack || e.message });
+                    const known = e instanceof ToolError || e.isToolError;
+                    const text = known ? e.message : `Internal error: ${e.message}`;
+                    if (!known) ctx.log({ tool: name, error: e.stack || e.message });
                     return { jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text }], isError: true } };
                 }
             }

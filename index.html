@@ -69,11 +69,20 @@
             height: 100vh;
             display: flex;
             flex-direction: column;
-            overflow: hidden;
+            overflow-y: auto;
+            overflow-x: hidden;
             -webkit-app-region: drag;
             padding-top: 30px;
             box-sizing: border-box;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255,255,255,0.15) transparent;
         }
+        /* Menu cuộn được khi cửa sổ thấp: không cho mục nào bị co lại */
+        .sidebar > * { flex-shrink: 0; }
+        .sidebar::-webkit-scrollbar { width: 4px; }
+        .sidebar::-webkit-scrollbar-track { background: transparent; }
+        .sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+        .sidebar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
 
         .sidebar-logo {
             display: flex;
@@ -131,6 +140,8 @@
             color: rgba(255,255,255,0.3);
             padding: 8px 16px 4px 16px;
             font-weight: bold;
+            /* drag regions swallow the mouse wheel on Windows — keep them out of the scroll area */
+            -webkit-app-region: no-drag;
         }
 
         .sidebar-item {
@@ -164,6 +175,7 @@
             padding-bottom: 10px;
             border-top: 1px solid rgba(255,255,255,0.07);
             margin-top: 8px;
+            -webkit-app-region: no-drag;
         }
 
         /* ===== MAIN CONTENT ===== */
@@ -175,6 +187,13 @@
             padding: 15px 20px 15px 20px;
             box-sizing: border-box;
             position: relative;
+        }
+        /* body is a window-drag region; on Windows a drag region swallows clicks and the mouse
+           wheel, so tabs/labels/toggles inside these pages were dead (e.g. Settings tabs).
+           The header bar above the pages and the sidebar's top strip stay draggable. */
+        #profilesPage, #teamPage, #groupsPage, #plansPage, #devicesPage,
+        #embeddedToolPage, #notificationsPage, #settingsPage {
+            -webkit-app-region: no-drag;
         }
 
         button,
@@ -1990,21 +2009,39 @@
                                 <button class="outline" onclick="generateApiKey()" style="padding:6px 14px; font-size:11px;">Generate</button>
                             </div>
                             <p style="margin-top:6px; font-size:11px; opacity:0.5;">Send as <code style="font-size:10px;">X-Api-Key</code> header or <code style="font-size:10px;">?api_key=</code> query param.</p>
-                            <div style="height:1px; background:var(--border); margin:12px 0;"></div>
-                            <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
-                                <input type="checkbox" id="enableMcp" style="width:auto; cursor:pointer;" onchange="saveMcpSetting(this.checked)">
-                                <div style="flex:1;">
-                                    <div style="font-size:13px; font-weight:500; color:var(--text-primary);" data-i18n="mcpToggle">🤖 MCP (AI điều khiển)</div>
-                                    <div style="font-size:11px; color:var(--text-secondary); opacity:0.8;" data-i18n="mcpToggleHint">Cho Claude Code / Cursor quản lý và điều khiển profile qua Model Context Protocol. Bắt buộc có API Key.</div>
-                                </div>
-                            </label>
-                            <div id="mcpInfo" style="display:none; margin-top:10px;">
-                                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                                    <code id="mcpEndpoint" style="font-size:12px; color:var(--accent);">http://127.0.0.1:12138/mcp</code>
-                                    <button class="outline" onclick="copyMcpCommand()" style="padding:6px 14px; font-size:11px; margin-left:auto;" data-i18n="mcpCopyCmd">📋 Copy lệnh Claude Code</button>
-                                </div>
-                                <p style="margin-top:6px; font-size:11px; opacity:0.5;">Header <code style="font-size:10px;">Authorization: Bearer &lt;API Key&gt;</code></p>
+                        </div>
+                        <div style="height:1px; background:var(--border); margin:0 16px;"></div>
+                        <!-- MCP: one switch — turns on the API server and creates the key by itself -->
+                        <label class="dev-toggle-item" style="display:flex; align-items:center; gap:14px; padding:14px 16px; cursor:pointer; border-radius:8px; transition:all 0.2s;">
+                            <div class="toggle-switch" style="position:relative; width:44px; height:24px; flex-shrink:0;">
+                                <input type="checkbox" id="enableMcp" style="opacity:0; width:0; height:0; position:absolute;" onchange="handleDevToggle(this)">
+                                <div class="toggle-track" style="position:absolute; inset:0; background:var(--border); border-radius:12px; transition:0.3s;"></div>
+                                <div class="toggle-knob" style="position:absolute; top:2px; left:2px; width:20px; height:20px; background:#fff; border-radius:50%; transition:0.3s; box-shadow:0 2px 4px rgba(0,0,0,0.2);"></div>
                             </div>
+                            <div style="flex:1;">
+                                <div style="font-size:13px; font-weight:500; color:var(--text-primary);" data-i18n="mcpToggle">🤖 MCP (AI điều khiển)</div>
+                                <div style="font-size:11px; color:var(--text-secondary); opacity:0.8;" data-i18n="mcpToggleHint">Cho Claude Code / Cursor quản lý và mở profile. Bật là dùng được ngay — tự bật API và tạo key.</div>
+                            </div>
+                            <span id="mcpStatus" style="font-size:10px; padding:3px 8px; background:rgba(76,175,80,0.2); color:#4CAF50; border-radius:10px; font-weight:500; display:none;">● Live</span>
+                        </label>
+                        <div id="mcpInfo" style="display:none; padding:12px 16px; margin:4px 12px 12px; background:var(--input-bg); border-radius:8px; border:1px solid var(--border);">
+                            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                                <button id="mcpInstallBtn" onclick="installMcpToClaude()" style="padding:8px 16px; font-size:12px;" data-i18n="mcpInstallBtn">⚡ Thêm vào Claude Code</button>
+                                <span id="mcpInstallStatus" style="font-size:11px; color:var(--text-secondary);"></span>
+                            </div>
+                            <div style="margin-top:12px; font-size:11px; opacity:0.7;" data-i18n="mcpManualLabel">Hoặc chạy lệnh này trong terminal:</div>
+                            <div style="display:flex; gap:8px; margin-top:4px; align-items:flex-start;">
+                                <code id="mcpCommand" style="flex:1; font-size:11px; padding:8px 10px; background:var(--bg-color); color:var(--text-primary); border:1px solid var(--border); border-radius:6px; word-break:break-all; user-select:all;"></code>
+                                <button class="outline" onclick="copyMcpText('mcpCommand')" style="padding:6px 12px; font-size:11px;">Copy</button>
+                            </div>
+                            <details style="margin-top:10px;">
+                                <summary style="font-size:11px; cursor:pointer; opacity:0.7;" data-i18n="mcpJsonLabel">Cursor / client MCP khác (JSON)</summary>
+                                <div style="display:flex; gap:8px; margin-top:6px; align-items:flex-start;">
+                                    <pre id="mcpJson" style="flex:1; margin:0; font-size:11px; padding:8px 10px; background:var(--bg-color); color:var(--text-primary); border:1px solid var(--border); border-radius:6px; white-space:pre-wrap; word-break:break-all; user-select:all;"></pre>
+                                    <button class="outline" onclick="copyMcpText('mcpJson')" style="padding:6px 12px; font-size:11px;">Copy</button>
+                                </div>
+                            </details>
+                            <div style="margin-top:8px; font-size:11px; opacity:0.5;" data-i18n="mcpRestartNote">Sau khi thêm, mở lại session Claude Code để thấy các tool bnc.</div>
                         </div>
                     </div>
                 </div>

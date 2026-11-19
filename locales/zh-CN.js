@@ -177,6 +177,9 @@ window.zhCN = {
     apiToggle: "🔌 API 服务",
     apiToggleHint: "启用后可通过 REST API 远程管理环境",
     mcpToggle: "🤖 MCP (AI 控制)",
-    mcpToggleHint: "允许 Claude Code / Cursor 通过 Model Context Protocol 管理和控制环境，需要 API Key",
-    mcpCopyCmd: "📋 复制 Claude Code 命令"
+    mcpToggleHint: "让 Claude Code / Cursor 管理和打开环境。一键开启——自动启动 API 并生成密钥。",
+    mcpInstallBtn: "⚡ 添加到 Claude Code",
+    mcpManualLabel: "或在终端运行此命令：",
+    mcpJsonLabel: "Cursor / 其他 MCP 客户端 (JSON)",
+    mcpRestartNote: "添加后，请重新打开 Claude Code 会话以使用 bnc 工具。"
 };

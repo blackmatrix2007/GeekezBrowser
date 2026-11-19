@@ -188,6 +188,13 @@
             box-sizing: border-box;
             position: relative;
         }
+        /* body is a window-drag region; on Windows a drag region swallows clicks and the mouse
+           wheel, so tabs/labels/toggles inside these pages were dead (e.g. Settings tabs).
+           The header bar above the pages and the sidebar's top strip stay draggable. */
+        #profilesPage, #teamPage, #groupsPage, #plansPage, #devicesPage,
+        #embeddedToolPage, #notificationsPage, #settingsPage {
+            -webkit-app-region: no-drag;
+        }
 
         button,
         input,

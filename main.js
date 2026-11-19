@@ -87,7 +87,21 @@ if (process.env.BNC_ENABLE_GPU !== '1') {
 }
 
 const { generateXrayConfig } = require('./utils');
-const { generateFingerprint, getInjectScript } = require('./fingerprint');
+const { generateFingerprint, getInjectScript, CHROME_VERSION } = require('./fingerprint');
+
+// Migration pool: ép Chrome major trong UA lưu sẵn = engine (CHROME_VERSION) cho profile CŨ
+// (tạo trước khi đồng bộ UA 143). Chỉ đổi phần version của UA — GIỮ nguyên platform/identity/
+// session (giống user tự cập nhật Chrome, site không logout). Extension suy Sec-CH-UA từ UA này
+// nên sửa UA là đủ đồng bộ. Trả true nếu có sửa.
+const _ENGINE_MAJOR = parseInt(CHROME_VERSION, 10) || 143;
+function migrateFingerprintUAVersion(fp) {
+    if (!fp || typeof fp.userAgent !== 'string') return false;
+    const m = fp.userAgent.match(/Chrome\/(\d+)[\d.]*/);
+    if (!m) return false;
+    if (parseInt(m[1], 10) === _ENGINE_MAJOR) return false; // đã khớp
+    fp.userAgent = fp.userAgent.replace(/Chrome\/[\d.]+/, `Chrome/${CHROME_VERSION}`);
+    return true;
+}
 
 const isDev = !app.isPackaged;
 const RESOURCES_BIN = isDev ? path.join(__dirname, 'resources', 'bin') : path.join(process.resourcesPath, 'bin');
@@ -5143,6 +5157,17 @@ ipcMain.handle('launch-profile', async (event, profileId, watermarkStyle, window
 
     if (!profile.fingerprint) profile.fingerprint = generateFingerprint();
     if (!profile.fingerprint.languages) profile.fingerprint.languages = ['en-US', 'en'];
+
+    // Migration pool: nếu UA profile cũ lệch major engine (vd 136 vs 143) → sửa về 143 và
+    // persist, để UA + Sec-CH-UA khớp engine CfT. Chạy ở launch (choke point chung UI/MCP/REST),
+    // không bị server-sync ghi đè vì áp ngay trước khi dựng launchArgs + inject extension.
+    if (migrateFingerprintUAVersion(profile.fingerprint)) {
+        console.log(`[Migration] ${profileId}: UA → Chrome/${CHROME_VERSION}`);
+        try {
+            const idx = profiles.findIndex(p => p.id === profileId);
+            if (idx !== -1) { profiles[idx].fingerprint = profile.fingerprint; await writeProfilesAtomic(profiles); }
+        } catch (e) { console.warn('[Migration] persist lỗi:', e.message); }
+    }
 
     // Pre-proxy settings (settings already loaded above)
     const override = profile.preProxyOverride || 'default';

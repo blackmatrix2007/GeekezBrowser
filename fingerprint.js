@@ -762,4 +762,4 @@ function getInjectScript(fp, profileName, watermarkStyle, fpChromiumMode = false
     `;
 }
 
-module.exports = { generateFingerprint, getInjectScript };
+module.exports = { generateFingerprint, getInjectScript, CHROME_VERSION };

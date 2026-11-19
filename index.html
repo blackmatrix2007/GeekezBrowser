@@ -69,11 +69,20 @@
             height: 100vh;
             display: flex;
             flex-direction: column;
-            overflow: hidden;
+            overflow-y: auto;
+            overflow-x: hidden;
             -webkit-app-region: drag;
             padding-top: 30px;
             box-sizing: border-box;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255,255,255,0.15) transparent;
         }
+        /* Menu cuộn được khi cửa sổ thấp: không cho mục nào bị co lại */
+        .sidebar > * { flex-shrink: 0; }
+        .sidebar::-webkit-scrollbar { width: 4px; }
+        .sidebar::-webkit-scrollbar-track { background: transparent; }
+        .sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+        .sidebar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
 
         .sidebar-logo {
             display: flex;
@@ -131,6 +140,8 @@
             color: rgba(255,255,255,0.3);
             padding: 8px 16px 4px 16px;
             font-weight: bold;
+            /* drag regions swallow the mouse wheel on Windows — keep them out of the scroll area */
+            -webkit-app-region: no-drag;
         }
 
         .sidebar-item {
@@ -164,6 +175,7 @@
             padding-bottom: 10px;
             border-top: 1px solid rgba(255,255,255,0.07);
             margin-top: 8px;
+            -webkit-app-region: no-drag;
         }
 
         /* ===== MAIN CONTENT ===== */

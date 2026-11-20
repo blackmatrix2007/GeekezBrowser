@@ -2763,6 +2763,19 @@ app.whenReady().then(async () => {
         autoUpdater.checkForUpdates().catch(() => {});
     }, 5 * 60 * 1000);
 
+    // Ép MCP bật MẶC ĐỊNH: đảm bảo enableApiServer + enableMcp + apiKey có sẵn
+    try {
+        const settings = fs.existsSync(SETTINGS_FILE) ? await fs.readJson(SETTINGS_FILE) : {};
+        let changed = false;
+        if (settings.enableApiServer === undefined) { settings.enableApiServer = true; changed = true; }
+        if (settings.enableMcp === undefined) { settings.enableMcp = true; changed = true; }
+        if (!settings.apiKey || !/^[A-Za-z0-9_\-]{8,128}$/.test(settings.apiKey)) {
+            settings.apiKey = crypto.randomBytes(24).toString('base64').replace(/[^A-Za-z0-9]/g, '').slice(0, 32);
+            changed = true;
+        }
+        if (changed) { await fs.ensureDir(DATA_PATH); await fs.writeJson(SETTINGS_FILE, settings, { spaces: 2 }); console.log('[MCP] Bật mặc định (enableApiServer+enableMcp+apiKey)'); }
+    } catch (e) { console.error('[MCP] Không set được default:', e.message); }
+
     // Auto-start public API server if enabled
     try {
         if (fs.existsSync(SETTINGS_FILE)) {

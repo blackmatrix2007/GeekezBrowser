@@ -804,7 +804,7 @@ function _applyWorkspacePermissions(permissions) {
 // ── Team Members UI ──────────────────────────────────────────────────────────
 let _teamMembers = [];
 
-const _ALL_PAGES = ['profilesPage', 'teamPage', 'groupsPage', 'plansPage', 'notificationsPage', 'settingsPage', 'embeddedToolPage', 'devicesPage'];
+const _ALL_PAGES = ['profilesPage', 'teamPage', 'groupsPage', 'plansPage', 'notificationsPage', 'settingsPage', 'embeddedToolPage', 'devicesPage', 'mcpPage'];
 function _switchPage(activePageId, activeNavId) {
     document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
     document.getElementById(activeNavId)?.classList.add('active');
@@ -908,6 +908,11 @@ function showGroupsPage() {
 function showDevicesPage() {
     _switchPage('devicesPage', 'nav-devices');
     loadBncDevices();
+}
+
+function showMcpPage() {
+    _switchPage('mcpPage', 'nav-mcp');
+    loadApiServerSetting(); // nạp trạng thái enableMcp + render lệnh cài / JSON
 }
 
 async function showPlansPage() {
